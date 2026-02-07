@@ -1,6 +1,7 @@
 package report
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -142,14 +143,127 @@ func (g *Generator) generateMarkdown(results *maestro.TestResults, gameName stri
 
 // generateJSON creates a JSON test report
 func (g *Generator) generateJSON(results *maestro.TestResults, gameName string) (string, error) {
-	// TODO: Implement JSON report generation
-	return "", fmt.Errorf("JSON format not yet implemented")
+	timestamp := time.Now().Format("2006-01-02-150405")
+	filename := fmt.Sprintf("%s-report-%s.json", sanitizeFilename(gameName), timestamp)
+	path := filepath.Join(g.OutputDir, filename)
+
+	// Create JSON structure
+	report := map[string]interface{}{
+		"game":      gameName,
+		"timestamp": results.StartTime.Format(time.RFC3339),
+		"duration":  results.Duration.Milliseconds(),
+		"summary": map[string]interface{}{
+			"total":       results.Total,
+			"passed":      results.Passed,
+			"failed":      results.Failed,
+			"timeout":     results.Timeout,
+			"successRate": results.SuccessRate(),
+		},
+		"flows": []map[string]interface{}{},
+	}
+
+	// Add flow results
+	flows := []map[string]interface{}{}
+	for _, result := range results.Flows {
+		flow := map[string]interface{}{
+			"name":     result.FlowName,
+			"path":     result.FlowPath,
+			"status":   string(result.Status),
+			"duration": result.Duration.Milliseconds(),
+		}
+		
+		if result.Error != "" {
+			flow["error"] = result.Error
+		}
+		if result.Steps > 0 {
+			flow["steps"] = result.Steps
+		}
+		
+		flows = append(flows, flow)
+	}
+	report["flows"] = flows
+
+	// Marshal to JSON
+	data, err := json.MarshalIndent(report, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal JSON: %w", err)
+	}
+
+	// Write to file
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		return "", fmt.Errorf("failed to write report: %w", err)
+	}
+
+	return path, nil
 }
 
 // generateJUnit creates a JUnit XML test report
 func (g *Generator) generateJUnit(results *maestro.TestResults, gameName string) (string, error) {
-	// TODO: Implement JUnit format generation
-	return "", fmt.Errorf("JUnit format not yet implemented")
+	timestamp := time.Now().Format("2006-01-02-150405")
+	filename := fmt.Sprintf("%s-report-%s.xml", sanitizeFilename(gameName), timestamp)
+	path := filepath.Join(g.OutputDir, filename)
+
+	var xml strings.Builder
+	
+	// XML header
+	xml.WriteString("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n")
+	
+	// Testsuite
+	xml.WriteString(fmt.Sprintf("<testsuite name=\"%s\" tests=\"%d\" failures=\"%d\" errors=\"%d\" time=\"%.3f\" timestamp=\"%s\">\n",
+		gameName,
+		results.Total,
+		results.Failed,
+		results.Timeout,
+		results.Duration.Seconds(),
+		results.StartTime.Format(time.RFC3339),
+	))
+
+	// Test cases
+	for _, result := range results.Flows {
+		xml.WriteString(fmt.Sprintf("  <testcase name=\"%s\" classname=\"%s\" time=\"%.3f\"",
+			result.FlowName,
+			gameName,
+			result.Duration.Seconds(),
+		))
+
+		if result.Status == maestro.StatusPassed {
+			xml.WriteString(" />\n")
+		} else {
+			xml.WriteString(">\n")
+			
+			if result.Status == maestro.StatusFailed {
+				xml.WriteString(fmt.Sprintf("    <failure message=\"%s\">%s</failure>\n",
+					escapeXML(result.Error),
+					escapeXML(result.Stderr),
+				))
+			} else if result.Status == maestro.StatusTimeout {
+				xml.WriteString(fmt.Sprintf("    <error message=\"Test timeout\" type=\"timeout\">%s</error>\n",
+					escapeXML(result.Error),
+				))
+			}
+			
+			xml.WriteString("  </testcase>\n")
+		}
+	}
+
+	xml.WriteString("</testsuite>\n")
+
+	// Write to file
+	if err := os.WriteFile(path, []byte(xml.String()), 0644); err != nil {
+		return "", fmt.Errorf("failed to write report: %w", err)
+	}
+
+	return path, nil
+}
+
+// escapeXML escapes special XML characters
+func escapeXML(s string) string {
+	s = strings.ReplaceAll(s, "&", "&amp;")
+	s = strings.ReplaceAll(s, "<", "&lt;")
+	s = strings.ReplaceAll(s, ">", "&gt;")
+	s = strings.ReplaceAll(s, "\"", "&quot;")
+	s = strings.ReplaceAll(s, "'", "&apos;")
+	return s
 }
 
 // getStatusEmoji returns an emoji for overall test results

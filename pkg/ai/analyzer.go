@@ -18,6 +18,22 @@ func NewAnalyzer(client Client) *Analyzer {
 	}
 }
 
+// NewAnalyzerFromConfig creates an analyzer from configuration
+func NewAnalyzerFromConfig(provider, apiKey, model string, temperature float64, maxTokens int) (*Analyzer, error) {
+	var client Client
+
+	switch provider {
+	case "anthropic", "claude":
+		client = NewClaudeClient(apiKey, model, temperature, maxTokens)
+	case "google", "gemini":
+		client = NewGeminiClient(apiKey, model, temperature, maxTokens)
+	default:
+		return nil, fmt.Errorf("unsupported AI provider: %s (use 'anthropic' or 'google')", provider)
+	}
+
+	return &Analyzer{Client: client}, nil
+}
+
 // AnalyzeGame analyzes a game from specification and URL
 func (a *Analyzer) AnalyzeGame(specPath, gameURL string) (*AnalysisResult, error) {
 	// Read game specification
