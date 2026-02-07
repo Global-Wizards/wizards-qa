@@ -7,7 +7,7 @@ COPY web/frontend/ ./
 RUN npm run build
 
 # Stage 2a: Build backend
-FROM golang:1.22-alpine AS backend-build
+FROM golang:1.25-alpine AS backend-build
 WORKDIR /app/backend
 COPY web/backend/go.mod web/backend/go.sum ./
 RUN go mod download
@@ -15,7 +15,7 @@ COPY web/backend/ ./
 RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /dashboard-server .
 
 # Stage 2b: Build CLI
-FROM golang:1.22-alpine AS cli-build
+FROM golang:1.25-alpine AS cli-build
 WORKDIR /app/cli
 COPY go.mod go.sum ./
 RUN go mod download

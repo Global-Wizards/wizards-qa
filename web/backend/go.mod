@@ -1,12 +1,12 @@
 module github.com/Global-Wizards/wizards-qa/web/backend
 
-go 1.21
+go 1.25.7
 
 require (
-	github.com/go-chi/chi/v5 v5.0.11
+	github.com/go-chi/chi/v5 v5.2.5
 	github.com/go-chi/cors v1.2.1
 	github.com/gorilla/websocket v1.5.1
 	gopkg.in/yaml.v3 v3.0.1
 )
 
-require golang.org/x/net v0.17.0 // indirect
+require golang.org/x/net v0.49.0 // indirect
