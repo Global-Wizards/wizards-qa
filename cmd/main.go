@@ -29,6 +29,7 @@ Usage:
 	// Add commands
 	rootCmd.AddCommand(newTestCmd())
 	rootCmd.AddCommand(newGenerateCmd())
+	rootCmd.AddCommand(newScoutCmd())
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newValidateCmd())
 	rootCmd.AddCommand(newTemplateCmd())

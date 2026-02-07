@@ -458,6 +458,39 @@ func (s *Store) FlowsDir() string {
 	return s.flowsDir
 }
 
+// SaveGeneratedFlows copies flow YAML files from srcDir into flows/generated/<analysisID>/
+// so they persist and appear in ListFlows.
+func (s *Store) SaveGeneratedFlows(analysisID string, srcDir string) error {
+	dstDir := filepath.Join(s.flowsDir, "generated", analysisID)
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return fmt.Errorf("creating generated flows dir: %w", err)
+	}
+
+	entries, err := os.ReadDir(srcDir)
+	if err != nil {
+		return fmt.Errorf("reading source dir: %w", err)
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() || !isYAMLFile(entry.Name()) {
+			continue
+		}
+		srcPath := filepath.Join(srcDir, entry.Name())
+		dstPath := filepath.Join(dstDir, entry.Name())
+
+		content, err := os.ReadFile(srcPath)
+		if err != nil {
+			log.Printf("Warning: could not read generated flow %s: %v", entry.Name(), err)
+			continue
+		}
+		if err := os.WriteFile(dstPath, content, 0644); err != nil {
+			return fmt.Errorf("writing flow %s: %w", entry.Name(), err)
+		}
+	}
+
+	return nil
+}
+
 // --- Test Plans ---
 
 // ListTestPlans reads from data/test-plans.json.

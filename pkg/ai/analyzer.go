@@ -1,10 +1,13 @@
 package ai
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
 
+	"github.com/Global-Wizards/wizards-qa/pkg/scout"
 	"github.com/Global-Wizards/wizards-qa/pkg/util"
 )
 
@@ -60,6 +63,51 @@ func (a *Analyzer) AnalyzeGame(specPath, gameURL string) (*AnalysisResult, error
 	}
 
 	return result, nil
+}
+
+// AnalyzeFromURL performs the full pipeline: scout page, analyze with AI, generate flows.
+func (a *Analyzer) AnalyzeFromURL(ctx context.Context, gameURL string) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
+	// Step 1: Scout the page
+	pageMeta, err := scout.ScoutURL(ctx, gameURL)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("page scout failed: %w", err)
+	}
+
+	// Step 2: Build prompt with page metadata
+	pageMetaJSON, _ := json.MarshalIndent(pageMeta, "", "  ")
+	prompt := fillTemplate(URLAnalysisPrompt.Template, map[string]string{
+		"url":       gameURL,
+		"pageMeta":  string(pageMetaJSON),
+		"framework": pageMeta.Framework,
+	})
+
+	// Step 3: Call AI for analysis
+	result, err := a.Client.Analyze(prompt, map[string]interface{}{
+		"url":      gameURL,
+		"pageMeta": string(pageMetaJSON),
+	})
+	if err != nil {
+		return pageMeta, nil, nil, fmt.Errorf("AI analysis failed: %w", err)
+	}
+
+	// Step 4: Generate scenarios
+	scenarios, err := a.GenerateScenarios(result)
+	if err != nil {
+		return pageMeta, result, nil, fmt.Errorf("scenario generation failed: %w", err)
+	}
+
+	// Step 5: Generate flows
+	flows, err := a.GenerateFlows(scenarios)
+	if err != nil {
+		return pageMeta, result, nil, fmt.Errorf("flow generation failed: %w", err)
+	}
+
+	// Step 6: Set URL on each flow
+	for _, flow := range flows {
+		flow.URL = gameURL
+	}
+
+	return pageMeta, result, flows, nil
 }
 
 // GenerateScenarios generates test scenarios from game analysis

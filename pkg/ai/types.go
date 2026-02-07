@@ -208,4 +208,70 @@ Important for Phaser 4 games:
 Respond with valid Maestro YAML for each flow.`,
 		Variables: []string{"scenarios"},
 	}
+
+	URLAnalysisPrompt = PromptTemplate{
+		Name:        "url-analysis",
+		Description: "Analyze a game from URL with auto-detected page metadata",
+		Template: `You are analyzing a web-based game for QA testing.
+
+Game URL: {{url}}
+
+Page metadata (auto-detected):
+{{pageMeta}}
+
+Based on the page metadata, especially the detected framework ({{framework}}), canvas presence, and page structure, analyze this game and identify:
+1. Game mechanics and interactive elements
+2. UI elements (buttons, overlays, score displays)
+3. Key user flows to test
+4. Potential edge cases
+
+If the framework is "phaser" or uses HTML5 canvas, focus on coordinate-based interactions.
+If the framework is "unity", note that WebGL interactions may need special handling.
+
+Respond with structured JSON matching the AnalysisResult format:
+{
+  "gameInfo": {
+    "name": "...",
+    "description": "...",
+    "genre": "...",
+    "technology": "...",
+    "features": ["..."]
+  },
+  "mechanics": [
+    {
+      "name": "...",
+      "description": "...",
+      "actions": ["click", "drag", etc.],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "uiElements": [
+    {
+      "name": "...",
+      "type": "button|canvas|input",
+      "selector": "text or coordinate",
+      "location": {"x": "...", "y": "..."}
+    }
+  ],
+  "userFlows": [
+    {
+      "name": "...",
+      "description": "...",
+      "steps": ["...", "..."],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "edgeCases": [
+    {
+      "name": "...",
+      "description": "...",
+      "scenario": "...",
+      "expected": "..."
+    }
+  ]
+}`,
+		Variables: []string{"url", "pageMeta", "framework"},
+	}
 )

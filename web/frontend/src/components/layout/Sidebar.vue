@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { LayoutDashboard, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft } from 'lucide-vue-next'
+import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import ThemeToggle from '@/components/ThemeToggle.vue'
@@ -13,6 +13,7 @@ const version = ref('')
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
+  { path: '/analyze', label: 'Analyze', icon: Sparkles },
   { path: '/tests', label: 'Tests', icon: FlaskConical },
   { path: '/reports', label: 'Reports', icon: FileText },
   { path: '/flows', label: 'Flows', icon: GitBranch },

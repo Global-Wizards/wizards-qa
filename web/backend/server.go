@@ -96,6 +96,7 @@ func (s *Server) setupRoutes() {
 	s.router.Post("/api/test-plans", s.handleCreateTestPlan)
 	s.router.Get("/api/test-plans/{id}", s.handleGetTestPlan)
 	s.router.Post("/api/test-plans/{id}/run", s.handleRunTestPlan)
+	s.router.Post("/api/analyze", s.handleAnalyzeGame)
 	s.router.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
 		ws.ServeWs(s.wsHub, w, r)
 	})

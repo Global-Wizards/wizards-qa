@@ -55,4 +55,8 @@ export const testPlansApi = {
   run: (id) => api.post(`/test-plans/${id}/run`).then((r) => r.data),
 }
 
+export const analyzeApi = {
+  start: (gameUrl) => api.post('/analyze', { gameUrl }).then((r) => r.data),
+}
+
 export default api
