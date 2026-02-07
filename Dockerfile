@@ -20,7 +20,7 @@ WORKDIR /app/cli
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . ./
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /wizards-qa .
+RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /wizards-qa ./cmd
 
 # Stage 3: Runtime
 FROM alpine:3.19
