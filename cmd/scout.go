@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/ai"
 	"github.com/Global-Wizards/wizards-qa/pkg/scout"
@@ -18,6 +19,8 @@ func newScoutCmd() *cobra.Command {
 		jsonOutput bool
 		saveFlows  bool
 		configPath string
+		headless   bool
+		timeout    int
 	)
 
 	cmd := &cobra.Command{
@@ -34,6 +37,7 @@ Pipeline:
 Example:
   wizards-qa scout --game https://game.example.com
   wizards-qa scout --game https://game.example.com --json
+  wizards-qa scout --game https://game.example.com --headless
   wizards-qa scout --game https://game.example.com --output ./my-flows`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if gameURL == "" {
@@ -51,7 +55,19 @@ Example:
 
 			// Step 1: Scout the page
 			ctx := context.Background()
-			pageMeta, err := scout.ScoutURL(ctx, gameURL)
+			timeoutDur := time.Duration(timeout) * time.Second
+
+			var pageMeta *scout.PageMeta
+			if headless {
+				pageMeta, err = scout.ScoutURLHeadless(ctx, gameURL, scout.HeadlessConfig{
+					Enabled: true,
+					Width:   cfg.Browser.Viewport.Width,
+					Height:  cfg.Browser.Viewport.Height,
+					Timeout: timeoutDur,
+				})
+			} else {
+				pageMeta, err = scout.ScoutURL(ctx, gameURL, timeoutDur)
+			}
 			if err != nil {
 				return fmt.Errorf("page scout failed: %w", err)
 			}
@@ -76,8 +92,8 @@ Example:
 				fmt.Printf("%s Analyzing game with AI...\n", util.EmojiClip)
 			}
 
-			// Step 2: Full pipeline
-			_, result, flows, err := analyzer.AnalyzeFromURL(ctx, gameURL)
+			// Step 2: Full pipeline — reuse pre-fetched pageMeta to avoid double-fetch
+			_, result, flows, err := analyzer.AnalyzeFromURLWithMeta(ctx, gameURL, pageMeta)
 			if err != nil {
 				return fmt.Errorf("analysis failed: %w", err)
 			}
@@ -95,8 +111,11 @@ Example:
 
 			// Step 3: Save flows
 			if saveFlows {
-				gameName := deriveGameName(gameURL)
-				flowsDir := fmt.Sprintf("%s/%s", output, gameName)
+				flowsDir := output
+				if !jsonOutput {
+					gameName := deriveGameName(gameURL)
+					flowsDir = fmt.Sprintf("%s/%s", output, gameName)
+				}
 				if err := ai.WriteFlowsToFiles(flows, flowsDir); err != nil {
 					return fmt.Errorf("failed to save flows: %w", err)
 				}
@@ -130,6 +149,8 @@ Example:
 	cmd.Flags().BoolVar(&jsonOutput, "json", false, "Output full result as JSON to stdout")
 	cmd.Flags().BoolVar(&saveFlows, "save-flows", true, "Write generated flows to disk")
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Config file path")
+	cmd.Flags().BoolVar(&headless, "headless", false, "Use headless Chrome for JS-rendered pages")
+	cmd.Flags().IntVar(&timeout, "timeout", 10, "HTTP fetch timeout in seconds")
 
 	cmd.MarkFlagRequired("game")
 

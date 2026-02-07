@@ -68,6 +68,9 @@ type Stats struct {
 	FailedTests    int                 `json:"failedTests"`
 	AvgDuration    string              `json:"avgDuration"`
 	AvgSuccessRate float64             `json:"avgSuccessRate"`
+	TotalAnalyses  int                 `json:"totalAnalyses"`
+	TotalFlows     int                 `json:"totalFlows"`
+	TotalPlans     int                 `json:"totalPlans"`
 	RecentTests    []TestResultSummary `json:"recentTests"`
 	History        []HistoryPoint      `json:"history"`
 }
@@ -118,4 +121,20 @@ type TestPlanSummary struct {
 type TestPlansFile struct {
 	Plans   []TestPlan `json:"plans"`
 	Updated time.Time  `json:"updated"`
+}
+
+type AnalysisRecord struct {
+	ID        string      `json:"id"`
+	GameURL   string      `json:"gameUrl"`
+	Status    string      `json:"status"` // completed, failed
+	Framework string      `json:"framework"`
+	GameName  string      `json:"gameName"`
+	FlowCount int         `json:"flowCount"`
+	CreatedAt string      `json:"createdAt"`
+	Result    interface{} `json:"result,omitempty"`
+}
+
+type AnalysesFile struct {
+	Analyses []AnalysisRecord `json:"analyses"`
+	Updated  time.Time        `json:"updated"`
 }

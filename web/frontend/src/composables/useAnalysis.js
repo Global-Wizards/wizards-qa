@@ -39,6 +39,14 @@ export function useAnalysis() {
         logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), progress.message]
       }
 
+      // Extract partial data from progress events when available
+      if (progressData.pageMeta) {
+        pageMeta.value = progressData.pageMeta
+      }
+      if (progressData.analysis) {
+        analysis.value = progressData.analysis
+      }
+
       switch (progress.step) {
         case 'scouting':
           status.value = 'scouting'

@@ -5,6 +5,12 @@
         <h2 class="text-3xl font-bold tracking-tight">Dashboard</h2>
         <p class="text-muted-foreground">Overview of your testing activity</p>
       </div>
+      <router-link to="/analyze">
+        <Button>
+          <Sparkles class="h-4 w-4 mr-2" />
+          Analyze Game
+        </Button>
+      </router-link>
     </div>
 
     <!-- Loading State -->
@@ -37,6 +43,43 @@
           suffix="%"
           :icon="TrendingUp"
         />
+      </div>
+
+      <!-- Secondary stats row -->
+      <div class="grid gap-4 md:grid-cols-3 mb-6">
+        <Card class="cursor-pointer hover:shadow-md transition-shadow" @click="$router.push('/analyze')">
+          <CardContent class="pt-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-muted-foreground">Analyses</p>
+                <p class="text-2xl font-bold">{{ stats.totalAnalyses || 0 }}</p>
+              </div>
+              <Sparkles class="h-8 w-8 text-muted-foreground/40" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card class="cursor-pointer hover:shadow-md transition-shadow" @click="$router.push('/flows')">
+          <CardContent class="pt-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-muted-foreground">Flows</p>
+                <p class="text-2xl font-bold">{{ stats.totalFlows || 0 }}</p>
+              </div>
+              <GitBranch class="h-8 w-8 text-muted-foreground/40" />
+            </div>
+          </CardContent>
+        </Card>
+        <Card class="cursor-pointer hover:shadow-md transition-shadow" @click="$router.push('/tests')">
+          <CardContent class="pt-6">
+            <div class="flex items-center justify-between">
+              <div>
+                <p class="text-sm text-muted-foreground">Test Plans</p>
+                <p class="text-2xl font-bold">{{ stats.totalPlans || 0 }}</p>
+              </div>
+              <FlaskConical class="h-8 w-8 text-muted-foreground/40" />
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <!-- Charts Row -->
@@ -100,12 +143,13 @@
 </template>
 
 <script setup>
-import { ref, onMounted } from 'vue'
-import { Activity, CheckCircle2, XCircle, TrendingUp, AlertCircle } from 'lucide-vue-next'
+import { ref, onMounted, onUnmounted } from 'vue'
+import { Activity, CheckCircle2, XCircle, TrendingUp, AlertCircle, Sparkles, GitBranch, FlaskConical } from 'lucide-vue-next'
 import { statsApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import { Button } from '@/components/ui/button'
 import StatCard from '@/components/StatCard.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
@@ -119,17 +163,36 @@ const stats = ref({
   passedTests: 0,
   failedTests: 0,
   avgSuccessRate: 0,
+  totalAnalyses: 0,
+  totalFlows: 0,
+  totalPlans: 0,
   recentTests: [],
   history: [],
 })
 
-onMounted(async () => {
+let refreshInterval = null
+
+async function loadStats() {
   try {
     stats.value = await statsApi.getStats()
   } catch (err) {
-    error.value = err.message
+    if (loading.value) {
+      error.value = err.message
+    }
   } finally {
     loading.value = false
+  }
+}
+
+onMounted(() => {
+  loadStats()
+  // Auto-refresh every 30 seconds
+  refreshInterval = setInterval(loadStats, 30000)
+})
+
+onUnmounted(() => {
+  if (refreshInterval) {
+    clearInterval(refreshInterval)
   }
 })
 </script>

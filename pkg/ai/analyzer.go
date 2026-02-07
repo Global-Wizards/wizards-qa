@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/scout"
 	"github.com/Global-Wizards/wizards-qa/pkg/util"
@@ -66,13 +67,19 @@ func (a *Analyzer) AnalyzeGame(specPath, gameURL string) (*AnalysisResult, error
 }
 
 // AnalyzeFromURL performs the full pipeline: scout page, analyze with AI, generate flows.
-func (a *Analyzer) AnalyzeFromURL(ctx context.Context, gameURL string) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
+func (a *Analyzer) AnalyzeFromURL(ctx context.Context, gameURL string, timeout time.Duration) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
 	// Step 1: Scout the page
-	pageMeta, err := scout.ScoutURL(ctx, gameURL)
+	pageMeta, err := scout.ScoutURL(ctx, gameURL, timeout)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("page scout failed: %w", err)
 	}
 
+	return a.AnalyzeFromURLWithMeta(ctx, gameURL, pageMeta)
+}
+
+// AnalyzeFromURLWithMeta performs analysis and flow generation using pre-fetched page metadata.
+// Use this to avoid double-fetching when the caller already has PageMeta.
+func (a *Analyzer) AnalyzeFromURLWithMeta(ctx context.Context, gameURL string, pageMeta *scout.PageMeta) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
 	// Step 2: Build prompt with page metadata
 	pageMetaJSON, _ := json.MarshalIndent(pageMeta, "", "  ")
 	prompt := fillTemplate(URLAnalysisPrompt.Template, map[string]string{

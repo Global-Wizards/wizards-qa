@@ -353,12 +353,23 @@ func (s *Store) GetStats() (*Stats, error) {
 
 	history := s.buildHistory(results, 14)
 
+	// Count related entities (read without extra lock since we already hold RLock)
+	analyses, _ := s.readAnalyses()
+	plans, _ := s.readTestPlans()
+	flowCount := 0
+	if flows, err := s.ListFlows(); err == nil {
+		flowCount = len(flows)
+	}
+
 	return &Stats{
 		TotalTests:     total,
 		PassedTests:    passed,
 		FailedTests:    failed,
 		AvgDuration:    "42s",
 		AvgSuccessRate: float64(int(avgRate*10)) / 10,
+		TotalAnalyses:  len(analyses),
+		TotalFlows:     flowCount,
+		TotalPlans:     len(plans),
 		RecentTests:    recent,
 		History:        history,
 	}, nil
@@ -458,7 +469,7 @@ func (s *Store) FlowsDir() string {
 	return s.flowsDir
 }
 
-// SaveGeneratedFlows copies flow YAML files from srcDir into flows/generated/<analysisID>/
+// SaveGeneratedFlows copies flow YAML files from srcDir (recursively) into flows/generated/<analysisID>/
 // so they persist and appear in ListFlows.
 func (s *Store) SaveGeneratedFlows(analysisID string, srcDir string) error {
 	dstDir := filepath.Join(s.flowsDir, "generated", analysisID)
@@ -466,27 +477,20 @@ func (s *Store) SaveGeneratedFlows(analysisID string, srcDir string) error {
 		return fmt.Errorf("creating generated flows dir: %w", err)
 	}
 
-	entries, err := os.ReadDir(srcDir)
-	if err != nil {
-		return fmt.Errorf("reading source dir: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() || !isYAMLFile(entry.Name()) {
-			continue
+	filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !isYAMLFile(path) {
+			return nil
 		}
-		srcPath := filepath.Join(srcDir, entry.Name())
-		dstPath := filepath.Join(dstDir, entry.Name())
-
-		content, err := os.ReadFile(srcPath)
-		if err != nil {
-			log.Printf("Warning: could not read generated flow %s: %v", entry.Name(), err)
-			continue
+		content, readErr := os.ReadFile(path)
+		if readErr != nil {
+			log.Printf("Warning: could not read generated flow %s: %v", info.Name(), readErr)
+			return nil
 		}
-		if err := os.WriteFile(dstPath, content, 0644); err != nil {
-			return fmt.Errorf("writing flow %s: %w", entry.Name(), err)
+		if writeErr := os.WriteFile(filepath.Join(dstDir, info.Name()), content, 0644); writeErr != nil {
+			log.Printf("Warning: could not write generated flow %s: %v", info.Name(), writeErr)
 		}
-	}
+		return nil
+	})
 
 	return nil
 }
@@ -580,6 +584,33 @@ func (s *Store) UpdateTestPlanStatus(id, status, lastRunID string) error {
 	}
 
 	return fmt.Errorf("test plan not found: %s", id)
+}
+
+// DeleteTestPlan removes a test plan by ID.
+func (s *Store) DeleteTestPlan(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	plans, err := s.readTestPlans()
+	if err != nil {
+		return err
+	}
+
+	found := false
+	filtered := make([]TestPlan, 0, len(plans))
+	for _, p := range plans {
+		if p.ID == id {
+			found = true
+			continue
+		}
+		filtered = append(filtered, p)
+	}
+
+	if !found {
+		return fmt.Errorf("test plan not found: %s", id)
+	}
+
+	return s.writeTestPlans(filtered)
 }
 
 // --- Internal persistence ---
@@ -693,6 +724,135 @@ func (s *Store) writeTestPlans(plans []TestPlan) error {
 	file := TestPlansFile{
 		Plans:   plans,
 		Updated: time.Now(),
+	}
+
+	data, err := json.MarshalIndent(file, "", "  ")
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(path, data, 0644)
+}
+
+// --- Analyses ---
+
+// SaveAnalysis appends an analysis record to data/analyses.json.
+func (s *Store) SaveAnalysis(record AnalysisRecord) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	analyses, _ := s.readAnalyses()
+	analyses = append(analyses, record)
+
+	return s.writeAnalyses(analyses)
+}
+
+// ListAnalyses returns all saved analysis records (without full result payload).
+func (s *Store) ListAnalyses() ([]AnalysisRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	analyses, err := s.readAnalyses()
+	if err != nil {
+		return nil, err
+	}
+
+	// Strip the full result to keep the listing lightweight
+	summaries := make([]AnalysisRecord, len(analyses))
+	for i, a := range analyses {
+		summaries[i] = a
+		summaries[i].Result = nil
+	}
+
+	return summaries, nil
+}
+
+// GetAnalysis finds an analysis record by ID.
+func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	analyses, err := s.readAnalyses()
+	if err != nil {
+		return nil, err
+	}
+
+	for _, a := range analyses {
+		if a.ID == id {
+			return &a, nil
+		}
+	}
+
+	return nil, fmt.Errorf("analysis not found: %s", id)
+}
+
+// DeleteAnalysis removes an analysis record by ID.
+func (s *Store) DeleteAnalysis(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	analyses, err := s.readAnalyses()
+	if err != nil {
+		return err
+	}
+
+	found := false
+	filtered := make([]AnalysisRecord, 0, len(analyses))
+	for _, a := range analyses {
+		if a.ID == id {
+			found = true
+			continue
+		}
+		filtered = append(filtered, a)
+	}
+
+	if !found {
+		return fmt.Errorf("analysis not found: %s", id)
+	}
+
+	return s.writeAnalyses(filtered)
+}
+
+// CountAnalyses returns the total number of stored analyses.
+func (s *Store) CountAnalyses() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	analyses, err := s.readAnalyses()
+	if err != nil {
+		return 0
+	}
+	return len(analyses)
+}
+
+func (s *Store) readAnalyses() ([]AnalysisRecord, error) {
+	path := filepath.Join(s.dataDir, "analyses.json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+
+	var file AnalysesFile
+	if err := json.Unmarshal(data, &file); err != nil {
+		return nil, fmt.Errorf("parsing analyses: %w", err)
+	}
+
+	return file.Analyses, nil
+}
+
+func (s *Store) writeAnalyses(analyses []AnalysisRecord) error {
+	path := filepath.Join(s.dataDir, "analyses.json")
+
+	if err := os.MkdirAll(s.dataDir, 0755); err != nil {
+		return err
+	}
+
+	file := AnalysesFile{
+		Analyses: analyses,
+		Updated:  time.Now(),
 	}
 
 	data, err := json.MarshalIndent(file, "", "  ")

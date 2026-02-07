@@ -11,8 +11,10 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"strings"
 	"time"
 
+	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
 
@@ -142,13 +144,23 @@ func (s *Server) executeAnalysis(analysisID, gameURL string) {
 		return
 	}
 
-	// Parse the JSON output
-	rawOutput := outputBuf.String()
+	// Parse the JSON output with defensive extraction
+	rawOutput := strings.TrimSpace(outputBuf.String())
 	var result map[string]interface{}
 	if err := json.Unmarshal([]byte(rawOutput), &result); err != nil {
-		// The output might have non-JSON lines before the JSON; try to find valid JSON
-		s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v", err))
-		return
+		// Fallback: find JSON object boundaries
+		start := strings.Index(rawOutput, "{")
+		end := strings.LastIndex(rawOutput, "}")
+		if start >= 0 && end > start {
+			rawOutput = rawOutput[start : end+1]
+			if err2 := json.Unmarshal([]byte(rawOutput), &result); err2 != nil {
+				s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v (fallback: %v)", err, err2))
+				return
+			}
+		} else {
+			s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v", err))
+			return
+		}
 	}
 
 	s.wsHub.Broadcast(ws.Message{
@@ -163,6 +175,48 @@ func (s *Server) executeAnalysis(analysisID, gameURL string) {
 	// Save generated flows to persistent storage
 	if err := s.store.SaveGeneratedFlows(analysisID, tmpDir); err != nil {
 		log.Printf("Warning: failed to save generated flows for %s: %v", analysisID, err)
+	}
+
+	// Count generated flows
+	flowCount := 0
+	if flows, ok := result["flows"]; ok {
+		if flowSlice, ok := flows.([]interface{}); ok {
+			flowCount = len(flowSlice)
+		}
+	}
+
+	// Derive game name from result
+	gameName := ""
+	framework := ""
+	if pm, ok := result["pageMeta"].(map[string]interface{}); ok {
+		if t, ok := pm["title"].(string); ok {
+			gameName = t
+		}
+		if f, ok := pm["framework"].(string); ok {
+			framework = f
+		}
+	}
+	if analysis, ok := result["analysis"].(map[string]interface{}); ok {
+		if gi, ok := analysis["gameInfo"].(map[string]interface{}); ok {
+			if n, ok := gi["name"].(string); ok && n != "" {
+				gameName = n
+			}
+		}
+	}
+
+	// Save analysis record for history
+	record := store.AnalysisRecord{
+		ID:        analysisID,
+		GameURL:   gameURL,
+		Status:    "completed",
+		Framework: framework,
+		GameName:  gameName,
+		FlowCount: flowCount,
+		CreatedAt: time.Now().Format(time.RFC3339),
+		Result:    result,
+	}
+	if err := s.store.SaveAnalysis(record); err != nil {
+		log.Printf("Warning: failed to save analysis record for %s: %v", analysisID, err)
 	}
 
 	s.wsHub.Broadcast(ws.Message{

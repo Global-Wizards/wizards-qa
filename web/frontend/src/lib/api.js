@@ -59,4 +59,15 @@ export const analyzeApi = {
   start: (gameUrl) => api.post('/analyze', { gameUrl }).then((r) => r.data),
 }
 
+export const analysesApi = {
+  list: () => api.get('/analyses').then((r) => r.data),
+  get: (id) => api.get(`/analyses/${id}`).then((r) => r.data),
+  delete: (id) => api.delete(`/analyses/${id}`).then((r) => r.data),
+  exportUrl: (id, format = 'json') => `/api/analyses/${id}/export?format=${format}`,
+}
+
+export const testPlansDeleteApi = {
+  delete: (id) => api.delete(`/test-plans/${id}`).then((r) => r.data),
+}
+
 export default api

@@ -224,7 +224,7 @@
 
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { templatesApi, testPlansApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -234,6 +234,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 const router = useRouter()
+const route = useRoute()
 const currentStep = ref('details')
 const templatesLoading = ref(true)
 const templatesError = ref(null)
@@ -335,6 +336,15 @@ onMounted(async () => {
     templatesError.value = err.message || 'Failed to load templates'
   } finally {
     templatesLoading.value = false
+  }
+
+  // Pre-select flows from query params (from Analyze view)
+  if (route.query.flows) {
+    const names = route.query.flows.split(',')
+    selectedFlows.value = new Set(names)
+  }
+  if (route.query.gameUrl) {
+    plan.gameUrl = route.query.gameUrl
   }
 })
 </script>

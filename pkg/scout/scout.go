@@ -24,17 +24,29 @@ type PageMeta struct {
 	Error       string            `json:"error,omitempty"`
 }
 
+// HeadlessConfig configures headless browser scouting.
+type HeadlessConfig struct {
+	Enabled bool
+	Width   int
+	Height  int
+	Timeout time.Duration
+}
+
 const (
-	maxScriptSrcs  = 20
-	maxLinks       = 20
-	maxBodySnippet = 2000
-	fetchTimeout   = 10 * time.Second
-	maxBodyRead    = 5 * 1024 * 1024 // 5MB
+	maxScriptSrcs      = 20
+	maxLinks           = 20
+	maxBodySnippet     = 2000
+	defaultFetchTimeout = 10 * time.Second
+	maxBodyRead        = 5 * 1024 * 1024 // 5MB
 )
 
 // ScoutURL fetches a URL and extracts page metadata for game analysis.
-func ScoutURL(ctx context.Context, gameURL string) (*PageMeta, error) {
-	ctx, cancel := context.WithTimeout(ctx, fetchTimeout)
+// Pass 0 for timeout to use the default (10s).
+func ScoutURL(ctx context.Context, gameURL string, timeout time.Duration) (*PageMeta, error) {
+	if timeout <= 0 {
+		timeout = defaultFetchTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	req, err := http.NewRequestWithContext(ctx, "GET", gameURL, nil)
@@ -58,10 +70,11 @@ func ScoutURL(ctx context.Context, gameURL string) (*PageMeta, error) {
 		return nil, fmt.Errorf("reading body: %w", err)
 	}
 
-	return parseHTML(string(body)), nil
+	return ParseHTML(string(body)), nil
 }
 
-func parseHTML(rawHTML string) *PageMeta {
+// ParseHTML extracts page metadata from raw HTML. Exported for testing.
+func ParseHTML(rawHTML string) *PageMeta {
 	meta := &PageMeta{
 		MetaTags: make(map[string]string),
 	}
@@ -86,7 +99,7 @@ func parseHTML(rawHTML string) *PageMeta {
 			case "meta":
 				handleMeta(n, meta)
 			case "script":
-				handleScript(n, meta, &allScriptContent)
+				HandleScript(n, meta, &allScriptContent)
 			case "canvas":
 				meta.CanvasFound = true
 			case "a":
@@ -111,7 +124,7 @@ func parseHTML(rawHTML string) *PageMeta {
 	}
 	meta.BodySnippet = strings.TrimSpace(snippet)
 
-	meta.Framework = detectFramework(meta.ScriptSrcs, allScriptContent.String())
+	meta.Framework = DetectFramework(meta.ScriptSrcs, allScriptContent.String())
 
 	return meta
 }
@@ -143,7 +156,9 @@ func handleMeta(n *html.Node, meta *PageMeta) {
 	}
 }
 
-func handleScript(n *html.Node, meta *PageMeta, allScriptContent *strings.Builder) {
+// HandleScript processes a <script> node, collecting src attributes and inline text.
+// Exported for testing.
+func HandleScript(n *html.Node, meta *PageMeta, allScriptContent *strings.Builder) {
 	for _, a := range n.Attr {
 		if strings.ToLower(a.Key) == "src" && a.Val != "" {
 			if len(meta.ScriptSrcs) < maxScriptSrcs {
@@ -152,10 +167,12 @@ func handleScript(n *html.Node, meta *PageMeta, allScriptContent *strings.Builde
 			return
 		}
 	}
-	// Inline script — collect content for framework detection
-	if n.FirstChild != nil && n.FirstChild.Type == html.TextNode {
-		allScriptContent.WriteString(n.FirstChild.Data)
-		allScriptContent.WriteString("\n")
+	// Inline script — walk all children for framework detection
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		if c.Type == html.TextNode {
+			allScriptContent.WriteString(c.Data)
+			allScriptContent.WriteString("\n")
+		}
 	}
 }
 
@@ -185,7 +202,9 @@ func collectBodyText(n *html.Node, sb *strings.Builder) {
 	}
 }
 
-func detectFramework(scriptSrcs []string, inlineScripts string) string {
+// DetectFramework identifies a game framework from script sources and inline content.
+// Exported for testing.
+func DetectFramework(scriptSrcs []string, inlineScripts string) string {
 	combined := strings.ToLower(inlineScripts)
 	for _, src := range scriptSrcs {
 		combined += " " + strings.ToLower(src)
@@ -200,6 +219,18 @@ func detectFramework(scriptSrcs []string, inlineScripts string) string {
 		return "unity"
 	case strings.Contains(combined, "godot") || strings.Contains(combined, "engine.wasm"):
 		return "godot"
+	case strings.Contains(combined, "three.js") || strings.Contains(combined, "three.min.js"):
+		return "threejs"
+	case strings.Contains(combined, "babylon") || strings.Contains(combined, "babylonjs"):
+		return "babylon"
+	case strings.Contains(combined, "construct") || strings.Contains(combined, "c3runtime"):
+		return "construct"
+	case strings.Contains(combined, "playcanvas"):
+		return "playcanvas"
+	case strings.Contains(combined, "cocos") || strings.Contains(combined, "cc.game"):
+		return "cocos"
+	case strings.Contains(combined, "createjs") || strings.Contains(combined, "easeljs"):
+		return "createjs"
 	default:
 		return "unknown"
 	}

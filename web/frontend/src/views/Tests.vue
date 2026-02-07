@@ -155,14 +155,24 @@
                     {{ new Date(plan.createdAt).toLocaleString() }}
                   </TableCell>
                   <TableCell class="text-right">
-                    <Button
-                      size="sm"
-                      :disabled="plan.status === 'running'"
-                      @click="runPlan(plan)"
-                    >
-                      <Play class="h-3 w-3 mr-1" />
-                      Run
-                    </Button>
+                    <div class="flex items-center justify-end gap-1">
+                      <Button
+                        size="sm"
+                        :disabled="plan.status === 'running'"
+                        @click="runPlan(plan)"
+                      >
+                        <Play class="h-3 w-3 mr-1" />
+                        Run
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        :disabled="plan.status === 'running'"
+                        @click="deletePlan(plan)"
+                      >
+                        <Trash2 class="h-3 w-3 text-destructive" />
+                      </Button>
+                    </div>
                   </TableCell>
                 </TableRow>
                 <TableRow v-if="!plans.length">
@@ -245,8 +255,8 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
-import { AlertCircle, Plus, Play } from 'lucide-vue-next'
-import { testsApi, testPlansApi } from '@/lib/api'
+import { AlertCircle, Plus, Play, Trash2 } from 'lucide-vue-next'
+import { testsApi, testPlansApi, testPlansDeleteApi } from '@/lib/api'
 import { getWebSocket } from '@/lib/websocket'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -330,6 +340,15 @@ async function runPlan(plan) {
     plan.status = 'running'
   } catch (err) {
     runError.value = 'Failed to start test: ' + err.message
+  }
+}
+
+async function deletePlan(plan) {
+  try {
+    await testPlansDeleteApi.delete(plan.id)
+    plans.value = plans.value.filter((p) => p.id !== plan.id)
+  } catch (err) {
+    runError.value = 'Failed to delete plan: ' + err.message
   }
 }
 
