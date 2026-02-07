@@ -2,9 +2,13 @@ name: Deploy to Fly.io
 on:
   push:
     branches: [master]
+  workflow_dispatch:
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    concurrency:
+      group: deploy
+      cancel-in-progress: true
     steps:
       - uses: actions/checkout@v4
       - uses: superfly/flyctl-actions/setup-flyctl@master
