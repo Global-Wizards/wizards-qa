@@ -1,8 +1,16 @@
 .git
+.github
 **/node_modules
 web/frontend/dist
+web/backend/backend
 *.exe
 wizards-qa
 dashboard-server
 screenshots/
 .env
+.env.*
+*.md
+.gitignore
+.dockerignore
+fly.toml
+docker-compose.yml

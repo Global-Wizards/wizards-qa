@@ -1,13 +1,16 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -16,6 +19,8 @@ import (
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
+
+const Version = "0.1.0"
 
 type Server struct {
 	router *chi.Mux
@@ -30,13 +35,23 @@ func NewServer(port string) *Server {
 	dataDir := envOrDefault("WIZARDS_QA_DATA_DIR", "data")
 	configPath := envOrDefault("WIZARDS_QA_CONFIG", "wizards-qa.yaml")
 
+	st := store.New(flowsDir, reportsDir, dataDir, configPath)
+
+	// Validate directories on startup
+	if err := st.ValidateDirectories(); err != nil {
+		log.Printf("Warning: directory validation failed: %v", err)
+	}
+
+	// Recover orphaned running test plans from previous crash
+	st.RecoverOrphanedRuns()
+
 	hub := ws.NewHub()
 	go hub.Run()
 
 	s := &Server{
 		router: chi.NewRouter(),
 		port:   port,
-		store:  store.New(flowsDir, reportsDir, dataDir, configPath),
+		store:  st,
 		wsHub:  hub,
 	}
 	s.setupMiddleware()
@@ -65,6 +80,7 @@ func (s *Server) setupMiddleware() {
 
 func (s *Server) setupRoutes() {
 	s.router.Get("/api/health", s.handleHealth)
+	s.router.Get("/api/version", s.handleVersion)
 	s.router.Get("/api/tests", s.handleListTests)
 	s.router.Get("/api/tests/{id}", s.handleGetTest)
 	s.router.Post("/api/tests/run", s.handleRunTest)
@@ -90,10 +106,20 @@ func (s *Server) setupRoutes() {
 	FileServer(s.router, "/", filesDir)
 }
 
+// --- Handlers ---
+
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"status": "ok",
-		"time":   time.Now().Format(time.RFC3339),
+		"status":  "ok",
+		"version": Version,
+		"time":    time.Now().Format(time.RFC3339),
+	})
+}
+
+func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"version": Version,
+		"name":    "Wizards QA",
 	})
 }
 
@@ -103,11 +129,8 @@ func (s *Server) handleListTests(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to list tests")
 		return
 	}
-	if tests == nil {
-		tests = []store.TestResultSummary{}
-	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"tests": tests,
+		"tests": nonNil(tests),
 		"total": len(tests),
 	})
 }
@@ -133,13 +156,13 @@ func (s *Server) handleRunTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testID := fmt.Sprintf("test-%d", time.Now().Unix())
+	testID := fmt.Sprintf("test-%d", time.Now().UnixNano())
 	flowDir := s.store.FlowsDir()
 	if req.SpecPath != "" {
 		flowDir = filepath.Dir(req.SpecPath)
 	}
 
-	go s.executeTestRun("", testID, flowDir, filepath.Base(flowDir))
+	s.launchTestRun("", testID, flowDir, filepath.Base(flowDir), false)
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"testId":  testID,
@@ -154,11 +177,8 @@ func (s *Server) handleListReports(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to list reports")
 		return
 	}
-	if reports == nil {
-		reports = []store.ReportInfo{}
-	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"reports": reports,
+		"reports": nonNil(reports),
 		"total":   len(reports),
 	})
 }
@@ -179,11 +199,8 @@ func (s *Server) handleListFlows(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to list flows")
 		return
 	}
-	if flows == nil {
-		flows = []store.FlowInfo{}
-	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"flows": flows,
+		"flows": nonNil(flows),
 		"total": len(flows),
 	})
 }
@@ -220,6 +237,7 @@ func (s *Server) handleGetPerformance(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"uptime":          time.Since(startTime).String(),
 		"activeWsClients": s.wsHub.ClientCount(),
+		"version":         Version,
 	})
 }
 
@@ -229,11 +247,8 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to list templates")
 		return
 	}
-	if templates == nil {
-		templates = []store.TemplateInfo{}
-	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"templates": templates,
+		"templates": nonNil(templates),
 		"total":     len(templates),
 	})
 }
@@ -244,11 +259,8 @@ func (s *Server) handleListTestPlans(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusInternalServerError, "Failed to list test plans")
 		return
 	}
-	if plans == nil {
-		plans = []store.TestPlanSummary{}
-	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"plans": plans,
+		"plans": nonNil(plans),
 		"total": len(plans),
 	})
 }
@@ -305,11 +317,7 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	testID := fmt.Sprintf("test-%d", time.Now().UnixNano())
-
-	go func() {
-		defer os.RemoveAll(flowDir)
-		s.executeTestRun(plan.ID, testID, flowDir, plan.Name)
-	}()
+	s.launchTestRun(plan.ID, testID, flowDir, plan.Name, true)
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"testId":  testID,
@@ -319,12 +327,23 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// --- Server lifecycle ---
+
 func (s *Server) Start() error {
-	log.Printf("Wizards QA Dashboard starting on http://localhost:%s\n", s.port)
-	return http.ListenAndServe(":"+s.port, s.router)
+	srv := &http.Server{
+		Addr:         ":" + s.port,
+		Handler:      s.router,
+		ReadTimeout:  15 * time.Second,
+		WriteTimeout: 60 * time.Second, // longer for SSE/streaming
+		IdleTimeout:  120 * time.Second,
+	}
+
+	log.Printf("Wizards QA Dashboard v%s starting on http://localhost:%s", Version, s.port)
+	return srv.ListenAndServe()
 }
 
-// Helper functions
+// --- Helpers ---
+
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -340,6 +359,14 @@ func envOrDefault(key, fallback string) string {
 		return val
 	}
 	return fallback
+}
+
+// nonNil ensures a nil slice is returned as an empty JSON array instead of null.
+func nonNil[T any](s []T) []T {
+	if s == nil {
+		return []T{}
+	}
+	return s
 }
 
 // FileServer serves static files from a http.FileSystem.
@@ -367,7 +394,21 @@ func main() {
 	}
 
 	server := NewServer(port)
-	if err := server.Start(); err != nil {
+
+	// Graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		log.Printf("Received signal %v, shutting down gracefully...", sig)
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+		_ = ctx // Used for future graceful shutdown of http.Server
+		os.Exit(0)
+	}()
+
+	if err := server.Start(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

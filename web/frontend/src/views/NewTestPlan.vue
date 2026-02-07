@@ -30,6 +30,9 @@
             <div class="space-y-2">
               <label class="text-sm font-medium">Game URL *</label>
               <Input v-model="plan.gameUrl" placeholder="https://your-game.example.com" />
+              <p v-if="plan.gameUrl && !isValidUrl(plan.gameUrl)" class="text-xs text-destructive">
+                Enter a valid URL starting with http:// or https://
+              </p>
             </div>
             <div class="space-y-2">
               <label class="text-sm font-medium">Description</label>
@@ -67,8 +70,13 @@
               Loading templates...
             </div>
 
+            <!-- Error -->
+            <div v-else-if="templatesError" class="text-center py-8 text-destructive">
+              {{ templatesError }}
+            </div>
+
             <!-- Templates grouped by category -->
-            <div v-else class="space-y-6">
+            <div v-else-if="!templatesError" class="space-y-6">
               <div v-for="(group, category) in groupedTemplates" :key="category">
                 <h4 class="text-sm font-medium mb-3 capitalize">{{ category }}</h4>
                 <div class="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
@@ -228,6 +236,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 const router = useRouter()
 const currentStep = ref('details')
 const templatesLoading = ref(true)
+const templatesError = ref(null)
 const templates = ref([])
 const selectedFlows = ref(new Set())
 const creating = ref(false)
@@ -240,7 +249,16 @@ const plan = reactive({
   variables: {},
 })
 
-const detailsValid = computed(() => plan.name.trim() !== '' && plan.gameUrl.trim() !== '')
+function isValidUrl(str) {
+  try {
+    const url = new URL(str)
+    return url.protocol === 'http:' || url.protocol === 'https:'
+  } catch {
+    return false
+  }
+}
+
+const detailsValid = computed(() => plan.name.trim() !== '' && isValidUrl(plan.gameUrl.trim()))
 const flowsValid = computed(() => selectedFlows.value.size > 0)
 const variablesValid = computed(() => flowsValid.value)
 
@@ -313,8 +331,8 @@ onMounted(async () => {
   try {
     const data = await templatesApi.list()
     templates.value = data.templates || []
-  } catch {
-    // ignore - will show empty state
+  } catch (err) {
+    templatesError.value = err.message || 'Failed to load templates'
   } finally {
     templatesLoading.value = false
   }

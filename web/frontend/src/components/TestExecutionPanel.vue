@@ -2,7 +2,6 @@
 import { watch, ref, nextTick } from 'vue'
 import { useTestExecution } from '@/composables/useTestExecution'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import StatusBadge from '@/components/StatusBadge.vue'
 
@@ -18,7 +17,11 @@ startExecution(props.testId)
 watch(logs, async () => {
   await nextTick()
   if (logContainer.value) {
-    logContainer.value.scrollTop = logContainer.value.scrollHeight
+    const { scrollHeight, clientHeight, scrollTop } = logContainer.value
+    const isNearBottom = scrollHeight - scrollTop - clientHeight < 40
+    if (isNearBottom) {
+      logContainer.value.scrollTop = scrollHeight
+    }
   }
 })
 </script>
@@ -28,17 +31,7 @@ watch(logs, async () => {
     <!-- Status Header -->
     <div class="flex items-center justify-between">
       <h4 class="text-sm font-medium">Execution Status</h4>
-      <Badge
-        :class="{
-          'bg-blue-500/15 text-blue-700 dark:text-blue-400 border-blue-500/20': status === 'running',
-          'bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border-emerald-500/20': status === 'completed',
-          'bg-red-500/15 text-red-700 dark:text-red-400 border-red-500/20': status === 'failed',
-          'bg-gray-500/15 text-gray-700 dark:text-gray-400 border-gray-500/20': status === 'idle',
-        }"
-        variant="outline"
-      >
-        {{ status === 'running' ? 'Running...' : status.charAt(0).toUpperCase() + status.slice(1) }}
-      </Badge>
+      <StatusBadge :status="status === 'idle' ? 'pending' : status" />
     </div>
 
     <!-- Progress Bar -->

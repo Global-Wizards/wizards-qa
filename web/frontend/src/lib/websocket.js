@@ -6,7 +6,9 @@ export class WebSocketManager {
     this.reconnectAttempts = 0
     this.maxReconnectAttempts = 10
     this.reconnectDelay = 1000
+    this.maxDelay = 30000
     this.shouldReconnect = true
+    this.connected = false
   }
 
   _getWsUrl() {
@@ -17,9 +19,16 @@ export class WebSocketManager {
   connect() {
     if (this.ws?.readyState === WebSocket.OPEN) return
 
-    this.ws = new WebSocket(this.url)
+    try {
+      this.ws = new WebSocket(this.url)
+    } catch (err) {
+      console.error('WebSocket connection failed:', err)
+      this._scheduleReconnect()
+      return
+    }
 
     this.ws.onopen = () => {
+      this.connected = true
       this.reconnectAttempts = 0
       this._emit('connected', {})
     }
@@ -29,31 +38,45 @@ export class WebSocketManager {
         const message = JSON.parse(event.data)
         this._emit(message.type, message.data)
         this._emit('message', message)
-      } catch {
-        // ignore non-JSON messages
+      } catch (err) {
+        console.warn('WebSocket: failed to parse message:', err.message)
       }
     }
 
     this.ws.onclose = () => {
+      this.connected = false
       this._emit('disconnected', {})
-      if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
-        const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts)
-        this.reconnectAttempts++
-        setTimeout(() => this.connect(), delay)
-      }
+      this._scheduleReconnect()
     }
 
-    this.ws.onerror = () => {
-      this._emit('error', {})
+    this.ws.onerror = (event) => {
+      console.error('WebSocket error:', event)
+      this._emit('error', { message: 'Connection error' })
+    }
+  }
+
+  _scheduleReconnect() {
+    if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+      const delay = Math.min(
+        this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
+        this.maxDelay,
+      )
+      this.reconnectAttempts++
+      setTimeout(() => this.connect(), delay)
     }
   }
 
   disconnect() {
     this.shouldReconnect = false
+    this.connected = false
     if (this.ws) {
       this.ws.close()
       this.ws = null
     }
+  }
+
+  isConnected() {
+    return this.connected && this.ws?.readyState === WebSocket.OPEN
   }
 
   on(event, callback) {

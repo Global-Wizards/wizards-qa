@@ -1,8 +1,8 @@
 # Stage 1: Build frontend
 FROM node:20-alpine AS frontend-build
 WORKDIR /app/frontend
-COPY web/frontend/package.json ./
-RUN npm install
+COPY web/frontend/package.json web/frontend/package-lock.json* ./
+RUN npm ci --ignore-scripts 2>/dev/null || npm install
 COPY web/frontend/ ./
 RUN npm run build
 
@@ -24,14 +24,18 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /wizards-qa .
 
 # Stage 3: Runtime
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates \
+    && addgroup -S appgroup && adduser -S appuser -G appgroup
 WORKDIR /app
 COPY --from=backend-build /dashboard-server ./dashboard-server
 COPY --from=cli-build /wizards-qa ./wizards-qa
 COPY --from=frontend-build /app/frontend/dist ./web/frontend/dist/
 COPY flows/ ./flows/
 COPY data/ ./data/
-RUN mkdir -p ./reports
+RUN mkdir -p ./reports && chown -R appuser:appgroup /app
 ENV WIZARDS_QA_CLI_PATH=/app/wizards-qa
+USER appuser
 EXPOSE 8080
+HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
+  CMD wget -qO- http://localhost:8080/api/health || exit 1
 CMD ["./dashboard-server"]

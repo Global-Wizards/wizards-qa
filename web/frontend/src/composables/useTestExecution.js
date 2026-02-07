@@ -1,6 +1,8 @@
 import { ref, onUnmounted } from 'vue'
 import { getWebSocket } from '@/lib/websocket'
 
+const MAX_LOGS = 500
+
 export function useTestExecution() {
   const status = ref('idle') // idle, running, completed, failed
   const logs = ref([])
@@ -27,7 +29,7 @@ export function useTestExecution() {
     const offProgress = ws.on('test_progress', (data) => {
       if (data.testId === testId) {
         if (data.line) {
-          logs.value = [...logs.value, data.line]
+          logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), data.line]
         }
         if (data.flowName) {
           const existing = progress.value.find((p) => p.flowName === data.flowName)

@@ -103,6 +103,20 @@
 
       <!-- Test Plans Tab -->
       <TabsContent value="plans">
+        <!-- Run Error -->
+        <Alert v-if="runError" variant="destructive" class="mb-4">
+          <AlertCircle class="h-4 w-4" />
+          <AlertTitle>Run Failed</AlertTitle>
+          <AlertDescription>{{ runError }}</AlertDescription>
+        </Alert>
+
+        <!-- Plans Error -->
+        <Alert v-if="plansError" variant="destructive" class="mb-4">
+          <AlertCircle class="h-4 w-4" />
+          <AlertTitle>Error</AlertTitle>
+          <AlertDescription>{{ plansError }}</AlertDescription>
+        </Alert>
+
         <!-- Loading -->
         <Card v-if="plansLoading">
           <CardContent class="pt-6">
@@ -260,12 +274,14 @@ const detailData = ref(null)
 
 // Plans state
 const plansLoading = ref(true)
+const plansError = ref(null)
 const plans = ref([])
 
 // Execution state
 const execSheetOpen = ref(false)
 const runningTestId = ref(null)
 const runningPlanName = ref('')
+const runError = ref(null)
 
 const filteredTests = computed(() => {
   let result = [...tests.value]
@@ -305,6 +321,7 @@ async function openDetail(test) {
 }
 
 async function runPlan(plan) {
+  runError.value = null
   try {
     const data = await testPlansApi.run(plan.id)
     runningTestId.value = data.testId
@@ -312,17 +329,18 @@ async function runPlan(plan) {
     execSheetOpen.value = true
     plan.status = 'running'
   } catch (err) {
-    alert('Failed to start test: ' + err.message)
+    runError.value = 'Failed to start test: ' + err.message
   }
 }
 
 async function loadPlans() {
   plansLoading.value = true
+  plansError.value = null
   try {
     const data = await testPlansApi.list()
     plans.value = data.plans || []
-  } catch {
-    // ignore
+  } catch (err) {
+    plansError.value = err.message || 'Failed to load test plans'
   } finally {
     plansLoading.value = false
   }
@@ -335,22 +353,18 @@ function setupWs() {
   const ws = getWebSocket()
   ws.connect()
 
-  const offCompleted = ws.on('test_completed', async () => {
-    // Refresh both tables
+  async function refreshTables() {
     try {
       const data = await testsApi.list()
       tests.value = data.tests || []
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.warn('Failed to refresh tests:', err.message)
+    }
     await loadPlans()
-  })
+  }
 
-  const offFailed = ws.on('test_failed', async () => {
-    try {
-      const data = await testsApi.list()
-      tests.value = data.tests || []
-    } catch { /* ignore */ }
-    await loadPlans()
-  })
+  const offCompleted = ws.on('test_completed', refreshTables)
+  const offFailed = ws.on('test_failed', refreshTables)
 
   wsCleanup = () => {
     offCompleted()

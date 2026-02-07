@@ -2,12 +2,14 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -15,13 +17,17 @@ import (
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
 
+var safeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\s.]+$`)
+
 // executeTestRun runs the wizards-qa CLI as a subprocess and streams progress via WebSocket.
+// Must be called in a goroutine with panic recovery (see launchTestRun).
 func (s *Server) executeTestRun(planID, testID string, flowDir string, planName string) {
 	startTime := time.Now()
 
-	// Update plan status to running
 	if planID != "" {
-		_ = s.store.UpdateTestPlanStatus(planID, "running", testID)
+		if err := s.store.UpdateTestPlanStatus(planID, "running", testID); err != nil {
+			log.Printf("Warning: failed to update plan %s status to running: %v", planID, err)
+		}
 	}
 
 	s.wsHub.Broadcast(ws.Message{
@@ -39,7 +45,7 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 	defer cancel()
 
 	args := []string{"run", "--flows", flowDir}
-	if planName != "" {
+	if planName != "" && safeNameRegex.MatchString(planName) {
 		args = append(args, "--name", planName)
 	}
 
@@ -52,7 +58,8 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 		return
 	}
 
-	cmd.Stderr = cmd.Stdout // merge stderr into stdout
+	var stderrBuf bytes.Buffer
+	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
 		s.finishTestRun(planID, testID, planName, startTime, nil, fmt.Errorf("start: %w", err))
@@ -60,14 +67,11 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 	}
 
 	var flowResults []store.FlowResult
-	var allLines []string
 
 	scanner := bufio.NewScanner(stdout)
 	for scanner.Scan() {
 		line := scanner.Text()
-		allLines = append(allLines, line)
 
-		// Parse progress from output lines
 		flowName, status := parseFlowLine(line)
 		if flowName != "" {
 			flowResults = append(flowResults, store.FlowResult{
@@ -88,8 +92,33 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 		})
 	}
 
+	if scanErr := scanner.Err(); scanErr != nil {
+		log.Printf("Warning: scanner error reading test output for %s: %v", testID, scanErr)
+	}
+
 	err = cmd.Wait()
+	if err != nil && stderrBuf.Len() > 0 {
+		err = fmt.Errorf("%w\nstderr: %s", err, stderrBuf.String())
+	}
 	s.finishTestRun(planID, testID, planName, startTime, flowResults, err)
+}
+
+// launchTestRun starts executeTestRun in a goroutine with panic recovery.
+func (s *Server) launchTestRun(planID, testID, flowDir, planName string, cleanupDir bool) {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Panic in test execution %s: %v", testID, r)
+				s.finishTestRun(planID, testID, planName, time.Now(), nil, fmt.Errorf("panic: %v", r))
+			}
+			if cleanupDir {
+				if err := os.RemoveAll(flowDir); err != nil && !os.IsNotExist(err) {
+					log.Printf("Warning: failed to clean up temp dir %s: %v", flowDir, err)
+				}
+			}
+		}()
+		s.executeTestRun(planID, testID, flowDir, planName)
+	}()
 }
 
 // finishTestRun saves the result and broadcasts completion.
@@ -104,12 +133,12 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 	}
 
 	passed := 0
-	for _, f := range flows {
+	for i, f := range flows {
 		if f.Status == "passed" {
 			passed++
 		}
 		if f.Duration == "" {
-			f.Duration = "0s"
+			flows[i].Duration = "0s"
 		}
 	}
 
@@ -118,7 +147,6 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 		successRate = float64(passed) / float64(len(flows)) * 100
 	}
 
-	// If no flows parsed but command succeeded, set 100%
 	if len(flows) == 0 && runErr == nil {
 		successRate = 100
 	}
@@ -135,7 +163,7 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 	}
 
 	if err := s.store.SaveTestResult(result); err != nil {
-		log.Printf("Error saving test result: %v", err)
+		log.Printf("Error saving test result %s: %v", testID, err)
 	}
 
 	if planID != "" {
@@ -143,7 +171,9 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 		if runErr != nil {
 			planStatus = "failed"
 		}
-		_ = s.store.UpdateTestPlanStatus(planID, planStatus, testID)
+		if err := s.store.UpdateTestPlanStatus(planID, planStatus, testID); err != nil {
+			log.Printf("Warning: failed to update plan %s status to %s: %v", planID, planStatus, err)
+		}
 	}
 
 	msgType := "test_completed"
@@ -177,7 +207,6 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 		return "", fmt.Errorf("listing templates: %w", err)
 	}
 
-	// Build lookup of selected flow names
 	selected := make(map[string]bool)
 	for _, name := range plan.FlowNames {
 		selected[name] = true
@@ -197,11 +226,8 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 			continue
 		}
 
-		// Perform variable substitution
-		result := string(content)
-		for varName, varValue := range plan.Variables {
-			result = strings.ReplaceAll(result, "{{"+varName+"}}", varValue)
-		}
+		// Single-pass variable substitution using regex
+		result := varSubstitute(string(content), plan.Variables)
 
 		dstPath := filepath.Join(tmpDir, filepath.Base(tmpl.Path))
 		if err := os.WriteFile(dstPath, []byte(result), 0644); err != nil {
@@ -213,31 +239,40 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 	return tmpDir, nil
 }
 
+// varSubstitute replaces {{VAR}} patterns in a single pass.
+var varRegex = regexp.MustCompile(`\{\{(\w+)\}\}`)
+
+func varSubstitute(content string, vars map[string]string) string {
+	return varRegex.ReplaceAllStringFunc(content, func(match string) string {
+		key := match[2 : len(match)-2]
+		if val, ok := vars[key]; ok {
+			return val
+		}
+		return match
+	})
+}
+
 // parseFlowLine extracts flow name and pass/fail status from CLI output lines.
 func parseFlowLine(line string) (string, string) {
 	trimmed := strings.TrimSpace(line)
 
 	if strings.Contains(trimmed, "✅") || strings.Contains(trimmed, "PASS") {
-		name := extractFlowName(trimmed)
-		return name, "passed"
+		return extractFlowName(trimmed), "passed"
 	}
 	if strings.Contains(trimmed, "❌") || strings.Contains(trimmed, "FAIL") {
-		name := extractFlowName(trimmed)
-		return name, "failed"
+		return extractFlowName(trimmed), "failed"
 	}
 
 	return "", ""
 }
 
 func extractFlowName(line string) string {
-	// Remove common prefixes/emoji
 	line = strings.TrimSpace(line)
 	for _, prefix := range []string{"✅", "❌", "PASS", "FAIL", ":", "-", " "} {
 		line = strings.TrimPrefix(line, prefix)
 	}
 	line = strings.TrimSpace(line)
 
-	// Take first word or up to common delimiters
 	if idx := strings.IndexAny(line, "(:"); idx > 0 {
 		line = line[:idx]
 	}

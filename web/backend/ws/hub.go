@@ -4,15 +4,43 @@ import (
 	"encoding/json"
 	"log"
 	"net/http"
+	"os"
+	"strings"
 	"sync"
 
 	"github.com/gorilla/websocket"
 )
 
 var upgrader = websocket.Upgrader{
-	CheckOrigin: func(r *http.Request) bool {
-		return true // Allow all origins for dev
-	},
+	CheckOrigin: checkOrigin,
+}
+
+func checkOrigin(r *http.Request) bool {
+	if os.Getenv("ENV") == "development" {
+		return true
+	}
+
+	origin := r.Header.Get("Origin")
+	if origin == "" {
+		return true // same-origin requests
+	}
+
+	allowed := os.Getenv("ALLOWED_ORIGIN")
+	if allowed != "" && origin == allowed {
+		return true
+	}
+
+	// Allow localhost in development, and the deployed fly.dev domain
+	if strings.HasPrefix(origin, "http://localhost:") ||
+		strings.HasPrefix(origin, "http://127.0.0.1:") {
+		return true
+	}
+	if strings.HasSuffix(origin, ".fly.dev") && strings.HasPrefix(origin, "https://") {
+		return true
+	}
+
+	log.Printf("WebSocket origin rejected: %s", origin)
+	return false
 }
 
 type Message struct {
@@ -49,8 +77,9 @@ func (h *Hub) Run() {
 		case client := <-h.register:
 			h.mu.Lock()
 			h.clients[client] = true
+			count := len(h.clients)
 			h.mu.Unlock()
-			log.Printf("WebSocket client connected (%d total)", len(h.clients))
+			log.Printf("WebSocket client connected (%d total)", count)
 
 		case client := <-h.unregister:
 			h.mu.Lock()
@@ -58,20 +87,25 @@ func (h *Hub) Run() {
 				delete(h.clients, client)
 				close(client.send)
 			}
+			count := len(h.clients)
 			h.mu.Unlock()
-			log.Printf("WebSocket client disconnected (%d total)", len(h.clients))
+			log.Printf("WebSocket client disconnected (%d total)", count)
 
 		case message := <-h.broadcast:
-			h.mu.RLock()
+			h.mu.Lock() // Use full Lock since we may delete
+			var stale []*Client
 			for client := range h.clients {
 				select {
 				case client.send <- message:
 				default:
-					close(client.send)
-					delete(h.clients, client)
+					stale = append(stale, client)
 				}
 			}
-			h.mu.RUnlock()
+			for _, client := range stale {
+				delete(h.clients, client)
+				close(client.send)
+			}
+			h.mu.Unlock()
 		}
 	}
 }

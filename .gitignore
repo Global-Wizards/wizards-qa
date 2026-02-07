@@ -3,4 +3,6 @@ web/frontend/dist/
 web/backend/backend
 *.exe
 .env
+.env.*
 screenshots/
+*.tmp
