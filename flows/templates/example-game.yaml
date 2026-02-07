@@ -1,0 +1,52 @@
+# Example Maestro Flow for Phaser 4 Game Testing
+# This is a template showing common game testing patterns
+
+url: https://game.example.com
+---
+# Wait for game to load
+- launchApp
+- waitFor:
+    visible: true
+    timeout: 10000
+
+# Check for "Start Game" button (HTML overlay)
+- assertVisible: "Start Game"
+
+# Click start button
+- tapOn: "Start Game"
+
+# Wait for game canvas to initialize
+- waitFor:
+    timeout: 3000
+
+# Click center of game screen (main menu)
+- tapOn:
+    point: 50%,50%
+
+# Wait for level to load
+- waitFor:
+    timeout: 2000
+
+# Click specific coordinate (game character/object)
+- tapOn:
+    point: 400,300
+
+# Wait for action to complete
+- waitFor:
+    timeout: 1000
+
+# Verify score is visible (HTML overlay)
+- assertVisible: "Score:"
+
+# Take screenshot for verification
+- captureScreenshot: gameplay-state.png
+
+# Click another game element
+- tapOn:
+    point: 600,400
+
+# Final verification
+- assertVisible: "Level Complete"
+
+# Take final screenshot
+- captureScreenshot: level-complete.png
