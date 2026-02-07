@@ -2,7 +2,10 @@ package performance
 
 import (
 	"fmt"
+	"slices"
 	"time"
+
+	"github.com/Global-Wizards/wizards-qa/pkg/util"
 )
 
 // Metrics represents performance metrics for a test run
@@ -65,58 +68,22 @@ func (m *Metrics) Finalize() {
 
 // AverageFPS calculates average frames per second
 func (m *Metrics) AverageFPS() float64 {
-	if len(m.FPS) == 0 {
-		return 0
-	}
-	
-	sum := 0.0
-	for _, fps := range m.FPS {
-		sum += fps
-	}
-	return sum / float64(len(m.FPS))
+	return util.Avg(m.FPS)
 }
 
 // MinFPS returns minimum FPS recorded
 func (m *Metrics) MinFPS() float64 {
-	if len(m.FPS) == 0 {
-		return 0
-	}
-	
-	min := m.FPS[0]
-	for _, fps := range m.FPS {
-		if fps < min {
-			min = fps
-		}
-	}
-	return min
+	return util.Min(m.FPS)
 }
 
 // MaxFPS returns maximum FPS recorded
 func (m *Metrics) MaxFPS() float64 {
-	if len(m.FPS) == 0 {
-		return 0
-	}
-	
-	max := m.FPS[0]
-	for _, fps := range m.FPS {
-		if fps > max {
-			max = fps
-		}
-	}
-	return max
+	return util.Max(m.FPS)
 }
 
 // AverageResponseTime calculates average response time
 func (m *Metrics) AverageResponseTime() time.Duration {
-	if len(m.ResponseTimes) == 0 {
-		return 0
-	}
-	
-	sum := time.Duration(0)
-	for _, rt := range m.ResponseTimes {
-		sum += rt
-	}
-	return sum / time.Duration(len(m.ResponseTimes))
+	return util.Avg(m.ResponseTimes)
 }
 
 // P95ResponseTime calculates 95th percentile response time
@@ -124,54 +91,32 @@ func (m *Metrics) P95ResponseTime() time.Duration {
 	if len(m.ResponseTimes) == 0 {
 		return 0
 	}
-	
-	// Simple calculation - would need sorting for accurate percentile
-	index := int(float64(len(m.ResponseTimes)) * 0.95)
-	if index >= len(m.ResponseTimes) {
-		index = len(m.ResponseTimes) - 1
+
+	// Sort a copy to avoid mutating the original slice
+	sorted := make([]time.Duration, len(m.ResponseTimes))
+	copy(sorted, m.ResponseTimes)
+	slices.Sort(sorted)
+
+	index := int(float64(len(sorted)) * 0.95)
+	if index >= len(sorted) {
+		index = len(sorted) - 1
 	}
-	return m.ResponseTimes[index]
+	return sorted[index]
 }
 
 // AverageMemory calculates average memory usage
 func (m *Metrics) AverageMemory() int64 {
-	if len(m.MemoryUsage) == 0 {
-		return 0
-	}
-	
-	sum := int64(0)
-	for _, mem := range m.MemoryUsage {
-		sum += mem
-	}
-	return sum / int64(len(m.MemoryUsage))
+	return util.Avg(m.MemoryUsage)
 }
 
 // PeakMemory returns peak memory usage
 func (m *Metrics) PeakMemory() int64 {
-	if len(m.MemoryUsage) == 0 {
-		return 0
-	}
-	
-	peak := m.MemoryUsage[0]
-	for _, mem := range m.MemoryUsage {
-		if mem > peak {
-			peak = mem
-		}
-	}
-	return peak
+	return util.Max(m.MemoryUsage)
 }
 
 // AverageCPU calculates average CPU usage
 func (m *Metrics) AverageCPU() float64 {
-	if len(m.CPUUsage) == 0 {
-		return 0
-	}
-	
-	sum := 0.0
-	for _, cpu := range m.CPUUsage {
-		sum += cpu
-	}
-	return sum / float64(len(m.CPUUsage))
+	return util.Avg(m.CPUUsage)
 }
 
 // Summary returns a formatted summary of metrics

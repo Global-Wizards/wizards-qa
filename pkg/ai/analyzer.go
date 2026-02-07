@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/Global-Wizards/wizards-qa/pkg/util"
 )
 
 // Analyzer analyzes games and generates test scenarios
@@ -228,7 +230,7 @@ func WriteFlowsToFiles(flows []*MaestroFlow, outputDir string) error {
 	}
 
 	for i, flow := range flows {
-		filename := fmt.Sprintf("%02d-%s.yaml", i+1, sanitizeFilename(flow.Name))
+		filename := fmt.Sprintf("%02d-%s.yaml", i+1, util.SanitizeFilename(flow.Name))
 		filepath := fmt.Sprintf("%s/%s", outputDir, filename)
 
 		// Convert flow to YAML
@@ -297,12 +299,3 @@ func commandToYAML(cmd map[string]interface{}, indent int) string {
 	return sb.String()
 }
 
-// sanitizeFilename removes unsafe characters
-func sanitizeFilename(name string) string {
-	unsafe := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", " "}
-	safe := strings.ToLower(name)
-	for _, char := range unsafe {
-		safe = strings.ReplaceAll(safe, char, "-")
-	}
-	return safe
-}

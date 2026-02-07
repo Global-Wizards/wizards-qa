@@ -1,0 +1,8 @@
+.git
+**/node_modules
+web/frontend/dist
+*.exe
+wizards-qa
+dashboard-server
+screenshots/
+.env

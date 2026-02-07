@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/ai"
-	"github.com/Global-Wizards/wizards-qa/pkg/config"
+	"github.com/Global-Wizards/wizards-qa/pkg/util"
 	"github.com/spf13/cobra"
 )
 
@@ -41,29 +41,28 @@ Example:
 				return fmt.Errorf("--spec file is required")
 			}
 
-			// Load configuration
-			cfg, err := config.Load(configPath)
+			cfg, err := loadConfig(configPath)
 			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
+				return err
 			}
 
-			fmt.Printf("🧙‍♂️ Wizards QA - Flow Generation\n\n")
+			fmt.Printf("%s Wizards QA - Flow Generation\n\n", util.EmojiWizard)
 			fmt.Printf("Game URL:  %s\n", gameURL)
 			fmt.Printf("Spec File: %s\n", specFile)
 			fmt.Printf("AI Model:  %s\n", cfg.AI.Model)
 			fmt.Printf("Output:    %s\n\n", output)
 
-			// Validate API key
-			if cfg.AI.APIKey == "" || cfg.AI.APIKey == "${ANTHROPIC_API_KEY}" {
-				return fmt.Errorf("AI API key not configured. Set ANTHROPIC_API_KEY environment variable or update wizards-qa.yaml")
+			if err := validateAPIKey(cfg); err != nil {
+				return err
 			}
 
-			// Create AI client
-			client := ai.NewClaudeClient(cfg.AI.APIKey, cfg.AI.Model, cfg.AI.Temperature, cfg.AI.MaxTokens)
-			analyzer := ai.NewAnalyzer(client)
+			analyzer, err := newAnalyzer(cfg)
+			if err != nil {
+				return err
+			}
 
 			// Step 1: Analyze game
-			fmt.Println("📋 Analyzing game...")
+			fmt.Printf("%s Analyzing game...\n", util.EmojiClip)
 			analysis, err := analyzer.AnalyzeGame(specFile, gameURL)
 			if err != nil {
 				return fmt.Errorf("game analysis failed: %w", err)
@@ -78,7 +77,7 @@ Example:
 			fmt.Printf("   User Flows: %d\n\n", len(analysis.UserFlows))
 
 			// Step 2: Generate scenarios
-			fmt.Println("🎯 Generating test scenarios...")
+			fmt.Printf("%s Generating test scenarios...\n", util.EmojiTarget)
 			scenarios, err := analyzer.GenerateScenarios(analysis)
 			if err != nil {
 				return fmt.Errorf("scenario generation failed: %w", err)
@@ -86,26 +85,23 @@ Example:
 			fmt.Printf("   Generated %d test scenario(s)\n\n", len(scenarios))
 
 			// Step 3: Generate Maestro flows
-			fmt.Println("🔨 Generating Maestro flows...")
+			fmt.Printf("%s Generating Maestro flows...\n", util.EmojiHammer)
 			flows, err := analyzer.GenerateFlows(scenarios)
 			if err != nil {
 				return fmt.Errorf("flow generation failed: %w", err)
 			}
 			fmt.Printf("   Generated %d flow(s)\n\n", len(flows))
 
-			// Step 4: Save flows to files
-			fmt.Println("💾 Saving flows...")
-			gameName := filepath.Base(filepath.Dir(gameURL))
-			if gameName == "" || gameName == "." {
-				gameName = "game"
-			}
+			// Step 4: Save flows
+			fmt.Printf("%s Saving flows...\n", util.EmojiDisk)
+			gameName := deriveGameName(gameURL)
 			flowsDir := filepath.Join(output, gameName)
 
 			if err := ai.WriteFlowsToFiles(flows, flowsDir); err != nil {
 				return fmt.Errorf("failed to save flows: %w", err)
 			}
 
-			fmt.Printf("✅ Flows saved to: %s\n\n", flowsDir)
+			fmt.Printf("%s Flows saved to: %s\n\n", util.EmojiPassed, flowsDir)
 			fmt.Println("You can now run these flows with:")
 			fmt.Printf("  wizards-qa run --flows %s\n", flowsDir)
 

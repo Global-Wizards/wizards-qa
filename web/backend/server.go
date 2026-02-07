@@ -12,17 +12,32 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
+
+	"github.com/Global-Wizards/wizards-qa/web/backend/store"
+	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
 
 type Server struct {
 	router *chi.Mux
 	port   string
+	store  *store.Store
+	wsHub  *ws.Hub
 }
 
 func NewServer(port string) *Server {
+	flowsDir := envOrDefault("WIZARDS_QA_FLOWS_DIR", "flows/templates")
+	reportsDir := envOrDefault("WIZARDS_QA_REPORTS_DIR", "reports")
+	dataDir := envOrDefault("WIZARDS_QA_DATA_DIR", "data")
+	configPath := envOrDefault("WIZARDS_QA_CONFIG", "wizards-qa.yaml")
+
+	hub := ws.NewHub()
+	go hub.Run()
+
 	s := &Server{
 		router: chi.NewRouter(),
 		port:   port,
+		store:  store.New(flowsDir, reportsDir, dataDir, configPath),
+		wsHub:  hub,
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -30,9 +45,8 @@ func NewServer(port string) *Server {
 }
 
 func (s *Server) setupMiddleware() {
-	// CORS
 	s.router.Use(cors.Handler(cors.Options{
-		AllowedOrigins:   []string{"http://localhost:*", "http://127.0.0.1:*"},
+		AllowedOrigins:   []string{"http://localhost:*", "http://127.0.0.1:*", "https://*.fly.dev"},
 		AllowedMethods:   []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
 		AllowedHeaders:   []string{"Accept", "Authorization", "Content-Type"},
 		ExposedHeaders:   []string{"Link"},
@@ -40,7 +54,6 @@ func (s *Server) setupMiddleware() {
 		MaxAge:           300,
 	}))
 
-	// Logging
 	s.router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
@@ -60,7 +73,17 @@ func (s *Server) setupRoutes() {
 	s.router.Get("/api/flows", s.handleListFlows)
 	s.router.Get("/api/flows/{name}", s.handleGetFlow)
 	s.router.Get("/api/stats", s.handleGetStats)
-	
+	s.router.Get("/api/config", s.handleGetConfig)
+	s.router.Get("/api/performance", s.handleGetPerformance)
+	s.router.Get("/api/templates", s.handleListTemplates)
+	s.router.Get("/api/test-plans", s.handleListTestPlans)
+	s.router.Post("/api/test-plans", s.handleCreateTestPlan)
+	s.router.Get("/api/test-plans/{id}", s.handleGetTestPlan)
+	s.router.Post("/api/test-plans/{id}/run", s.handleRunTestPlan)
+	s.router.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+		ws.ServeWs(s.wsHub, w, r)
+	})
+
 	// Serve frontend static files
 	workDir, _ := os.Getwd()
 	filesDir := http.Dir(filepath.Join(workDir, "web/frontend/dist"))
@@ -75,26 +98,14 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListTests(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement - query test database/files
-	tests := []map[string]interface{}{
-		{
-			"id":         "test-001",
-			"name":       "Simple Platformer",
-			"status":     "passed",
-			"timestamp":  time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-			"duration":   "45s",
-			"successRate": 100.0,
-		},
-		{
-			"id":         "test-002",
-			"name":       "Puzzle Game",
-			"status":     "failed",
-			"timestamp":  time.Now().Add(-2 * time.Hour).Format(time.RFC3339),
-			"duration":   "32s",
-			"successRate": 75.0,
-		},
+	tests, err := s.store.ListTestResults()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list tests")
+		return
 	}
-	
+	if tests == nil {
+		tests = []store.TestResultSummary{}
+	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"tests": tests,
 		"total": len(tests),
@@ -103,29 +114,11 @@ func (s *Server) handleListTests(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetTest(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	
-	// TODO: Implement - query specific test
-	test := map[string]interface{}{
-		"id":          id,
-		"name":        "Simple Platformer",
-		"status":      "passed",
-		"timestamp":   time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-		"duration":    "45s",
-		"successRate": 100.0,
-		"flows": []map[string]interface{}{
-			{
-				"name":     "launch.yaml",
-				"status":   "passed",
-				"duration": "5.2s",
-			},
-			{
-				"name":     "gameplay.yaml",
-				"status":   "passed",
-				"duration": "12.3s",
-			},
-		},
+	test, err := s.store.GetTestResult(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Test not found")
+		return
 	}
-	
 	respondJSON(w, http.StatusOK, test)
 }
 
@@ -134,15 +127,20 @@ func (s *Server) handleRunTest(w http.ResponseWriter, r *http.Request) {
 		GameURL  string `json:"gameUrl"`
 		SpecPath string `json:"specPath"`
 	}
-	
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		respondError(w, http.StatusBadRequest, "Invalid request body")
 		return
 	}
-	
-	// TODO: Implement - execute wizards-qa test command
+
 	testID := fmt.Sprintf("test-%d", time.Now().Unix())
-	
+	flowDir := s.store.FlowsDir()
+	if req.SpecPath != "" {
+		flowDir = filepath.Dir(req.SpecPath)
+	}
+
+	go s.executeTestRun("", testID, flowDir, filepath.Base(flowDir))
+
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"testId":  testID,
 		"status":  "running",
@@ -151,17 +149,14 @@ func (s *Server) handleRunTest(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListReports(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement - list report files
-	reports := []map[string]interface{}{
-		{
-			"id":        "report-001",
-			"name":      "Simple Platformer Test",
-			"format":    "markdown",
-			"timestamp": time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-			"size":      "12.5 KB",
-		},
+	reports, err := s.store.ListReports()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list reports")
+		return
 	}
-	
+	if reports == nil {
+		reports = []store.ReportInfo{}
+	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"reports": reports,
 		"total":   len(reports),
@@ -170,29 +165,23 @@ func (s *Server) handleListReports(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetReport(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
-	
-	// TODO: Implement - read report file
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"id":      id,
-		"content": "# Test Report\n\n...",
-	})
+	report, err := s.store.GetReport(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Report not found")
+		return
+	}
+	respondJSON(w, http.StatusOK, report)
 }
 
 func (s *Server) handleListFlows(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement - scan flows directory
-	flows := []map[string]interface{}{
-		{
-			"name":     "click-object",
-			"category": "game-mechanics",
-			"path":     "flows/templates/game-mechanics/click-object.yaml",
-		},
-		{
-			"name":     "collect-items",
-			"category": "game-mechanics",
-			"path":     "flows/templates/game-mechanics/collect-items.yaml",
-		},
+	flows, err := s.store.ListFlows()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list flows")
+		return
 	}
-	
+	if flows == nil {
+		flows = []store.FlowInfo{}
+	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"flows": flows,
 		"total": len(flows),
@@ -201,36 +190,137 @@ func (s *Server) handleListFlows(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetFlow(w http.ResponseWriter, r *http.Request) {
 	name := chi.URLParam(r, "name")
-	
-	// TODO: Implement - read flow file
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"name":    name,
-		"content": "url: https://example.com\n---\n...",
-	})
+	flow, err := s.store.GetFlow(name)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Flow not found")
+		return
+	}
+	respondJSON(w, http.StatusOK, flow)
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {
-	// TODO: Implement - aggregate statistics
-	stats := map[string]interface{}{
-		"totalTests":    25,
-		"passedTests":   20,
-		"failedTests":   5,
-		"avgDuration":   "42s",
-		"avgSuccessRate": 85.3,
-		"recentTests": []map[string]interface{}{
-			{
-				"name":       "Simple Platformer",
-				"status":     "passed",
-				"timestamp":  time.Now().Add(-1 * time.Hour).Format(time.RFC3339),
-			},
-		},
+	stats, err := s.store.GetStats()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to get stats")
+		return
 	}
-	
 	respondJSON(w, http.StatusOK, stats)
 }
 
+func (s *Server) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	config, err := s.store.GetConfig()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to read config")
+		return
+	}
+	respondJSON(w, http.StatusOK, config)
+}
+
+func (s *Server) handleGetPerformance(w http.ResponseWriter, r *http.Request) {
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"uptime":          time.Since(startTime).String(),
+		"activeWsClients": s.wsHub.ClientCount(),
+	})
+}
+
+func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
+	templates, err := s.store.ListTemplates()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list templates")
+		return
+	}
+	if templates == nil {
+		templates = []store.TemplateInfo{}
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"templates": templates,
+		"total":     len(templates),
+	})
+}
+
+func (s *Server) handleListTestPlans(w http.ResponseWriter, r *http.Request) {
+	plans, err := s.store.ListTestPlans()
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list test plans")
+		return
+	}
+	if plans == nil {
+		plans = []store.TestPlanSummary{}
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"plans": plans,
+		"total": len(plans),
+	})
+}
+
+func (s *Server) handleCreateTestPlan(w http.ResponseWriter, r *http.Request) {
+	var plan store.TestPlan
+	if err := json.NewDecoder(r.Body).Decode(&plan); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if plan.Name == "" {
+		respondError(w, http.StatusBadRequest, "Plan name is required")
+		return
+	}
+
+	plan.ID = fmt.Sprintf("plan-%d", time.Now().UnixNano())
+	plan.Status = "draft"
+	plan.CreatedAt = time.Now().Format(time.RFC3339)
+	if plan.Variables == nil {
+		plan.Variables = make(map[string]string)
+	}
+
+	if err := s.store.SaveTestPlan(plan); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to save test plan")
+		return
+	}
+
+	respondJSON(w, http.StatusCreated, plan)
+}
+
+func (s *Server) handleGetTestPlan(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	plan, err := s.store.GetTestPlan(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Test plan not found")
+		return
+	}
+	respondJSON(w, http.StatusOK, plan)
+}
+
+func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	plan, err := s.store.GetTestPlan(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Test plan not found")
+		return
+	}
+
+	flowDir, err := s.prepareFlowDir(plan)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to prepare flows: "+err.Error())
+		return
+	}
+
+	testID := fmt.Sprintf("test-%d", time.Now().UnixNano())
+
+	go func() {
+		defer os.RemoveAll(flowDir)
+		s.executeTestRun(plan.ID, testID, flowDir, plan.Name)
+	}()
+
+	respondJSON(w, http.StatusAccepted, map[string]interface{}{
+		"testId":  testID,
+		"planId":  plan.ID,
+		"status":  "running",
+		"message": "Test execution started",
+	})
+}
+
 func (s *Server) Start() error {
-	log.Printf("🧙‍♂️ Wizards QA Dashboard starting on http://localhost:%s\n", s.port)
+	log.Printf("Wizards QA Dashboard starting on http://localhost:%s\n", s.port)
 	return http.ListenAndServe(":"+s.port, s.router)
 }
 
@@ -245,8 +335,14 @@ func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
 }
 
-// FileServer conveniently sets up a http.FileServer handler to serve
-// static files from a http.FileSystem.
+func envOrDefault(key, fallback string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return fallback
+}
+
+// FileServer serves static files from a http.FileSystem.
 func FileServer(r chi.Router, path string, root http.FileSystem) {
 	if path != "/" && path[len(path)-1] != '/' {
 		r.Get(path, http.RedirectHandler(path+"/", 301).ServeHTTP)
@@ -261,6 +357,8 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 		fs.ServeHTTP(w, r)
 	})
 }
+
+var startTime = time.Now()
 
 func main() {
 	port := os.Getenv("PORT")

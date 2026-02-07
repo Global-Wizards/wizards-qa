@@ -1,68 +1,135 @@
 <template>
   <div>
-    <h2 class="text-3xl font-bold text-gray-900 mb-6">Dashboard</h2>
-    
-    <!-- Stats Grid -->
-    <div class="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
-      <div class="stat-card">
-        <div class="text-sm font-medium text-gray-500">Total Tests</div>
-        <div class="mt-1 text-3xl font-semibold text-gray-900">{{ stats.totalTests }}</div>
-      </div>
-      
-      <div class="stat-card">
-        <div class="text-sm font-medium text-gray-500">Passed</div>
-        <div class="mt-1 text-3xl font-semibold text-green-600">{{ stats.passedTests }}</div>
-      </div>
-      
-      <div class="stat-card">
-        <div class="text-sm font-medium text-gray-500">Failed</div>
-        <div class="mt-1 text-3xl font-semibold text-red-600">{{ stats.failedTests }}</div>
-      </div>
-      
-      <div class="stat-card">
-        <div class="text-sm font-medium text-gray-500">Success Rate</div>
-        <div class="mt-1 text-3xl font-semibold text-indigo-600">{{ stats.avgSuccessRate }}%</div>
+    <div class="flex items-center justify-between mb-6">
+      <div>
+        <h2 class="text-3xl font-bold tracking-tight">Dashboard</h2>
+        <p class="text-muted-foreground">Overview of your testing activity</p>
       </div>
     </div>
 
-    <!-- Recent Tests -->
-    <div class="bg-white shadow rounded-lg p-6">
-      <h3 class="text-lg font-medium text-gray-900 mb-4">Recent Tests</h3>
-      <div class="space-y-3">
-        <div v-for="test in stats.recentTests" :key="test.name" class="flex items-center justify-between p-3 bg-gray-50 rounded">
-          <div>
-            <div class="font-medium">{{ test.name }}</div>
-            <div class="text-sm text-gray-500">{{ new Date(test.timestamp).toLocaleString() }}</div>
-          </div>
-          <span :class="['px-3 py-1 rounded-full text-sm font-medium', test.status === 'passed' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800']">
-            {{ test.status }}
-          </span>
-        </div>
+    <!-- Loading State -->
+    <template v-if="loading">
+      <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+        <LoadingSkeleton variant="card" :count="4" />
       </div>
-    </div>
+      <div class="grid gap-4 md:grid-cols-7 mb-6">
+        <LoadingSkeleton variant="chart" :count="1" class="col-span-4" />
+        <LoadingSkeleton variant="chart" :count="1" class="col-span-3" />
+      </div>
+    </template>
+
+    <!-- Error State -->
+    <Alert v-else-if="error" variant="destructive" class="mb-6">
+      <AlertCircle class="h-4 w-4" />
+      <AlertTitle>Error</AlertTitle>
+      <AlertDescription>{{ error }}</AlertDescription>
+    </Alert>
+
+    <template v-else>
+      <!-- Stat Cards -->
+      <div class="grid gap-4 md:grid-cols-2 lg:grid-cols-4 mb-6">
+        <StatCard title="Total Tests" :value="stats.totalTests" :icon="Activity" />
+        <StatCard title="Passed" :value="stats.passedTests" :icon="CheckCircle2" trend="12%" :trend-up="true" />
+        <StatCard title="Failed" :value="stats.failedTests" :icon="XCircle" />
+        <StatCard
+          title="Success Rate"
+          :value="stats.avgSuccessRate"
+          suffix="%"
+          :icon="TrendingUp"
+        />
+      </div>
+
+      <!-- Charts Row -->
+      <div class="grid gap-4 md:grid-cols-7 mb-6">
+        <Card class="col-span-4">
+          <CardHeader>
+            <CardTitle class="text-base">Test History</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <TestHistoryChart :data="stats.history || []" />
+          </CardContent>
+        </Card>
+
+        <Card class="col-span-3">
+          <CardHeader>
+            <CardTitle class="text-base">Pass / Fail Ratio</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <PassFailDonut :passed="stats.passedTests" :failed="stats.failedTests" />
+          </CardContent>
+        </Card>
+      </div>
+
+      <!-- Recent Tests -->
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-base">Recent Tests</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Name</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Duration</TableHead>
+                <TableHead>Success Rate</TableHead>
+                <TableHead class="text-right">Timestamp</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              <TableRow v-for="test in stats.recentTests" :key="test.name">
+                <TableCell class="font-medium">{{ test.name }}</TableCell>
+                <TableCell><StatusBadge :status="test.status" /></TableCell>
+                <TableCell>{{ test.duration || '-' }}</TableCell>
+                <TableCell>{{ test.successRate ? test.successRate + '%' : '-' }}</TableCell>
+                <TableCell class="text-right text-muted-foreground">
+                  {{ new Date(test.timestamp).toLocaleString() }}
+                </TableCell>
+              </TableRow>
+              <TableRow v-if="!stats.recentTests?.length">
+                <TableCell colspan="5" class="text-center text-muted-foreground py-8">
+                  No recent tests
+                </TableCell>
+              </TableRow>
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </template>
   </div>
 </template>
 
 <script setup>
 import { ref, onMounted } from 'vue'
-import axios from 'axios'
+import { Activity, CheckCircle2, XCircle, TrendingUp, AlertCircle } from 'lucide-vue-next'
+import { statsApi } from '@/lib/api'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
+import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
+import StatCard from '@/components/StatCard.vue'
+import StatusBadge from '@/components/StatusBadge.vue'
+import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
+import TestHistoryChart from '@/components/charts/TestHistoryChart.vue'
+import PassFailDonut from '@/components/charts/PassFailDonut.vue'
 
+const loading = ref(true)
+const error = ref(null)
 const stats = ref({
   totalTests: 0,
   passedTests: 0,
   failedTests: 0,
   avgSuccessRate: 0,
-  recentTests: []
+  recentTests: [],
+  history: [],
 })
 
 onMounted(async () => {
-  const { data } = await axios.get('/api/stats')
-  stats.value = data
+  try {
+    stats.value = await statsApi.getStats()
+  } catch (err) {
+    error.value = err.message
+  } finally {
+    loading.value = false
+  }
 })
 </script>
-
-<style scoped>
-.stat-card {
-  @apply bg-white overflow-hidden shadow rounded-lg px-4 py-5 sm:p-6;
-}
-</style>

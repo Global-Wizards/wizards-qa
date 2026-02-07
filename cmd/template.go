@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/Global-Wizards/wizards-qa/pkg/util"
 	"github.com/spf13/cobra"
 )
 
@@ -39,7 +40,7 @@ func newTemplateListCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			templatesDir := "flows/templates"
 			
-			fmt.Println("🧙‍♂️ Available Templates:\n")
+			fmt.Printf("%s Available Templates:\n\n", util.EmojiWizard)
 
 			// Find all template files
 			templates, err := findTemplates(templatesDir)
@@ -65,7 +66,7 @@ func newTemplateListCmd() *cobra.Command {
 
 			// Print grouped templates
 			for category, files := range categories {
-				fmt.Printf("📁 %s\n", category)
+				fmt.Printf("%s %s\n", util.EmojiFolder, category)
 				for _, file := range files {
 					fmt.Printf("   • %s\n", file)
 				}
@@ -103,8 +104,8 @@ func newTemplateShowCmd() *cobra.Command {
 				return fmt.Errorf("failed to read template: %w", err)
 			}
 
-			fmt.Printf("🧙‍♂️ Template: %s\n", templateName)
-			fmt.Printf("📄 Path: %s\n\n", templatePath)
+			fmt.Printf("%s Template: %s\n", util.EmojiWizard, templateName)
+			fmt.Printf("%s Path: %s\n\n", util.EmojiClip, templatePath)
 			fmt.Println(string(content))
 
 			return nil
@@ -171,7 +172,7 @@ Example:
 
 			// Check for unreplaced variables
 			if strings.Contains(result, "{{") {
-				fmt.Println("⚠️  Warning: Some variables may not have been replaced:")
+				fmt.Printf("%s Warning: Some variables may not have been replaced:\n", util.EmojiWarning)
 				// Extract unreplaced variables
 				lines := strings.Split(result, "\n")
 				for _, line := range lines {
@@ -203,7 +204,7 @@ Example:
 				return fmt.Errorf("failed to write output: %w", err)
 			}
 
-			fmt.Printf("✅ Template applied successfully!\n")
+			fmt.Printf("%s Template applied successfully!\n", util.EmojiPassed)
 			fmt.Printf("   Output: %s\n\n", outputPath)
 			fmt.Println("You can now run this flow with:")
 			fmt.Printf("  wizards-qa run --flows %s\n", filepath.Dir(outputPath))

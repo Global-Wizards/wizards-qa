@@ -2,23 +2,21 @@ import { createApp } from 'vue'
 import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './style.css'
+import { useTheme } from './composables/useTheme'
 
-// Import views
-import Dashboard from './views/Dashboard.vue'
-import Tests from './views/Tests.vue'
-import Reports from './views/Reports.vue'
-import Flows from './views/Flows.vue'
-
-// Router configuration
 const router = createRouter({
   history: createWebHistory(),
   routes: [
-    { path: '/', component: Dashboard },
-    { path: '/tests', component: Tests },
-    { path: '/reports', component: Reports },
-    { path: '/flows', component: Flows },
-  ]
+    { path: '/', component: () => import('./views/Dashboard.vue') },
+    { path: '/tests', component: () => import('./views/Tests.vue') },
+    { path: '/tests/new', component: () => import('./views/NewTestPlan.vue') },
+    { path: '/reports', component: () => import('./views/Reports.vue') },
+    { path: '/flows', component: () => import('./views/Flows.vue') },
+  ],
 })
+
+const { initTheme } = useTheme()
+initTheme()
 
 const app = createApp(App)
 app.use(router)

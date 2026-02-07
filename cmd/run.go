@@ -6,9 +6,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/Global-Wizards/wizards-qa/pkg/config"
 	"github.com/Global-Wizards/wizards-qa/pkg/maestro"
 	"github.com/Global-Wizards/wizards-qa/pkg/report"
+	"github.com/Global-Wizards/wizards-qa/pkg/util"
 	"github.com/spf13/cobra"
 )
 
@@ -43,13 +43,11 @@ Example:
 				return fmt.Errorf("--flows directory is required")
 			}
 
-			// Load configuration
-			cfg, err := config.Load(configPath)
+			cfg, err := loadConfig(configPath)
 			if err != nil {
-				return fmt.Errorf("failed to load config: %w", err)
+				return err
 			}
 
-			// Override config with CLI flags
 			if browser != "" {
 				cfg.Maestro.Browser = browser
 			}
@@ -61,12 +59,12 @@ Example:
 				cfg.Maestro.Timeout = duration
 			}
 
-			fmt.Printf("🧙‍♂️ Wizards QA - Flow Execution\n\n")
+			fmt.Printf("%s Wizards QA - Flow Execution\n\n", util.EmojiWizard)
 			fmt.Printf("Flows Dir: %s\n", flowsDir)
 			fmt.Printf("Browser:   %s\n", cfg.Maestro.Browser)
 			fmt.Printf("Timeout:   %s\n\n", cfg.Maestro.Timeout)
 
-			// Find all flow files
+			// Find all flow files (recursive)
 			flowFiles, err := findFlowFiles(flowsDir)
 			if err != nil {
 				return fmt.Errorf("failed to find flows: %w", err)
@@ -86,28 +84,19 @@ Example:
 
 			fmt.Printf("Capture directory: %s\n\n", captureManager.GetRunDir())
 
-			// Create executor
+			// Execute flows
 			executor := maestro.NewExecutor(cfg.Maestro.Path, cfg.Maestro.Browser, cfg.Maestro.Timeout)
 
-			// Execute flows
-			fmt.Println("Executing flows...\n")
+			fmt.Println("Executing flows...")
+			fmt.Println()
 			results, err := executor.RunFlows(flowFiles)
 			if err != nil {
 				return fmt.Errorf("execution failed: %w", err)
 			}
 
 			// Print results
-			fmt.Println("\n--- Results ---\n")
-			for i, result := range results.Flows {
-				status := "✅"
-				if result.Status != maestro.StatusPassed {
-					status = "❌"
-				}
-				fmt.Printf("%s %d. %s (%s)\n", status, i+1, result.FlowName, result.Duration.Round(time.Millisecond))
-				if result.Error != "" {
-					fmt.Printf("   Error: %s\n", result.Error)
-				}
-			}
+			fmt.Println("\n--- Results ---")
+			printResults(results)
 
 			fmt.Printf("\n--- Summary ---\n")
 			fmt.Printf("Total:   %d\n", results.Total)
@@ -133,9 +122,8 @@ Example:
 				return fmt.Errorf("failed to generate report: %w", err)
 			}
 
-			fmt.Printf("✅ Report generated: %s\n", reportPath)
+			fmt.Printf("%s Report generated: %s\n", util.EmojiPassed, reportPath)
 
-			// Exit with error if any tests failed
 			if results.Failed > 0 || results.Timeout > 0 {
 				return fmt.Errorf("some tests failed")
 			}
@@ -155,25 +143,23 @@ Example:
 	return cmd
 }
 
-// findFlowFiles finds all .yaml/.yml files in a directory
+// findFlowFiles finds all .yaml/.yml files in a directory, searching recursively.
 func findFlowFiles(dir string) ([]string, error) {
 	var files []string
 
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read directory: %w", err)
-	}
-
-	for _, entry := range entries {
-		if entry.IsDir() {
-			continue
+	err := filepath.Walk(dir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
 		}
-
-		name := entry.Name()
-		if filepath.Ext(name) == ".yaml" || filepath.Ext(name) == ".yml" {
-			files = append(files, filepath.Join(dir, name))
+		if info.IsDir() {
+			return nil
 		}
-	}
+		ext := filepath.Ext(info.Name())
+		if ext == ".yaml" || ext == ".yml" {
+			files = append(files, path)
+		}
+		return nil
+	})
 
-	return files, nil
+	return files, err
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/maestro"
+	"github.com/Global-Wizards/wizards-qa/pkg/util"
 )
 
 // Generator generates test reports from Maestro results
@@ -52,7 +53,7 @@ func (g *Generator) Generate(results *maestro.TestResults, gameName string) (str
 // generateMarkdown creates a markdown test report
 func (g *Generator) generateMarkdown(results *maestro.TestResults, gameName string) (string, error) {
 	timestamp := time.Now().Format("2006-01-02-150405")
-	filename := fmt.Sprintf("%s-report-%s.md", sanitizeFilename(gameName), timestamp)
+	filename := fmt.Sprintf("%s-report-%s.md", util.SanitizeFilename(gameName), timestamp)
 	path := filepath.Join(g.OutputDir, filename)
 
 	var md strings.Builder
@@ -144,7 +145,7 @@ func (g *Generator) generateMarkdown(results *maestro.TestResults, gameName stri
 // generateJSON creates a JSON test report
 func (g *Generator) generateJSON(results *maestro.TestResults, gameName string) (string, error) {
 	timestamp := time.Now().Format("2006-01-02-150405")
-	filename := fmt.Sprintf("%s-report-%s.json", sanitizeFilename(gameName), timestamp)
+	filename := fmt.Sprintf("%s-report-%s.json", util.SanitizeFilename(gameName), timestamp)
 	path := filepath.Join(g.OutputDir, filename)
 
 	// Create JSON structure
@@ -200,7 +201,7 @@ func (g *Generator) generateJSON(results *maestro.TestResults, gameName string) 
 // generateJUnit creates a JUnit XML test report
 func (g *Generator) generateJUnit(results *maestro.TestResults, gameName string) (string, error) {
 	timestamp := time.Now().Format("2006-01-02-150405")
-	filename := fmt.Sprintf("%s-report-%s.xml", sanitizeFilename(gameName), timestamp)
+	filename := fmt.Sprintf("%s-report-%s.xml", util.SanitizeFilename(gameName), timestamp)
 	path := filepath.Join(g.OutputDir, filename)
 
 	var xml strings.Builder
@@ -293,12 +294,3 @@ func getStatusIcon(status maestro.Status) string {
 	}
 }
 
-// sanitizeFilename removes unsafe characters from filenames
-func sanitizeFilename(name string) string {
-	unsafe := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", " "}
-	safe := name
-	for _, char := range unsafe {
-		safe = strings.ReplaceAll(safe, char, "-")
-	}
-	return safe
-}

@@ -1,0 +1,137 @@
+{
+  "results": [
+    {
+      "id": "test-001",
+      "name": "Simple Platformer",
+      "status": "passed",
+      "timestamp": "2026-02-05T10:30:00Z",
+      "duration": "45s",
+      "successRate": 100,
+      "flows": [
+        {"name": "character-movement.yaml", "status": "passed", "duration": "12.3s"},
+        {"name": "collect-items.yaml", "status": "passed", "duration": "18.7s"},
+        {"name": "victory-condition.yaml", "status": "passed", "duration": "14.0s"}
+      ]
+    },
+    {
+      "id": "test-002",
+      "name": "Puzzle Game",
+      "status": "failed",
+      "timestamp": "2026-02-05T11:15:00Z",
+      "duration": "32s",
+      "successRate": 66.7,
+      "flows": [
+        {"name": "click-object.yaml", "status": "passed", "duration": "8.2s"},
+        {"name": "collect-items.yaml", "status": "passed", "duration": "12.1s"},
+        {"name": "victory-condition.yaml", "status": "failed", "duration": "11.7s"}
+      ],
+      "errorOutput": "AssertionError: Expected 'Victory!' text not found on screen after 10s timeout"
+    },
+    {
+      "id": "test-003",
+      "name": "RPG Adventure",
+      "status": "passed",
+      "timestamp": "2026-02-05T14:00:00Z",
+      "duration": "67s",
+      "successRate": 100,
+      "flows": [
+        {"name": "character-movement.yaml", "status": "passed", "duration": "15.2s"},
+        {"name": "click-object.yaml", "status": "passed", "duration": "22.0s"},
+        {"name": "enemy-collision.yaml", "status": "passed", "duration": "29.8s"}
+      ]
+    },
+    {
+      "id": "test-004",
+      "name": "Space Shooter",
+      "status": "passed",
+      "timestamp": "2026-02-06T09:00:00Z",
+      "duration": "38s",
+      "successRate": 100,
+      "flows": [
+        {"name": "character-movement.yaml", "status": "passed", "duration": "10.5s"},
+        {"name": "enemy-collision.yaml", "status": "passed", "duration": "15.3s"},
+        {"name": "game-over.yaml", "status": "passed", "duration": "12.2s"}
+      ]
+    },
+    {
+      "id": "test-005",
+      "name": "Maze Runner",
+      "status": "failed",
+      "timestamp": "2026-02-06T10:30:00Z",
+      "duration": "55s",
+      "successRate": 50,
+      "flows": [
+        {"name": "character-movement.yaml", "status": "passed", "duration": "20.1s"},
+        {"name": "collect-items.yaml", "status": "failed", "duration": "18.4s"},
+        {"name": "victory-condition.yaml", "status": "failed", "duration": "16.5s"}
+      ],
+      "errorOutput": "TimeoutError: Item at coordinates (234, 567) not reachable within 15s"
+    },
+    {
+      "id": "test-006",
+      "name": "Card Game",
+      "status": "passed",
+      "timestamp": "2026-02-06T14:45:00Z",
+      "duration": "28s",
+      "successRate": 100,
+      "flows": [
+        {"name": "click-object.yaml", "status": "passed", "duration": "14.0s"},
+        {"name": "victory-condition.yaml", "status": "passed", "duration": "14.0s"}
+      ]
+    },
+    {
+      "id": "test-007",
+      "name": "Racing Game",
+      "status": "passed",
+      "timestamp": "2026-02-07T08:00:00Z",
+      "duration": "52s",
+      "successRate": 100,
+      "flows": [
+        {"name": "character-movement.yaml", "status": "passed", "duration": "18.3s"},
+        {"name": "collect-items.yaml", "status": "passed", "duration": "20.7s"},
+        {"name": "victory-condition.yaml", "status": "passed", "duration": "13.0s"}
+      ]
+    },
+    {
+      "id": "test-008",
+      "name": "Tower Defense",
+      "status": "failed",
+      "timestamp": "2026-02-07T09:30:00Z",
+      "duration": "41s",
+      "successRate": 75,
+      "flows": [
+        {"name": "click-object.yaml", "status": "passed", "duration": "8.5s"},
+        {"name": "enemy-collision.yaml", "status": "passed", "duration": "12.2s"},
+        {"name": "collect-items.yaml", "status": "passed", "duration": "10.8s"},
+        {"name": "game-over.yaml", "status": "failed", "duration": "9.5s"}
+      ],
+      "errorOutput": "AssertionError: Game over screen did not display retry button"
+    },
+    {
+      "id": "test-009",
+      "name": "Platformer v2",
+      "status": "passed",
+      "timestamp": "2026-02-07T11:00:00Z",
+      "duration": "39s",
+      "successRate": 100,
+      "flows": [
+        {"name": "character-movement.yaml", "status": "passed", "duration": "11.0s"},
+        {"name": "enemy-collision.yaml", "status": "passed", "duration": "14.5s"},
+        {"name": "victory-condition.yaml", "status": "passed", "duration": "13.5s"}
+      ]
+    },
+    {
+      "id": "test-010",
+      "name": "Match-3 Puzzle",
+      "status": "passed",
+      "timestamp": "2026-02-07T13:15:00Z",
+      "duration": "33s",
+      "successRate": 100,
+      "flows": [
+        {"name": "click-object.yaml", "status": "passed", "duration": "16.5s"},
+        {"name": "collect-items.yaml", "status": "passed", "duration": "16.5s"}
+      ]
+    }
+  ],
+  "updated": "2026-02-07T13:15:00Z"
+}

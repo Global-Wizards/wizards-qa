@@ -1,0 +1,86 @@
+package ai
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/Global-Wizards/wizards-qa/pkg/retry"
+)
+
+// APICallerOnce is the interface that provider-specific clients must implement.
+type APICallerOnce interface {
+	callAPIOnce(prompt string) (string, error)
+}
+
+// BaseClient contains shared fields and methods for AI provider clients.
+type BaseClient struct {
+	APIKey      string
+	Model       string
+	Temperature float64
+	MaxTokens   int
+	HTTPClient  *http.Client
+	caller      APICallerOnce
+}
+
+// NewBaseClient creates a BaseClient with standard HTTP settings.
+func NewBaseClient(apiKey, model string, temperature float64, maxTokens int, caller APICallerOnce) BaseClient {
+	return BaseClient{
+		APIKey:      apiKey,
+		Model:       model,
+		Temperature: temperature,
+		MaxTokens:   maxTokens,
+		HTTPClient: &http.Client{
+			Timeout: 120 * time.Second,
+		},
+		caller: caller,
+	}
+}
+
+// Analyze sends a prompt and returns structured analysis.
+func (b *BaseClient) Analyze(prompt string, ctx map[string]interface{}) (*AnalysisResult, error) {
+	fullPrompt := BuildAnalysisPrompt(prompt, ctx)
+
+	response, err := b.callAPI(fullPrompt)
+	if err != nil {
+		return nil, fmt.Errorf("API call failed: %w", err)
+	}
+
+	var result AnalysisResult
+	if err := json.Unmarshal([]byte(response), &result); err != nil {
+		return &AnalysisResult{
+			RawResponse: response,
+		}, nil
+	}
+
+	return &result, nil
+}
+
+// Generate sends a prompt and returns raw text response.
+func (b *BaseClient) Generate(prompt string, ctx map[string]interface{}) (string, error) {
+	fullPrompt := BuildGenerationPrompt(prompt, ctx)
+
+	response, err := b.callAPI(fullPrompt)
+	if err != nil {
+		return "", fmt.Errorf("API call failed: %w", err)
+	}
+
+	return response, nil
+}
+
+// callAPI makes an HTTP request with retry logic, delegating to the provider's callAPIOnce.
+func (b *BaseClient) callAPI(prompt string) (string, error) {
+	var response string
+	err := retry.Do(context.Background(), retry.DefaultConfig(), func() error {
+		resp, err := b.caller.callAPIOnce(prompt)
+		if err != nil {
+			return err
+		}
+		response = resp
+		return nil
+	})
+
+	return response, err
+}

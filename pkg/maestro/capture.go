@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/Global-Wizards/wizards-qa/pkg/util"
 )
 
 // CaptureManager manages screenshots and video capture for test runs
@@ -70,44 +72,20 @@ func (cm *CaptureManager) GetLogDir() string {
 
 // GetScreenshotPath returns the path for a specific screenshot
 func (cm *CaptureManager) GetScreenshotPath(flowName, screenshotName string) string {
-	safeFlowName := sanitizeFilename(flowName)
+	safeFlowName := util.SanitizeFilename(flowName)
 	return filepath.Join(cm.GetScreenshotDir(), fmt.Sprintf("%s-%s", safeFlowName, screenshotName))
 }
 
 // GetVideoPath returns the path for a specific video
 func (cm *CaptureManager) GetVideoPath(flowName string) string {
-	safeFlowName := sanitizeFilename(flowName)
+	safeFlowName := util.SanitizeFilename(flowName)
 	return filepath.Join(cm.GetVideoDir(), fmt.Sprintf("%s.mp4", safeFlowName))
 }
 
 // GetLogPath returns the path for a specific log file
 func (cm *CaptureManager) GetLogPath(flowName string) string {
-	safeFlowName := sanitizeFilename(flowName)
+	safeFlowName := util.SanitizeFilename(flowName)
 	return filepath.Join(cm.GetLogDir(), fmt.Sprintf("%s.log", safeFlowName))
-}
-
-// sanitizeFilename removes unsafe characters from filenames
-func sanitizeFilename(name string) string {
-	// Remove file extension if present
-	if ext := filepath.Ext(name); ext != "" {
-		name = name[:len(name)-len(ext)]
-	}
-
-	// Replace unsafe characters
-	unsafe := []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", " "}
-	safe := name
-	for _, char := range unsafe {
-		safe = filepath.Clean(safe)
-		safe = filepath.ToSlash(safe)
-		// Simple replacement with dash
-		for i := 0; i < len(safe); i++ {
-			if string(safe[i]) == char {
-				safe = safe[:i] + "-" + safe[i+1:]
-			}
-		}
-	}
-
-	return safe
 }
 
 // CleanupOldRuns removes test runs older than the specified duration

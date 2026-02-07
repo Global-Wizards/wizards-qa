@@ -12,6 +12,7 @@ type Cache struct {
 	items map[string]*cacheItem
 	mu    sync.RWMutex
 	ttl   time.Duration
+	done  chan struct{}
 }
 
 type cacheItem struct {
@@ -24,29 +25,36 @@ func New(ttl time.Duration) *Cache {
 	c := &Cache{
 		items: make(map[string]*cacheItem),
 		ttl:   ttl,
+		done:  make(chan struct{}),
 	}
-	
+
 	// Start cleanup goroutine
 	go c.cleanup()
-	
+
 	return c
+}
+
+// Stop terminates the background cleanup goroutine.
+// The cache should not be used after calling Stop.
+func (c *Cache) Stop() {
+	close(c.done)
 }
 
 // Get retrieves a value from the cache
 func (c *Cache) Get(key string) (interface{}, bool) {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	item, found := c.items[key]
 	if !found {
 		return nil, false
 	}
-	
+
 	// Check if expired
 	if time.Now().After(item.expiration) {
 		return nil, false
 	}
-	
+
 	return item.value, true
 }
 
@@ -54,7 +62,7 @@ func (c *Cache) Get(key string) (interface{}, bool) {
 func (c *Cache) Set(key string, value interface{}) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.items[key] = &cacheItem{
 		value:      value,
 		expiration: time.Now().Add(c.ttl),
@@ -65,7 +73,7 @@ func (c *Cache) Set(key string, value interface{}) {
 func (c *Cache) Delete(key string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	delete(c.items, key)
 }
 
@@ -73,7 +81,7 @@ func (c *Cache) Delete(key string) {
 func (c *Cache) Clear() {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	
+
 	c.items = make(map[string]*cacheItem)
 }
 
@@ -81,7 +89,7 @@ func (c *Cache) Clear() {
 func (c *Cache) Size() int {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	
+
 	return len(c.items)
 }
 
@@ -89,16 +97,21 @@ func (c *Cache) Size() int {
 func (c *Cache) cleanup() {
 	ticker := time.NewTicker(c.ttl / 2)
 	defer ticker.Stop()
-	
-	for range ticker.C {
-		c.mu.Lock()
-		now := time.Now()
-		for key, item := range c.items {
-			if now.After(item.expiration) {
-				delete(c.items, key)
+
+	for {
+		select {
+		case <-c.done:
+			return
+		case <-ticker.C:
+			c.mu.Lock()
+			now := time.Now()
+			for key, item := range c.items {
+				if now.After(item.expiration) {
+					delete(c.items, key)
+				}
 			}
+			c.mu.Unlock()
 		}
-		c.mu.Unlock()
 	}
 }
 
@@ -129,7 +142,7 @@ func (fc *FileCache) Get(path string) ([]byte, bool) {
 	if !ok {
 		return nil, false
 	}
-	
+
 	content, ok := val.([]byte)
 	return content, ok
 }
@@ -142,4 +155,9 @@ func (fc *FileCache) Set(path string, content []byte) {
 // Clear clears the cache
 func (fc *FileCache) Clear() {
 	fc.cache.Clear()
+}
+
+// Stop terminates the background cleanup goroutine of the underlying cache.
+func (fc *FileCache) Stop() {
+	fc.cache.Stop()
 }

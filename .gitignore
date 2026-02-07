@@ -1,0 +1,6 @@
+**/node_modules/
+web/frontend/dist/
+web/backend/backend
+*.exe
+.env
+screenshots/
