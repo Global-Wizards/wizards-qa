@@ -2,11 +2,14 @@ package maestro
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/Global-Wizards/wizards-qa/pkg/parallel"
 )
 
 // Executor handles Maestro CLI execution
@@ -105,19 +108,55 @@ func (e *Executor) RunFlow(flowPath string) (*TestResult, error) {
 
 // RunFlows executes multiple flow files
 func (e *Executor) RunFlows(flowPaths []string) (*TestResults, error) {
-	results := &TestResults{
-		StartTime: time.Now(),
-		Flows:     make([]*TestResult, 0, len(flowPaths)),
+	return e.RunFlowsWithOptions(flowPaths, nil)
+}
+
+// RunFlowsWithOptions executes flows with custom options
+func (e *Executor) RunFlowsWithOptions(flowPaths []string, opts *ExecutionOptions) (*TestResults, error) {
+	if opts == nil {
+		opts = DefaultExecutionOptions()
 	}
 
-	for _, flowPath := range flowPaths {
-		result, err := e.RunFlow(flowPath)
-		if err != nil {
-			return results, fmt.Errorf("failed to run flow %s: %w", flowPath, err)
-		}
-		results.Flows = append(results.Flows, result)
+	results := &TestResults{
+		StartTime: time.Now(),
+		Flows:     make([]*TestResult, len(flowPaths)),
+	}
 
-		// Update summary
+	if opts.Parallel {
+		// Parallel execution
+		tasks := make([]parallel.Task, len(flowPaths))
+		for i, path := range flowPaths {
+			p := path
+			idx := i
+			tasks[i] = func() error {
+				result, err := e.RunFlow(p)
+				if err != nil {
+					return err
+				}
+				results.Flows[idx] = result
+				return nil
+			}
+		}
+		
+		errors := parallel.Execute(context.Background(), tasks, opts.MaxConcurrency)
+		for _, err := range errors {
+			if err != nil {
+				return results, fmt.Errorf("parallel execution failed: %w", err)
+			}
+		}
+	} else {
+		// Sequential execution
+		for i, flowPath := range flowPaths {
+			result, err := e.RunFlow(flowPath)
+			if err != nil {
+				return results, fmt.Errorf("failed to run flow %s: %w", flowPath, err)
+			}
+			results.Flows[i] = result
+		}
+	}
+
+	// Update summary
+	for _, result := range results.Flows {
 		switch result.Status {
 		case StatusPassed:
 			results.Passed++
@@ -132,6 +171,26 @@ func (e *Executor) RunFlows(flowPaths []string) (*TestResults, error) {
 	results.Total = len(flowPaths)
 
 	return results, nil
+}
+
+// ExecutionOptions configures flow execution
+type ExecutionOptions struct {
+	Parallel       bool
+	MaxConcurrency int
+	FailFast       bool
+	Retry          bool
+	RetryAttempts  int
+}
+
+// DefaultExecutionOptions returns sensible defaults
+func DefaultExecutionOptions() *ExecutionOptions {
+	return &ExecutionOptions{
+		Parallel:       false,
+		MaxConcurrency: 4,
+		FailFast:       false,
+		Retry:          false,
+		RetryAttempts:  1,
+	}
 }
 
 // ValidateFlow checks if a flow file is valid

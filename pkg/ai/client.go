@@ -2,11 +2,14 @@ package ai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/Global-Wizards/wizards-qa/pkg/retry"
 )
 
 // Client is an interface for AI providers
@@ -106,8 +109,23 @@ func (c *ClaudeClient) Generate(prompt string, context map[string]interface{}) (
 	return response, nil
 }
 
-// callAPI makes the actual HTTP request to Claude
+// callAPI makes the actual HTTP request to Claude with retry logic
 func (c *ClaudeClient) callAPI(prompt string) (string, error) {
+	var response string
+	err := retry.Do(context.Background(), retry.DefaultConfig(), func() error {
+		resp, err := c.callAPIOnce(prompt)
+		if err != nil {
+			return err
+		}
+		response = resp
+		return nil
+	})
+	
+	return response, err
+}
+
+// callAPIOnce makes a single API request
+func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
 	// Build request
 	req := claudeRequest{
 		Model:       c.Model,

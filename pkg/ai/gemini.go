@@ -2,11 +2,14 @@ package ai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/Global-Wizards/wizards-qa/pkg/retry"
 )
 
 // GeminiClient implements the Client interface for Google Gemini
@@ -108,8 +111,23 @@ func (g *GeminiClient) Generate(prompt string, context map[string]interface{}) (
 	return response, nil
 }
 
-// callAPI makes the actual HTTP request to Gemini
+// callAPI makes the actual HTTP request to Gemini with retry logic
 func (g *GeminiClient) callAPI(prompt string) (string, error) {
+	var response string
+	err := retry.Do(context.Background(), retry.DefaultConfig(), func() error {
+		resp, err := g.callAPIOnce(prompt)
+		if err != nil {
+			return err
+		}
+		response = resp
+		return nil
+	})
+	
+	return response, err
+}
+
+// callAPIOnce makes a single API request
+func (g *GeminiClient) callAPIOnce(prompt string) (string, error) {
 	// Build API URL
 	url := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
 		g.Model, g.APIKey)
