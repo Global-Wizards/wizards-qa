@@ -1,0 +1,44 @@
+# Template: Character Movement
+# Use for testing player movement controls
+
+url: {{GAME_URL}}
+---
+# Launch game
+- launchApp
+- waitFor:
+    visible: true
+    timeout: 10000
+
+# Start gameplay
+- assertVisible: "Start"
+- tapOn: "Start"
+- waitFor:
+    timeout: 2000
+
+# Test movement - Move right
+- tapOn:
+    point: 70%,50%
+- waitFor:
+    timeout: 500
+- captureScreenshot: moved-right.png
+
+# Move left
+- tapOn:
+    point: 30%,50%
+- waitFor:
+    timeout: 500
+- captureScreenshot: moved-left.png
+
+# Jump (if applicable)
+- tapOn:
+    point: 50%,40%
+- waitFor:
+    timeout: 500
+- captureScreenshot: jumped.png
+
+# Return to center
+- tapOn:
+    point: 50%,50%
+- waitFor:
+    timeout: 500
+- captureScreenshot: center-position.png

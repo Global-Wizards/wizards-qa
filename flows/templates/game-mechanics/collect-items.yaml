@@ -1,0 +1,48 @@
+# Template: Collect Items
+# Use for testing item collection mechanics in games
+
+url: {{GAME_URL}}
+---
+# Launch and wait for game
+- launchApp
+- waitFor:
+    visible: true
+    timeout: 10000
+
+# Start game
+- assertVisible: "Start Game"
+- tapOn: "Start Game"
+- waitFor:
+    timeout: 2000
+
+# Initial score check
+- assertVisible: "Score: 0"
+- captureScreenshot: before-collection.png
+
+# Move to first item location
+- tapOn:
+    point: {{ITEM1_X}},{{ITEM1_Y}}
+- waitFor:
+    timeout: 1000
+
+# Verify score increased
+- assertVisible: "Score:"
+- captureScreenshot: after-item1.png
+
+# Move to second item
+- tapOn:
+    point: {{ITEM2_X}},{{ITEM2_Y}}
+- waitFor:
+    timeout: 1000
+- captureScreenshot: after-item2.png
+
+# Move to third item
+- tapOn:
+    point: {{ITEM3_X}},{{ITEM3_Y}}
+- waitFor:
+    timeout: 1000
+- captureScreenshot: after-item3.png
+
+# Verify final score
+- assertVisible: "Score:"
+- captureScreenshot: collection-complete.png

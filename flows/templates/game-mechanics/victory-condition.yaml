@@ -1,0 +1,38 @@
+# Template: Victory Condition
+# Use for testing win state and victory screens
+
+url: {{GAME_URL}}
+---
+# Launch and start game
+- launchApp
+- waitFor:
+    visible: true
+    timeout: 10000
+- assertVisible: "Start"
+- tapOn: "Start"
+- waitFor:
+    timeout: 2000
+
+# Perform actions to reach victory
+# (Customize these steps based on game)
+- tapOn:
+    point: {{GOAL_X}},{{GOAL_Y}}
+- waitFor:
+    timeout: 2000
+
+# Verify victory screen appears
+- assertVisible: "{{VICTORY_TEXT}}"
+- captureScreenshot: victory-screen.png
+
+# Check for victory-specific UI elements
+- assertVisible: "{{SCORE_TEXT}}"
+- assertVisible: "{{TIME_TEXT}}"
+
+# Verify next level/continue button
+- assertVisible: "{{CONTINUE_BUTTON}}"
+- captureScreenshot: victory-complete.png
+
+# Optional: Click continue
+- tapOn: "{{CONTINUE_BUTTON}}"
+- waitFor:
+    timeout: 2000

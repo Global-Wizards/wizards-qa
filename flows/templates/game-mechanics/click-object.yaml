@@ -1,0 +1,29 @@
+# Template: Click Object (Canvas Game)
+# Use this template for clicking on game objects in canvas-based games
+
+# For HTML elements (buttons, menus)
+url: {{GAME_URL}}
+---
+# Wait for game to load
+- launchApp
+- waitFor:
+    visible: true
+    timeout: 10000
+
+# Click HTML button
+- assertVisible: "{{BUTTON_TEXT}}"
+- tapOn: "{{BUTTON_TEXT}}"
+
+# Wait for canvas to initialize
+- waitFor:
+    timeout: 3000
+
+# Click canvas object by coordinates
+- tapOn:
+    point: {{X_COORD}},{{Y_COORD}}
+
+# Take screenshot to verify
+- captureScreenshot: click-{{OBJECT_NAME}}.png
+
+# Verify expected result (if HTML overlay exists)
+- assertVisible: "{{EXPECTED_TEXT}}"

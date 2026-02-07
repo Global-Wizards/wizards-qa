@@ -1,0 +1,39 @@
+# Template: Enemy Collision
+# Use for testing enemy/obstacle collision detection
+
+url: {{GAME_URL}}
+---
+# Launch and start game
+- launchApp
+- waitFor:
+    visible: true
+    timeout: 10000
+- assertVisible: "Start"
+- tapOn: "Start"
+- waitFor:
+    timeout: 2000
+
+# Check initial lives/health
+- assertVisible: "{{LIVES_TEXT}}"
+- captureScreenshot: before-collision.png
+
+# Move toward enemy
+- tapOn:
+    point: {{ENEMY_X}},{{ENEMY_Y}}
+- waitFor:
+    timeout: 1000
+
+# Verify damage was taken
+- assertVisible: "{{LIVES_TEXT}}"
+- captureScreenshot: after-collision.png
+
+# Wait for recovery/invincibility to end
+- waitFor:
+    timeout: 2000
+
+# Test second collision
+- tapOn:
+    point: {{ENEMY_X}},{{ENEMY_Y}}
+- waitFor:
+    timeout: 1000
+- captureScreenshot: second-collision.png

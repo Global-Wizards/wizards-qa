@@ -1,0 +1,50 @@
+# Template: Game Over State
+# Use for testing failure conditions and game over screens
+
+url: {{GAME_URL}}
+---
+# Launch and start game
+- launchApp
+- waitFor:
+    visible: true
+    timeout: 10000
+- assertVisible: "Start"
+- tapOn: "Start"
+- waitFor:
+    timeout: 2000
+
+# Deliberately trigger game over
+# (Customize based on game - this example uses enemy collision)
+- tapOn:
+    point: {{ENEMY_X}},{{ENEMY_Y}}
+- waitFor:
+    timeout: 1500
+
+# Second death
+- tapOn:
+    point: {{ENEMY_X}},{{ENEMY_Y}}
+- waitFor:
+    timeout: 1500
+
+# Third death (game over)
+- tapOn:
+    point: {{ENEMY_X}},{{ENEMY_Y}}
+- waitFor:
+    timeout: 2000
+
+# Verify game over screen
+- assertVisible: "{{GAME_OVER_TEXT}}"
+- captureScreenshot: game-over-screen.png
+
+# Verify final score
+- assertVisible: "Score:"
+- captureScreenshot: game-over-details.png
+
+# Verify retry button
+- assertVisible: "{{RETRY_BUTTON}}"
+
+# Optional: Test retry
+- tapOn: "{{RETRY_BUTTON}}"
+- waitFor:
+    timeout: 2000
+- assertVisible: "Start"
