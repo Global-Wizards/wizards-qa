@@ -1,0 +1,40 @@
+# Wizards QA Configuration File
+# Copy this file to wizards-qa.yaml and customize for your environment
+
+# AI Configuration
+ai:
+  provider: anthropic  # anthropic | google | openai
+  model: claude-sonnet-4-5
+  apiKey: ${ANTHROPIC_API_KEY}  # Use environment variable
+  temperature: 0.7
+  maxTokens: 8000
+
+# Maestro CLI Configuration
+maestro:
+  path: maestro  # Or full path: /usr/local/bin/maestro
+  browser: chrome  # chrome | firefox | safari
+  timeout: 5m
+  screenshotDir: ./screenshots
+  videoCapture: false
+
+# Flow Management
+flows:
+  directory: ./flows
+  templates: ./flows/templates
+  gitCommit: false
+  gitRepo: ""  # Optional: https://github.com/org/game-test-flows
+
+# Test Reporting
+reporting:
+  format: markdown  # markdown | json | junit
+  outputDir: ./reports
+  includeScreenshots: true
+  includeVideos: false
+
+# Browser Automation (for game analysis)
+browser:
+  headless: true
+  viewport:
+    width: 1920
+    height: 1080
+  timeout: 30s

@@ -32,6 +32,7 @@ Usage:
 	rootCmd.AddCommand(newRunCmd())
 	rootCmd.AddCommand(newValidateCmd())
 	rootCmd.AddCommand(newTemplateCmd())
+	rootCmd.AddCommand(newConfigCmd())
 
 	if err := rootCmd.Execute(); err != nil {
 		fmt.Fprintln(os.Stderr, err)
