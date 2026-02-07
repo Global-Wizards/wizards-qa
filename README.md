@@ -103,12 +103,33 @@ Check flow file syntax before execution:
 
 ### Manage Templates
 
-List and manage reusable flow templates:
+Browse, view, and apply reusable flow templates:
 
 ```bash
-./wizards-qa template --list
-./wizards-qa template --show login
+# List all available templates
+./wizards-qa template list
+
+# View a specific template
+./wizards-qa template show click-object
+
+# Apply template with variables
+./wizards-qa template apply click-object \
+  --output flows/my-game/test.yaml \
+  --var GAME_URL=https://game.com \
+  --var X_COORD=50% \
+  --var Y_COORD=50% \
+  --var BUTTON_TEXT="Start Game"
 ```
+
+**Available Templates:**
+- `click-object` - Click canvas objects by coordinates
+- `collect-items` - Test item collection mechanics
+- `character-movement` - Test player movement controls
+- `enemy-collision` - Test collision detection
+- `victory-condition` - Test win states
+- `game-over` - Test failure conditions
+
+See `flows/templates/README.md` for detailed template documentation.
 
 ## 📋 Game Specification Format
 
