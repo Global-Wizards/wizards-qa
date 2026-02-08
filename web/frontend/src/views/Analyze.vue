@@ -25,9 +25,16 @@
             Enter a valid URL starting with http:// or https://
           </p>
         </div>
-        <Button :disabled="!isValidUrl(gameUrl) || analyzing" @click="handleAnalyze">
-          {{ analyzing ? 'Starting...' : 'Analyze Game' }}
-        </Button>
+        <div class="flex items-center gap-4">
+          <Button :disabled="!isValidUrl(gameUrl) || analyzing" @click="handleAnalyze">
+            {{ analyzing ? 'Starting...' : 'Analyze Game' }}
+          </Button>
+          <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <input type="checkbox" v-model="useAgentMode" class="rounded border-gray-300" />
+            Agent Mode
+            <span class="text-xs text-muted-foreground">(AI explores the game interactively)</span>
+          </label>
+        </div>
       </CardContent>
     </Card>
 
@@ -83,8 +90,14 @@
               :sub-details="scoutingDetails"
             />
             <ProgressStep
+              v-if="agentMode"
+              :status="agentExplorationStatus"
+              label="Agent exploring game"
+              :detail="agentExplorationDetail"
+            />
+            <ProgressStep
               :status="granularStepStatus('analyzing')"
-              label="Analyzing game mechanics"
+              :label="agentMode ? 'Synthesizing analysis' : 'Analyzing game mechanics'"
               :detail="analyzingDetail"
               :sub-details="analysisDetails"
             />
@@ -190,6 +203,34 @@
                 <ul class="ml-4 list-disc">
                   <li v-for="ec in analysis.edgeCases" :key="ec.name">{{ ec.name }}: {{ ec.description }}</li>
                 </ul>
+              </div>
+            </div>
+          </details>
+
+          <!-- Agent Exploration (agent mode only) -->
+          <details v-if="agentStepsList.length" class="group">
+            <summary class="cursor-pointer text-sm font-medium">Agent Exploration ({{ agentStepsList.length }} steps)</summary>
+            <div class="mt-2 space-y-2">
+              <div
+                v-for="step in agentStepsList"
+                :key="step.stepNumber + '-' + step.toolName"
+                class="flex items-start gap-3 p-2 rounded-md border text-sm"
+              >
+                <Badge variant="outline" class="shrink-0 mt-0.5">{{ step.stepNumber }}</Badge>
+                <div class="min-w-0 flex-1">
+                  <div class="font-medium">{{ step.toolName }}</div>
+                  <div class="text-xs text-muted-foreground font-mono truncate" :title="step.input">{{ step.input }}</div>
+                  <div v-if="step.error" class="text-xs text-destructive mt-1">{{ step.error }}</div>
+                  <div v-else class="text-xs text-muted-foreground mt-1 truncate" :title="step.result">{{ step.result }}</div>
+                  <div class="text-xs text-muted-foreground">{{ step.durationMs }}ms</div>
+                </div>
+                <img
+                  v-if="step.screenshotB64"
+                  :src="'data:image/jpeg;base64,' + step.screenshotB64"
+                  class="w-24 h-auto rounded border cursor-pointer shrink-0"
+                  alt="Step screenshot"
+                  @click="expandAgentScreenshot(step)"
+                />
               </div>
             </div>
           </details>
@@ -312,8 +353,14 @@
             :sub-details="scoutingDetails"
           />
           <ProgressStep
+            v-if="agentMode"
+            :status="agentExplorationStatus"
+            label="Agent exploring game"
+            :detail="agentExplorationDetail"
+          />
+          <ProgressStep
             :status="granularStepStatus('analyzing')"
-            label="Analyzing game mechanics"
+            :label="agentMode ? 'Synthesizing analysis' : 'Analyzing game mechanics'"
             :detail="stepDuration('analyzing') ? `${stepDuration('analyzing')}s` : ''"
             :sub-details="analysisDetails"
           />
@@ -365,6 +412,24 @@
         </div>
       </DialogContent>
     </Dialog>
+
+    <!-- Agent Screenshot Dialog -->
+    <Dialog :open="agentScreenshotOpen" @update:open="agentScreenshotOpen = $event">
+      <DialogContent class="max-w-4xl max-h-[90vh] overflow-auto">
+        <DialogHeader>
+          <DialogTitle>Step {{ agentScreenshotStep?.stepNumber }}: {{ agentScreenshotStep?.toolName }}</DialogTitle>
+          <DialogDescription>{{ agentScreenshotStep?.result }}</DialogDescription>
+        </DialogHeader>
+        <div class="mt-4">
+          <img
+            v-if="agentScreenshotStep?.screenshotB64"
+            :src="'data:image/jpeg;base64,' + agentScreenshotStep.screenshotB64"
+            class="w-full rounded-md border"
+            alt="Agent step screenshot"
+          />
+        </div>
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
@@ -391,6 +456,7 @@ const { currentProject } = useProject()
 const projectId = computed(() => route.params.projectId || '')
 const gameUrl = ref('')
 const analyzing = ref(false)
+const useAgentMode = ref(false)
 const recentAnalyses = ref([])
 const logContainer = ref(null)
 const currentAnalysisId = ref(null)
@@ -401,6 +467,10 @@ const previewFlowData = ref(null)
 const previewFlowYaml = ref('')
 const flowCopied = ref(false)
 
+// Agent screenshot preview state
+const agentScreenshotOpen = ref(false)
+const agentScreenshotStep = ref(null)
+
 const {
   status,
   currentStep,
@@ -408,6 +478,8 @@ const {
   pageMeta,
   analysis,
   flows: flowList,
+  agentSteps: agentStepsList,
+  agentMode,
   error: analysisError,
   logs,
   elapsedSeconds,
@@ -503,6 +575,29 @@ const flowsDetail = computed(() => {
   return dur ? `Working... (${dur}s)` : ''
 })
 
+const agentExplorationStatus = computed(() => {
+  const agentSteps = ['agent_start', 'agent_step', 'agent_action']
+  const doneSteps = ['agent_done', 'agent_synthesize', 'analyzing', 'analyzed', 'flows', 'flows_done', 'complete']
+  if (doneSteps.includes(currentStep.value)) return 'complete'
+  if (agentSteps.includes(currentStep.value)) return 'active'
+  if (stepOrder(currentStep.value) < stepOrder('agent_start')) return 'pending'
+  return 'pending'
+})
+
+const agentExplorationDetail = computed(() => {
+  if (!agentMode.value) return ''
+  const lastAgentLog = logs.value.filter(l => l.includes('Step') || l.includes('agent')).pop()
+  if (currentStep.value === 'agent_done' || stepOrder(currentStep.value) > stepOrder('agent_done')) {
+    return `Exploration complete (${agentStepsList.value?.length || 0} steps)`
+  }
+  return lastAgentLog || 'AI is exploring the game...'
+})
+
+function expandAgentScreenshot(step) {
+  agentScreenshotStep.value = step
+  agentScreenshotOpen.value = true
+}
+
 function truncateUrl(urlStr, maxLen = 50) {
   if (!urlStr || urlStr.length <= maxLen) return urlStr
   try {
@@ -527,7 +622,7 @@ function isValidUrl(str) {
 }
 
 // Ordered step names for granular progress
-const STEP_ORDER = ['scouting', 'scouted', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_done', 'saving', 'complete']
+const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_done', 'agent_synthesize', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_done', 'saving', 'complete']
 
 function stepOrder(step) {
   const idx = STEP_ORDER.indexOf(step)
@@ -600,7 +695,7 @@ async function handleAnalyze() {
   if (!isValidUrl(gameUrl.value)) return
   analyzing.value = true
   try {
-    await start(gameUrl.value, projectId.value)
+    await start(gameUrl.value, projectId.value, useAgentMode.value)
   } catch {
     analyzing.value = false
   }
@@ -621,6 +716,7 @@ watch(status, (val) => {
 function handleReset() {
   reset()
   analyzing.value = false
+  useAgentMode.value = false
   gameUrl.value = ''
   currentAnalysisId.value = null
   loadRecentAnalyses()
@@ -732,6 +828,8 @@ async function viewAnalysis(item) {
       pageMeta.value = data.result.pageMeta || null
       analysis.value = data.result.analysis || null
       flowList.value = data.result.flows || []
+      agentStepsList.value = data.result.agentSteps || []
+      agentMode.value = data.result.mode === 'agent'
       gameUrl.value = data.gameUrl || ''
       currentAnalysisId.value = data.id
       status.value = 'complete'

@@ -22,6 +22,11 @@ type ImageAnalyzer interface {
 	AnalyzeWithImages(systemPrompt string, prompt string, imagesB64 []string) (string, error)
 }
 
+// ToolUseAgent is an optional interface for AI clients that support tool use (agentic) interactions.
+type ToolUseAgent interface {
+	CallWithTools(systemPrompt string, messages []AgentMessage, tools []ToolDefinition) (*ToolUseResponse, error)
+}
+
 // BaseClient contains shared fields and methods for AI provider clients.
 type BaseClient struct {
 	APIKey      string

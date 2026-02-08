@@ -22,6 +22,8 @@ func newScoutCmd() *cobra.Command {
 		configPath string
 		headless   bool
 		timeout    int
+		agentMode  bool
+		agentSteps int
 	)
 
 	cmd := &cobra.Command{
@@ -59,54 +61,59 @@ Example:
 			timeoutDur := time.Duration(timeout) * time.Second
 
 			var pageMeta *scout.PageMeta
-			if headless {
-				pageMeta, err = scout.ScoutURLHeadless(ctx, gameURL, scout.HeadlessConfig{
-					Enabled: true,
-					Width:   cfg.Browser.Viewport.Width,
-					Height:  cfg.Browser.Viewport.Height,
-					Timeout: timeoutDur,
-				})
-			} else {
-				pageMeta, err = scout.ScoutURL(ctx, gameURL, timeoutDur)
-			}
-			if err != nil {
-				return fmt.Errorf("page scout failed: %w", err)
-			}
 
-			// Auto-fallback to headless if HTTP scout got minimal results
-			if !headless && pageMeta.Framework == "unknown" && !pageMeta.CanvasFound && len(pageMeta.ScriptSrcs) <= 2 {
-				if !jsonOutput {
-					fmt.Printf("   Minimal page detected, retrying with headless Chrome...\n")
+			// Agent mode handles its own scouting (with keep-alive browser) below,
+			// so skip the initial scout when agent mode is enabled.
+			if !agentMode {
+				if headless {
+					pageMeta, err = scout.ScoutURLHeadless(ctx, gameURL, scout.HeadlessConfig{
+						Enabled: true,
+						Width:   cfg.Browser.Viewport.Width,
+						Height:  cfg.Browser.Viewport.Height,
+						Timeout: timeoutDur,
+					})
 				} else {
-					fmt.Fprintf(os.Stderr, "PROGRESS:fallback:Minimal page detected, retrying with headless Chrome...\n")
+					pageMeta, err = scout.ScoutURL(ctx, gameURL, timeoutDur)
 				}
-				headlessMeta, headlessErr := scout.ScoutURLHeadless(ctx, gameURL, scout.HeadlessConfig{
-					Enabled: true,
-					Width:   cfg.Browser.Viewport.Width,
-					Height:  cfg.Browser.Viewport.Height,
-					Timeout: timeoutDur,
-				})
-				if headlessErr == nil {
-					pageMeta = headlessMeta
-					headless = true
-				} else if !jsonOutput {
-					fmt.Printf("   Headless fallback failed: %v\n", headlessErr)
+				if err != nil {
+					return fmt.Errorf("page scout failed: %w", err)
 				}
-			}
 
-			if !jsonOutput {
-				fmt.Printf("   Title: %s\n", pageMeta.Title)
-				fmt.Printf("   Framework: %s\n", pageMeta.Framework)
-				fmt.Printf("   Canvas: %v\n", pageMeta.CanvasFound)
-				fmt.Printf("   Scripts: %d\n", len(pageMeta.ScriptSrcs))
-				if pageMeta.ScreenshotB64 != "" {
-					screenshotKB := len(pageMeta.ScreenshotB64) * 3 / 4 / 1024
-					fmt.Printf("   Screenshot: %d KB\n", screenshotKB)
+				// Auto-fallback to headless if HTTP scout got minimal results
+				if !headless && pageMeta.Framework == "unknown" && !pageMeta.CanvasFound && len(pageMeta.ScriptSrcs) <= 2 {
+					if !jsonOutput {
+						fmt.Printf("   Minimal page detected, retrying with headless Chrome...\n")
+					} else {
+						fmt.Fprintf(os.Stderr, "PROGRESS:fallback:Minimal page detected, retrying with headless Chrome...\n")
+					}
+					headlessMeta, headlessErr := scout.ScoutURLHeadless(ctx, gameURL, scout.HeadlessConfig{
+						Enabled: true,
+						Width:   cfg.Browser.Viewport.Width,
+						Height:  cfg.Browser.Viewport.Height,
+						Timeout: timeoutDur,
+					})
+					if headlessErr == nil {
+						pageMeta = headlessMeta
+						headless = true
+					} else if !jsonOutput {
+						fmt.Printf("   Headless fallback failed: %v\n", headlessErr)
+					}
 				}
-				if len(pageMeta.JSGlobals) > 0 {
-					fmt.Printf("   JS Globals: %v\n", pageMeta.JSGlobals)
+
+				if !jsonOutput {
+					fmt.Printf("   Title: %s\n", pageMeta.Title)
+					fmt.Printf("   Framework: %s\n", pageMeta.Framework)
+					fmt.Printf("   Canvas: %v\n", pageMeta.CanvasFound)
+					fmt.Printf("   Scripts: %d\n", len(pageMeta.ScriptSrcs))
+					if pageMeta.ScreenshotB64 != "" {
+						screenshotKB := len(pageMeta.ScreenshotB64) * 3 / 4 / 1024
+						fmt.Printf("   Screenshot: %d KB\n", screenshotKB)
+					}
+					if len(pageMeta.JSGlobals) > 0 {
+						fmt.Printf("   JS Globals: %v\n", pageMeta.JSGlobals)
+					}
+					fmt.Println()
 				}
-				fmt.Println()
 			}
 
 			if err := validateAPIKey(cfg); err != nil {
@@ -119,7 +126,7 @@ Example:
 			}
 
 			// Emit scouting progress for --json mode
-			if jsonOutput {
+			if jsonOutput && !agentMode {
 				fmt.Fprintf(os.Stderr, "PROGRESS:scouting:Scouting page %s\n", gameURL)
 				detail := fmt.Sprintf("%s | Canvas: %v | Scripts: %d", pageMeta.Framework, pageMeta.CanvasFound, len(pageMeta.ScriptSrcs))
 				fmt.Fprintf(os.Stderr, "PROGRESS:scouted:%s\n", detail)
@@ -138,6 +145,10 @@ Example:
 				}
 			}
 
+			if jsonOutput && agentMode {
+				fmt.Fprintf(os.Stderr, "PROGRESS:scouting:Scouting page with agent mode %s\n", gameURL)
+			}
+
 			if !jsonOutput {
 				fmt.Printf("%s Analyzing game with AI...\n", util.EmojiClip)
 			}
@@ -150,9 +161,54 @@ Example:
 				}
 			}
 
-			_, result, flows, err := analyzer.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, onProgress)
-			if err != nil {
-				return fmt.Errorf("analysis failed: %w", err)
+			var result *ai.AnalysisResult
+			var flows []*ai.MaestroFlow
+			var agentStepsResult []ai.AgentStep
+
+			if agentMode {
+				// Agent mode: use ScoutURLHeadlessKeepAlive + agentic exploration
+				agentPageMeta, browserPage, cleanup, agentErr := scout.ScoutURLHeadlessKeepAlive(ctx, gameURL, scout.HeadlessConfig{
+					Enabled: true,
+					Width:   cfg.Browser.Viewport.Width,
+					Height:  cfg.Browser.Viewport.Height,
+					Timeout: timeoutDur,
+				})
+				if agentErr != nil {
+					return fmt.Errorf("agent scout failed: %w", agentErr)
+				}
+				defer cleanup()
+
+				// Use the agent-scouted pageMeta (has initial screenshot)
+				pageMeta = agentPageMeta
+
+				if jsonOutput {
+					detail := fmt.Sprintf("%s | Canvas: %v | Scripts: %d", pageMeta.Framework, pageMeta.CanvasFound, len(pageMeta.ScriptSrcs))
+					fmt.Fprintf(os.Stderr, "PROGRESS:scouted:%s\n", detail)
+				} else {
+					fmt.Printf("   Title: %s\n", pageMeta.Title)
+					fmt.Printf("   Framework: %s\n", pageMeta.Framework)
+					fmt.Printf("   Canvas: %v\n", pageMeta.CanvasFound)
+					fmt.Println()
+				}
+
+				agentCfg := ai.AgentConfig{
+					MaxSteps:     agentSteps,
+					StepTimeout:  30 * time.Second,
+					TotalTimeout: 5 * time.Minute,
+				}
+
+				_, result, flows, agentStepsResult, err = analyzer.AnalyzeFromURLWithAgent(
+					ctx, browserPage, pageMeta, gameURL, agentCfg, onProgress,
+				)
+				if err != nil {
+					return fmt.Errorf("agent analysis failed: %w", err)
+				}
+			} else {
+				// Standard 2-call pipeline (unchanged)
+				_, result, flows, err = analyzer.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, onProgress)
+				if err != nil {
+					return fmt.Errorf("analysis failed: %w", err)
+				}
 			}
 
 			// Emit detailed analysis info for --json mode
@@ -201,6 +257,10 @@ Example:
 					"analysis": result,
 					"flows":    flows,
 				}
+				if agentMode {
+					out["mode"] = "agent"
+					out["agentSteps"] = agentStepsResult
+				}
 				data, err := json.Marshal(out)
 				if err != nil {
 					return fmt.Errorf("JSON marshal failed: %w", err)
@@ -221,6 +281,8 @@ Example:
 	cmd.Flags().StringVarP(&configPath, "config", "c", "", "Config file path")
 	cmd.Flags().BoolVar(&headless, "headless", false, "Use headless Chrome for JS-rendered pages")
 	cmd.Flags().IntVar(&timeout, "timeout", 10, "HTTP fetch timeout in seconds")
+	cmd.Flags().BoolVar(&agentMode, "agent", false, "Enable agent mode: AI actively explores the game via browser tools")
+	cmd.Flags().IntVar(&agentSteps, "agent-steps", 20, "Max exploration steps in agent mode")
 
 	cmd.MarkFlagRequired("game")
 

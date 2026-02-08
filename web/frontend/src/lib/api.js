@@ -136,7 +136,8 @@ export const testPlansApi = {
 }
 
 export const analyzeApi = {
-  start: (gameUrl, projectId) => api.post('/analyze', { gameUrl, projectId: projectId || '' }).then((r) => r.data),
+  start: (gameUrl, projectId, agentMode = false) =>
+    api.post('/analyze', { gameUrl, projectId: projectId || '', agentMode }).then((r) => r.data),
 }
 
 export const analysesApi = {

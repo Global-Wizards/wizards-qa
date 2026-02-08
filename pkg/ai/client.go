@@ -219,6 +219,106 @@ func (c *ClaudeClient) AnalyzeWithImages(systemPrompt string, prompt string, ima
 	return claudeResp.Content[0].Text, nil
 }
 
+// --- Tool Use types ---
+
+// ToolDefinition defines a tool that Claude can call.
+type ToolDefinition struct {
+	Name        string                 `json:"name"`
+	Description string                 `json:"description"`
+	InputSchema map[string]interface{} `json:"input_schema"`
+}
+
+// AgentMessage uses interface{} Content to support text, images, tool_use, and tool_result blocks.
+type AgentMessage struct {
+	Role    string      `json:"role"`
+	Content interface{} `json:"content"`
+}
+
+// ResponseContentBlock is a polymorphic content block: text or tool_use.
+type ResponseContentBlock struct {
+	Type  string          `json:"type"`
+	Text  string          `json:"text,omitempty"`
+	ID    string          `json:"id,omitempty"`
+	Name  string          `json:"name,omitempty"`
+	Input json.RawMessage `json:"input,omitempty"`
+}
+
+// ToolUseResponse extends response to include StopReason for tool_use detection.
+type ToolUseResponse struct {
+	Content    []ResponseContentBlock `json:"content"`
+	StopReason string                 `json:"stop_reason"`
+	Usage      struct {
+		InputTokens  int `json:"input_tokens"`
+		OutputTokens int `json:"output_tokens"`
+	} `json:"usage"`
+}
+
+// ToolResultBlock is sent in user messages to return tool results.
+type ToolResultBlock struct {
+	Type      string      `json:"type"`    // "tool_result"
+	ToolUseID string      `json:"tool_use_id"`
+	Content   interface{} `json:"content"` // string or []contentBlock
+	IsError   bool        `json:"is_error,omitempty"`
+}
+
+// claudeToolUseRequest is the request body for tool use calls.
+type claudeToolUseRequest struct {
+	Model       string           `json:"model"`
+	MaxTokens   int              `json:"max_tokens"`
+	Temperature float64          `json:"temperature,omitempty"`
+	System      string           `json:"system,omitempty"`
+	Tools       []ToolDefinition `json:"tools,omitempty"`
+	Messages    []AgentMessage   `json:"messages"`
+}
+
+// CallWithTools sends a tool-use request to the Claude API.
+func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessage, tools []ToolDefinition) (*ToolUseResponse, error) {
+	req := claudeToolUseRequest{
+		Model:       c.Model,
+		MaxTokens:   c.MaxTokens,
+		Temperature: c.Temperature,
+		System:      systemPrompt,
+		Tools:       tools,
+		Messages:    messages,
+	}
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("failed to marshal tool use request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return nil, fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", c.APIKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var toolResp ToolUseResponse
+	if err := json.Unmarshal(body, &toolResp); err != nil {
+		return nil, fmt.Errorf("failed to parse tool use response: %w", err)
+	}
+
+	return &toolResp, nil
+}
+
 // AnalyzeWithImage sends a multimodal request with an image and text prompt to the Claude API.
 func (c *ClaudeClient) AnalyzeWithImage(prompt string, imageB64 string) (string, error) {
 	req := claudeMultimodalRequest{

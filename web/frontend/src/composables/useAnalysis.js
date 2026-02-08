@@ -19,6 +19,12 @@ const STEP_TO_STATUS = {
   flows: 'generating',
   flows_done: 'generating',
   saving: 'generating',
+  // Agent mode steps
+  agent_start: 'analyzing',
+  agent_step: 'analyzing',
+  agent_action: 'analyzing',
+  agent_done: 'analyzing',
+  agent_synthesize: 'analyzing',
 }
 
 export function useAnalysis() {
@@ -28,6 +34,8 @@ export function useAnalysis() {
   const pageMeta = ref(null)
   const analysis = ref(null)
   const flows = ref([])
+  const agentSteps = ref([])
+  const agentMode = ref(false)
   const error = ref(null)
   const logs = ref([])
   const startTime = ref(null)
@@ -129,6 +137,8 @@ export function useAnalysis() {
       pageMeta.value = result.pageMeta || null
       analysis.value = result.analysis || null
       flows.value = result.flows || []
+      agentSteps.value = result.agentSteps || []
+      agentMode.value = result.mode === 'agent'
       status.value = 'complete'
       currentStep.value = 'complete'
       stopElapsedTimer()
@@ -153,13 +163,15 @@ export function useAnalysis() {
     cleanups = [offProgress, offCompleted, offFailed]
   }
 
-  async function start(gameUrl, projectId) {
+  async function start(gameUrl, projectId, useAgentMode = false) {
     status.value = 'scouting'
     currentStep.value = 'scouting'
     analysisId.value = null
     pageMeta.value = null
     analysis.value = null
     flows.value = []
+    agentSteps.value = []
+    agentMode.value = useAgentMode
     error.value = null
     logs.value = []
     stepTimings.value = {}
@@ -168,7 +180,7 @@ export function useAnalysis() {
     setupListeners()
 
     try {
-      const response = await analyzeApi.start(gameUrl, projectId)
+      const response = await analyzeApi.start(gameUrl, projectId, useAgentMode)
       analysisId.value = response.analysisId
 
       // Persist to localStorage so we can recover
@@ -236,6 +248,8 @@ export function useAnalysis() {
           pageMeta.value = fullData.result.pageMeta || null
           analysis.value = fullData.result.analysis || null
           flows.value = fullData.result.flows || []
+          agentSteps.value = fullData.result.agentSteps || []
+          agentMode.value = fullData.result.mode === 'agent'
         }
         status.value = 'complete'
         currentStep.value = 'complete'
@@ -263,6 +277,8 @@ export function useAnalysis() {
     pageMeta.value = null
     analysis.value = null
     flows.value = []
+    agentSteps.value = []
+    agentMode.value = false
     error.value = null
     logs.value = []
     elapsedSeconds.value = 0
@@ -287,6 +303,8 @@ export function useAnalysis() {
     pageMeta,
     analysis,
     flows,
+    agentSteps,
+    agentMode,
     error,
     logs,
     elapsedSeconds,

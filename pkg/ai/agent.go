@@ -1,0 +1,424 @@
+package ai
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+	"time"
+
+	"github.com/Global-Wizards/wizards-qa/pkg/scout"
+)
+
+// AgentExplore runs an agentic exploration loop where Claude interacts with a live browser page
+// using tools (click, screenshot, type, etc.) and then synthesizes a structured analysis.
+func (a *Analyzer) AgentExplore(
+	ctx context.Context,
+	browserPage BrowserPage,
+	pageMeta *scout.PageMeta,
+	gameURL string,
+	cfg AgentConfig,
+	onProgress ProgressFunc,
+) (*ComprehensiveAnalysisResult, []AgentStep, error) {
+	progress := func(step, message string) {
+		if onProgress != nil {
+			onProgress(step, message)
+		}
+	}
+
+	agent, ok := a.Client.(ToolUseAgent)
+	if !ok {
+		return nil, nil, fmt.Errorf("AI client does not support tool use (agent mode requires Claude)")
+	}
+
+	tools := BrowserTools()
+	executor := &BrowserToolExecutor{Page: browserPage}
+
+	progress("agent_start", fmt.Sprintf("Starting agent exploration of %s (max %d steps)", gameURL, cfg.MaxSteps))
+
+	// Take initial screenshot
+	initialScreenshot, ssErr := browserPage.CaptureScreenshot()
+	if ssErr != nil {
+		return nil, nil, fmt.Errorf("initial screenshot failed: %w", ssErr)
+	}
+
+	// Build initial user message with page metadata + screenshot
+	pageMetaJSON := buildPageMetaJSON(pageMeta)
+	initialContent := []interface{}{
+		map[string]interface{}{
+			"type": "image",
+			"source": map[string]interface{}{
+				"type":       "base64",
+				"media_type": "image/jpeg",
+				"data":       initialScreenshot,
+			},
+		},
+		map[string]interface{}{
+			"type": "text",
+			"text": fmt.Sprintf(`You are exploring a web-based game for QA testing.
+
+Game URL: %s
+
+Page metadata (auto-detected):
+%s
+
+Above is a screenshot of the initial page state. Begin your exploration by interacting with the game.
+Remember to take screenshots after interactions to observe results.
+When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, string(pageMetaJSON)),
+		},
+	}
+
+	messages := []AgentMessage{
+		{Role: "user", Content: initialContent},
+	}
+
+	var steps []AgentStep
+	var allScreenshots []string
+	allScreenshots = append(allScreenshots, initialScreenshot)
+
+	totalStart := time.Now()
+
+	for step := 1; step <= cfg.MaxSteps; step++ {
+		// Check total timeout
+		if cfg.TotalTimeout > 0 && time.Since(totalStart) > cfg.TotalTimeout {
+			progress("agent_step", fmt.Sprintf("Step %d: total timeout reached", step))
+			break
+		}
+
+		// Check context cancellation
+		select {
+		case <-ctx.Done():
+			return nil, steps, ctx.Err()
+		default:
+		}
+
+		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
+
+		stepStart := time.Now()
+
+		resp, err := agent.CallWithTools(AgentSystemPrompt, messages, tools)
+		if err != nil {
+			return nil, steps, fmt.Errorf("agent step %d API call failed: %w", step, err)
+		}
+
+		// Append assistant response to messages
+		messages = append(messages, AgentMessage{Role: "assistant", Content: resp.Content})
+
+		// Check for EXPLORATION_COMPLETE in text blocks
+		explorationComplete := false
+		for _, block := range resp.Content {
+			if block.Type == "text" && strings.Contains(block.Text, "EXPLORATION_COMPLETE") {
+				explorationComplete = true
+				break
+			}
+		}
+
+		if explorationComplete || resp.StopReason == "end_turn" {
+			// Check if there are any tool_use blocks to process first
+			hasToolUse := false
+			for _, block := range resp.Content {
+				if block.Type == "tool_use" {
+					hasToolUse = true
+					break
+				}
+			}
+			if !hasToolUse {
+				progress("agent_step", fmt.Sprintf("Step %d: exploration complete (stop_reason=%s)", step, resp.StopReason))
+				break
+			}
+		}
+
+		if resp.StopReason != "tool_use" {
+			// No tools to execute, we're done
+			progress("agent_step", fmt.Sprintf("Step %d: no tool calls (stop_reason=%s)", step, resp.StopReason))
+			break
+		}
+
+		// Execute each tool_use block
+		var toolResults []interface{}
+		for _, block := range resp.Content {
+			if block.Type != "tool_use" {
+				continue
+			}
+
+			toolStart := time.Now()
+			progress("agent_action", fmt.Sprintf("Step %d: %s", step, formatToolAction(block.Name, block.Input)))
+
+			textResult, screenshotB64, execErr := executor.Execute(block.Name, block.Input)
+
+			stepRecord := AgentStep{
+				StepNumber: step,
+				ToolName:   block.Name,
+				Input:      string(block.Input),
+				DurationMs: int(time.Since(toolStart).Milliseconds()),
+			}
+
+			if execErr != nil {
+				stepRecord.Error = execErr.Error()
+				stepRecord.Result = "Error: " + execErr.Error()
+				toolResults = append(toolResults, ToolResultBlock{
+					Type:      "tool_result",
+					ToolUseID: block.ID,
+					Content:   "Error: " + execErr.Error(),
+					IsError:   true,
+				})
+			} else {
+				stepRecord.Result = textResult
+				if screenshotB64 != "" {
+					stepRecord.ScreenshotB64 = screenshotB64
+					allScreenshots = append(allScreenshots, screenshotB64)
+
+					// Return screenshot as image content block for the AI to see
+					toolResults = append(toolResults, ToolResultBlock{
+						Type:      "tool_result",
+						ToolUseID: block.ID,
+						Content: []interface{}{
+							map[string]interface{}{
+								"type": "text",
+								"text": textResult,
+							},
+							map[string]interface{}{
+								"type": "image",
+								"source": map[string]interface{}{
+									"type":       "base64",
+									"media_type": "image/jpeg",
+									"data":       screenshotB64,
+								},
+							},
+						},
+					})
+				} else {
+					toolResults = append(toolResults, ToolResultBlock{
+						Type:      "tool_result",
+						ToolUseID: block.ID,
+						Content:   textResult,
+					})
+				}
+			}
+
+			stepRecord.DurationMs = int(time.Since(stepStart).Milliseconds())
+			steps = append(steps, stepRecord)
+		}
+
+		// Append tool results as a user message
+		messages = append(messages, AgentMessage{Role: "user", Content: toolResults})
+	}
+
+	progress("agent_done", fmt.Sprintf("Agent exploration complete: %d steps, %d screenshots", len(steps), len(allScreenshots)))
+
+	// --- Synthesis call ---
+	progress("agent_synthesize", "Synthesizing analysis from exploration...")
+
+	synthesisPrompt := `Based on your exploration of this game, provide a comprehensive QA analysis as a single JSON object.
+
+You interacted with the game and observed its behavior through screenshots. Now produce a structured analysis based on ONLY what you actually observed during exploration.
+
+Respond with a single JSON object matching this exact format:
+{
+  "gameInfo": {
+    "name": "...",
+    "description": "...",
+    "genre": "...",
+    "technology": "...",
+    "features": ["..."]
+  },
+  "mechanics": [
+    {
+      "name": "...",
+      "description": "...",
+      "actions": ["click", "drag", etc.],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "uiElements": [
+    {
+      "name": "...",
+      "type": "button|canvas|input",
+      "selector": "text or percentage coordinate",
+      "location": {"x": "50%", "y": "80%"}
+    }
+  ],
+  "userFlows": [
+    {
+      "name": "...",
+      "description": "...",
+      "steps": ["step 1", "step 2"],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "edgeCases": [
+    {
+      "name": "...",
+      "description": "...",
+      "scenario": "...",
+      "expected": "..."
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "...",
+      "description": "...",
+      "type": "happy-path|edge-case|failure",
+      "steps": [
+        {
+          "action": "launch|click|input|wait|assert",
+          "target": "description of target",
+          "value": "",
+          "expected": "what should happen",
+          "coordinates": {"x": "50%", "y": "80%"}
+        }
+      ],
+      "priority": "high|medium|low",
+      "tags": ["smoke", "regression"]
+    }
+  ]
+}
+
+IMPORTANT: Base your analysis on what you actually observed during exploration. Include specific coordinates you discovered. Respond with valid JSON only.`
+
+	// Add synthesis request as a user message (no tools for this call)
+	messages = append(messages, AgentMessage{Role: "user", Content: synthesisPrompt})
+
+	// Call without tools to get structured JSON
+	synthResp, synthErr := agent.CallWithTools(AgentSystemPrompt, messages, nil)
+	if synthErr != nil {
+		return nil, steps, fmt.Errorf("synthesis call failed: %w", synthErr)
+	}
+
+	// Extract text from synthesis response
+	var synthesisText string
+	for _, block := range synthResp.Content {
+		if block.Type == "text" {
+			synthesisText += block.Text
+		}
+	}
+
+	// Parse as ComprehensiveAnalysisResult
+	parsed, parseErr := parseComprehensiveJSON(synthesisText)
+	if parseErr != nil {
+		return nil, steps, fmt.Errorf("failed to parse synthesis response: %w (raw: %s)", parseErr, truncate(synthesisText, 500))
+	}
+
+	return parsed, steps, nil
+}
+
+// AnalyzeFromURLWithAgent runs the full agent pipeline:
+// 1. AgentExplore (agentic loop with browser tools)
+// 2. generateFlowsStructured (reuse existing Call #2)
+func (a *Analyzer) AnalyzeFromURLWithAgent(
+	ctx context.Context,
+	browserPage BrowserPage,
+	pageMeta *scout.PageMeta,
+	gameURL string,
+	agentCfg AgentConfig,
+	onProgress ProgressFunc,
+) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, []AgentStep, error) {
+	progress := func(step, message string) {
+		if onProgress != nil {
+			onProgress(step, message)
+		}
+	}
+
+	// Step 1: Agent exploration
+	comprehensiveResult, agentSteps, err := a.AgentExplore(ctx, browserPage, pageMeta, gameURL, agentCfg, onProgress)
+	if err != nil {
+		return pageMeta, nil, nil, agentSteps, fmt.Errorf("agent exploration failed: %w", err)
+	}
+
+	result := comprehensiveResult.ToAnalysisResult()
+	scenarios := comprehensiveResult.Scenarios
+
+	// Report analysis results
+	analysisDetail := fmt.Sprintf("Found %d mechanics, %d UI elements, %d user flows, %d edge cases",
+		len(result.Mechanics), len(result.UIElements), len(result.UserFlows), len(result.EdgeCases))
+	if result.GameInfo.Name != "" {
+		analysisDetail = fmt.Sprintf("%s — %s (%s)", result.GameInfo.Name, result.GameInfo.Genre, analysisDetail)
+	}
+	progress("analyzed", analysisDetail)
+
+	if len(scenarios) > 0 {
+		progress("scenarios_done", fmt.Sprintf("Generated %d scenarios from agent exploration", len(scenarios)))
+	}
+
+	// Step 2: Flow generation — collect last 5 agent screenshots for grounding
+	var flowScreenshots []string
+	for i := len(agentSteps) - 1; i >= 0 && len(flowScreenshots) < 5; i-- {
+		if agentSteps[i].ScreenshotB64 != "" {
+			flowScreenshots = append(flowScreenshots, agentSteps[i].ScreenshotB64)
+		}
+	}
+	// Add initial screenshot from pageMeta if we have fewer than 5
+	if len(flowScreenshots) < 5 && pageMeta.ScreenshotB64 != "" {
+		flowScreenshots = append(flowScreenshots, pageMeta.ScreenshotB64)
+	}
+
+	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
+
+	flows, flowErr := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, flowScreenshots)
+	if flowErr != nil {
+		return pageMeta, result, nil, agentSteps, fmt.Errorf("flow generation failed: %w", flowErr)
+	}
+
+	for _, flow := range flows {
+		flow.URL = gameURL
+	}
+
+	totalCommands := 0
+	for _, f := range flows {
+		totalCommands += len(f.Commands)
+	}
+	progress("flows_done", fmt.Sprintf("Generated %d flows with %d total commands", len(flows), totalCommands))
+
+	return pageMeta, result, flows, agentSteps, nil
+}
+
+// formatToolAction creates a human-readable description of a tool call.
+func formatToolAction(toolName string, inputJSON json.RawMessage) string {
+	switch toolName {
+	case "screenshot":
+		return "taking screenshot"
+	case "click":
+		var p struct{ X, Y int }
+		json.Unmarshal(inputJSON, &p)
+		return fmt.Sprintf("click at (%d, %d)", p.X, p.Y)
+	case "type_text":
+		var p struct{ Text string }
+		json.Unmarshal(inputJSON, &p)
+		return fmt.Sprintf("type %q", truncate(p.Text, 30))
+	case "scroll":
+		var p struct {
+			Direction string
+			Amount    int
+		}
+		json.Unmarshal(inputJSON, &p)
+		return fmt.Sprintf("scroll %s %d", p.Direction, p.Amount)
+	case "evaluate_js":
+		var p struct{ Expression string }
+		json.Unmarshal(inputJSON, &p)
+		return fmt.Sprintf("eval JS: %s", truncate(p.Expression, 50))
+	case "wait":
+		var p struct {
+			Milliseconds int
+			Selector     string
+		}
+		json.Unmarshal(inputJSON, &p)
+		if p.Selector != "" {
+			return fmt.Sprintf("wait for %q", p.Selector)
+		}
+		return fmt.Sprintf("wait %dms", p.Milliseconds)
+	case "get_page_info":
+		return "get page info"
+	default:
+		return toolName
+	}
+}
+
+// truncate shortens a string to maxLen, appending "..." if truncated.
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}

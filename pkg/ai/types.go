@@ -1,5 +1,7 @@
 package ai
 
+import "time"
+
 // AnalysisResult represents the result of analyzing a game
 type AnalysisResult struct {
 	GameInfo    GameInfo     `json:"gameInfo,omitempty"`
@@ -113,6 +115,68 @@ type PromptTemplate struct {
 	Template    string
 	Variables   []string
 }
+
+// BrowserPage is an interface for interacting with a live browser page.
+// The ai package defines this interface so the agent doesn't import go-rod directly.
+type BrowserPage interface {
+	CaptureScreenshot() (b64 string, err error)
+	Click(x, y int) error
+	TypeText(text string) error
+	Scroll(dx, dy float64) error
+	EvalJS(expr string) (string, error)
+	WaitVisible(selector string, timeout time.Duration) error
+	GetPageInfo() (title, url, visibleText string, err error)
+}
+
+// AgentStep records a single step in the agent exploration loop.
+type AgentStep struct {
+	StepNumber    int    `json:"stepNumber"`
+	ToolName      string `json:"toolName"`
+	Input         string `json:"input"`
+	Result        string `json:"result"`
+	ScreenshotB64 string `json:"screenshotB64,omitempty"`
+	DurationMs    int    `json:"durationMs"`
+	Error         string `json:"error,omitempty"`
+}
+
+// AgentConfig controls the agent exploration loop.
+type AgentConfig struct {
+	MaxSteps     int
+	StepTimeout  time.Duration
+	TotalTimeout time.Duration
+}
+
+// DefaultAgentConfig returns sensible defaults for agent exploration.
+func DefaultAgentConfig() AgentConfig {
+	return AgentConfig{
+		MaxSteps:     20,
+		StepTimeout:  30 * time.Second,
+		TotalTimeout: 5 * time.Minute,
+	}
+}
+
+// AgentSystemPrompt is the system prompt for the agent exploration loop.
+const AgentSystemPrompt = `You are an expert QA engineer exploring a web-based game through a browser. You have access to browser tools that let you interact with the page.
+
+YOUR GOAL: Thoroughly explore the game to understand its mechanics, UI elements, state transitions, and interactive features. You will use this information to generate comprehensive QA test scenarios.
+
+EXPLORATION STRATEGY:
+1. Start by examining the initial page state via the screenshot.
+2. Identify clickable elements, buttons, and interactive regions.
+3. Interact with the game systematically: click buttons, try different areas of the canvas, scroll to reveal hidden content.
+4. After each interaction, take a screenshot to observe the result.
+5. Try to trigger different game states: loading, playing, paused, game over, etc.
+6. Note any animations, transitions, error states, or popups you encounter.
+
+RULES:
+1. Take a screenshot after each significant interaction to observe the result.
+2. Use get_page_info to understand the page structure when screenshots are ambiguous.
+3. Be systematic: don't click the same thing twice unless testing repeated interactions.
+4. For canvas games, try clicking different regions (center, corners, common button positions).
+5. When you have thoroughly explored the game (usually 10-20 steps), output EXPLORATION_COMPLETE on its own line to signal you are done.
+6. Focus on discovering testable behaviors, not just clicking randomly.
+
+COORDINATE SYSTEM: The viewport is 1920x1080. Use absolute pixel coordinates for click and type_text tools.`
 
 // AnalysisSystemPrompt is the system prompt used for all analysis AI calls.
 // It establishes the AI's role and enforces grounding constraints.

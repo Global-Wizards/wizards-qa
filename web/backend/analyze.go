@@ -22,6 +22,7 @@ import (
 type AnalysisRequest struct {
 	GameURL   string `json:"gameUrl"`
 	ProjectID string `json:"projectId"`
+	AgentMode bool   `json:"agentMode"`
 }
 
 type AnalysisProgress struct {
@@ -58,6 +59,8 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 
 	projectID := req.ProjectID
 
+	agentMode := req.AgentMode
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -71,7 +74,7 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}()
-		s.executeAnalysis(analysisID, req.GameURL, createdBy, projectID)
+		s.executeAnalysis(analysisID, req.GameURL, createdBy, projectID, agentMode)
 	}()
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
@@ -81,7 +84,7 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID string) {
+func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID string, agentMode bool) {
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_progress",
 		Data: AnalysisProgress{
@@ -119,6 +122,9 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 	defer cancel()
 
 	args := []string{"scout", "--game", gameURL, "--json", "--save-flows", "--output", tmpDir, "--headless", "--timeout", "60"}
+	if agentMode {
+		args = append(args, "--agent")
+	}
 	log.Printf("Analysis %s: executing %s %s", analysisID, cliPath, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, cliPath, args...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
