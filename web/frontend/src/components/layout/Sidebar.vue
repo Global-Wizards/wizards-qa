@@ -1,7 +1,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut, FolderKanban, ArrowLeft, Settings, Users, ChevronsUpDown, Plus, Globe } from 'lucide-vue-next'
+import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut, FolderKanban, Settings, Users, ChevronsUpDown, Plus, Globe, Gamepad2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -100,6 +100,10 @@ function isExactActive(path) {
   return route.path === path
 }
 
+function isNavActive(item) {
+  return item.exact ? isExactActive(item.path) : isActive(item.path)
+}
+
 const userInitial = computed(() => {
   if (!user.value?.displayName) return '?'
   return user.value.displayName.charAt(0).toUpperCase()
@@ -118,44 +122,42 @@ onMounted(async () => {
 <template>
   <aside
     :class="cn(
-      'flex flex-col border-r bg-card h-screen sticky top-0 transition-all duration-300',
+      'sidebar-shell flex flex-col h-screen sticky top-0 transition-all duration-300',
       collapsed ? 'w-16' : 'w-60'
     )"
   >
     <!-- Project Switcher -->
-    <div class="flex items-center h-16 px-2 border-b">
+    <div class="flex items-center h-14 px-2 border-b border-border/50">
       <DropdownMenu>
         <DropdownMenuTrigger>
           <button
             :class="cn(
-              'flex items-center gap-2 rounded-md px-2 py-1.5 w-full text-left hover:bg-accent transition-colors',
+              'switcher-trigger flex items-center gap-2.5 rounded-lg px-2 py-1.5 w-full text-left transition-all',
               collapsed && 'justify-center'
             )"
           >
-            <!-- Active project dot / W icon -->
             <div
               v-if="isInProject"
-              class="h-7 w-7 rounded flex items-center justify-center text-white text-xs font-bold shrink-0"
-              :style="{ backgroundColor: currentProject?.color || '#6366f1' }"
+              class="project-avatar h-7 w-7 rounded-md flex items-center justify-center text-white text-xs font-bold shrink-0"
+              :style="{ backgroundColor: currentProject?.color || '#8b5cf6' }"
             >
               {{ currentProject?.name?.charAt(0)?.toUpperCase() }}
             </div>
             <div
               v-else
-              class="h-7 w-7 rounded bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0"
+              class="h-7 w-7 rounded-md bg-primary/15 flex items-center justify-center shrink-0"
             >
-              W
+              <Gamepad2 class="h-4 w-4 text-primary" />
             </div>
             <template v-if="!collapsed">
               <span class="flex-1 text-sm font-semibold truncate">
                 {{ isInProject ? currentProject?.name : 'Wizards QA' }}
               </span>
-              <ChevronsUpDown class="h-4 w-4 text-muted-foreground shrink-0" />
+              <ChevronsUpDown class="h-3.5 w-3.5 text-muted-foreground/70 shrink-0" />
             </template>
           </button>
         </DropdownMenuTrigger>
         <DropdownMenuContent class="w-56" :side-offset="8">
-          <!-- Project List -->
           <template v-if="projects.length">
             <DropdownMenuItem
               v-for="project in projects"
@@ -163,10 +165,10 @@ onMounted(async () => {
               class="cursor-pointer"
               @click="switchToProject(project)"
             >
-              <div class="flex items-center gap-2 w-full">
+              <div class="flex items-center gap-2.5 w-full">
                 <div
                   class="h-5 w-5 rounded flex items-center justify-center text-white text-[10px] font-bold shrink-0"
-                  :style="{ backgroundColor: project.color || '#6366f1' }"
+                  :style="{ backgroundColor: project.color || '#8b5cf6' }"
                 >
                   {{ project.name?.charAt(0)?.toUpperCase() }}
                 </div>
@@ -182,18 +184,18 @@ onMounted(async () => {
           <Separator class="my-1" />
 
           <DropdownMenuItem class="cursor-pointer" @click="$router.push('/projects')">
-            <FolderKanban class="h-4 w-4 mr-2" />
+            <FolderKanban class="h-4 w-4 mr-2 text-muted-foreground" />
             All Projects
           </DropdownMenuItem>
           <DropdownMenuItem class="cursor-pointer" @click="$router.push('/projects/new')">
-            <Plus class="h-4 w-4 mr-2" />
+            <Plus class="h-4 w-4 mr-2 text-muted-foreground" />
             New Project
           </DropdownMenuItem>
 
           <template v-if="isInProject">
             <Separator class="my-1" />
             <DropdownMenuItem class="cursor-pointer" @click="goToGlobalDashboard">
-              <Globe class="h-4 w-4 mr-2" />
+              <Globe class="h-4 w-4 mr-2 text-muted-foreground" />
               Global Dashboard
             </DropdownMenuItem>
           </template>
@@ -202,7 +204,7 @@ onMounted(async () => {
     </div>
 
     <!-- Navigation -->
-    <nav class="flex-1 p-2 space-y-1 overflow-y-auto">
+    <nav class="flex-1 p-1.5 space-y-0.5 overflow-y-auto">
       <!-- Project Mode -->
       <template v-if="isInProject">
         <router-link
@@ -210,10 +212,10 @@ onMounted(async () => {
           :key="item.path"
           :to="item.path"
           :class="cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-            (item.exact ? isExactActive(item.path) : isActive(item.path))
-              ? 'bg-primary/10 text-primary'
-              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            'nav-item flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all relative',
+            isNavActive(item)
+              ? 'nav-active text-primary'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
             collapsed && 'justify-center px-2'
           )"
         >
@@ -221,17 +223,17 @@ onMounted(async () => {
           <span v-if="!collapsed">{{ item.label }}</span>
         </router-link>
 
-        <Separator v-if="!collapsed" class="my-1" />
+        <Separator class="my-1.5 opacity-50" />
 
         <router-link
           v-for="item in projectSecondaryNav"
           :key="item.path"
           :to="item.path"
           :class="cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+            'nav-item flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all relative',
             isActive(item.path)
-              ? 'bg-primary/10 text-primary'
-              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+              ? 'nav-active text-primary'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
             collapsed && 'justify-center px-2'
           )"
         >
@@ -247,10 +249,10 @@ onMounted(async () => {
           :key="item.path"
           :to="item.path"
           :class="cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+            'nav-item flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-all relative',
             isActive(item.path)
-              ? 'bg-primary/10 text-primary'
-              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+              ? 'nav-active text-primary'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent/50',
             collapsed && 'justify-center px-2'
           )"
         >
@@ -261,38 +263,37 @@ onMounted(async () => {
     </nav>
 
     <!-- User + Footer -->
-    <div class="p-2 border-t space-y-2">
-      <!-- User info -->
+    <div class="p-2 border-t border-border/50 space-y-2">
       <div v-if="user" :class="cn('flex items-center gap-2 px-2 py-1', collapsed && 'justify-center px-0')">
-        <div class="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">
+        <div class="h-7 w-7 rounded-full bg-primary/15 text-primary flex items-center justify-center text-xs font-bold shrink-0">
           {{ userInitial }}
         </div>
         <div v-if="!collapsed" class="flex-1 min-w-0">
           <p class="text-xs font-medium truncate">{{ user.displayName }}</p>
           <p class="text-[10px] text-muted-foreground">{{ user.role }}</p>
         </div>
-        <Button v-if="!collapsed" variant="ghost" size="icon" class="h-7 w-7 shrink-0" @click="logout" title="Logout">
+        <Button v-if="!collapsed" variant="ghost" size="icon" class="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground" @click="logout" title="Logout">
           <LogOut class="h-3.5 w-3.5" />
         </Button>
       </div>
 
-      <Separator v-if="!collapsed" />
+      <Separator class="opacity-50" />
 
       <div :class="cn('flex items-center', collapsed ? 'flex-col gap-1' : 'justify-between')">
         <ThemeToggle />
-        <Button variant="ghost" size="icon" class="h-9 w-9" @click="collapsed = !collapsed">
+        <Button variant="ghost" size="icon" class="h-9 w-9 text-muted-foreground hover:text-foreground" @click="collapsed = !collapsed">
           <PanelLeftClose v-if="!collapsed" class="h-4 w-4" />
           <PanelLeft v-else class="h-4 w-4" />
         </Button>
       </div>
       <div v-if="!collapsed" class="px-2 pb-1 text-center">
-        <p v-if="version" class="text-[10px] text-muted-foreground">
-          <button class="hover:text-primary hover:underline cursor-pointer" @click="openChangelog">
+        <p v-if="version" class="text-[10px] text-muted-foreground/70">
+          <button class="hover:text-primary hover:underline cursor-pointer transition-colors" @click="openChangelog">
             v{{ version }} — Changelog
           </button>
         </p>
-        <p class="text-[10px] text-muted-foreground">
-          Created by <a href="https://www.wizards.us" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Wizards</a>
+        <p class="text-[10px] text-muted-foreground/70">
+          Created by <a href="https://www.wizards.us" target="_blank" rel="noopener noreferrer" class="text-primary/80 hover:text-primary hover:underline transition-colors">Wizards</a>
         </p>
       </div>
     </div>
@@ -312,3 +313,47 @@ onMounted(async () => {
     </Dialog>
   </aside>
 </template>
+
+<style scoped>
+.sidebar-shell {
+  background: hsl(var(--card));
+  border-right: 1px solid hsl(var(--border) / 0.5);
+}
+
+.dark .sidebar-shell {
+  background: hsl(240 10% 5.5%);
+}
+
+.switcher-trigger:hover {
+  background: hsl(var(--accent) / 0.5);
+}
+
+.dark .switcher-trigger:hover {
+  background: hsl(var(--primary) / 0.08);
+}
+
+.project-avatar {
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.1);
+}
+
+.dark .project-avatar {
+  box-shadow: 0 0 8px -2px rgba(139, 92, 246, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.08);
+}
+
+.nav-active {
+  background: hsl(var(--primary) / 0.1);
+}
+
+.dark .nav-active {
+  background: hsl(var(--primary) / 0.12);
+  box-shadow: inset 3px 0 0 0 hsl(var(--primary));
+}
+
+.nav-item {
+  border-radius: 0.375rem;
+}
+
+.dark .nav-item:not(.nav-active):hover {
+  background: hsl(var(--primary) / 0.06);
+}
+</style>

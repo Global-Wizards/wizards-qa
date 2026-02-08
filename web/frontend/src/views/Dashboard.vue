@@ -5,6 +5,7 @@ import {
   Activity, CheckCircle2, XCircle, TrendingUp, AlertCircle, Sparkles,
   GitBranch, FlaskConical, ChevronRight, HeartPulse, ShieldCheck,
   ArrowRight, Clock, FileText, BarChart3, RefreshCw, FolderKanban,
+  Gamepad2, Swords, Trophy,
 } from 'lucide-vue-next'
 import { statsApi, projectsApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
@@ -139,8 +140,8 @@ onUnmounted(() => {
     <!-- Header -->
     <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
       <div>
-        <h2 class="text-3xl font-bold tracking-tight">Dashboard</h2>
-        <p class="text-muted-foreground">Overview of your testing activity</p>
+        <h2 class="text-3xl font-bold tracking-tight">Command Center</h2>
+        <p class="text-muted-foreground">Your QA campaign at a glance</p>
       </div>
       <div class="flex items-center gap-2">
         <Button variant="outline" size="icon" @click="loadStats" :disabled="loading">
@@ -175,53 +176,62 @@ onUnmounted(() => {
 
     <!-- Project Onboarding -->
     <template v-else-if="hasNoProjects">
-      <Card class="border-dashed">
-        <CardContent class="flex flex-col items-center justify-center py-20 text-center">
-          <div class="rounded-full bg-violet-500/10 p-4 mb-6">
-            <FolderKanban class="h-10 w-10 text-violet-500" />
+      <div class="onboarding-card relative overflow-hidden rounded-xl border border-border/50 bg-card">
+        <div class="onboarding-bg absolute inset-0 pointer-events-none" />
+        <div class="relative flex flex-col items-center justify-center py-20 px-6 text-center">
+          <div class="flex items-center gap-3 mb-6">
+            <div class="onboarding-icon rounded-lg bg-primary/15 p-3">
+              <Gamepad2 class="h-8 w-8 text-primary" />
+            </div>
+            <div class="onboarding-icon rounded-lg bg-violet-500/15 p-3" style="animation-delay: 0.1s">
+              <Swords class="h-8 w-8 text-violet-400" />
+            </div>
+            <div class="onboarding-icon rounded-lg bg-amber-500/15 p-3" style="animation-delay: 0.2s">
+              <Trophy class="h-8 w-8 text-amber-400" />
+            </div>
           </div>
-          <h3 class="text-2xl font-semibold mb-2">Welcome to Wizards QA</h3>
-          <p class="text-muted-foreground max-w-md mb-8">
-            Create your first project to get started. Projects help you organize game analyses, tests, and reports in one place.
+          <h3 class="text-2xl font-bold mb-2 tracking-tight">Ready to Begin Your Quest?</h3>
+          <p class="text-muted-foreground max-w-lg mb-8 leading-relaxed">
+            Create your first project to start testing. Each project is a campaign — organize your game analyses, test plans, and QA reports all in one place.
           </p>
           <div class="flex flex-col sm:flex-row gap-3">
             <router-link to="/projects/new">
-              <Button>
-                <FolderKanban class="h-4 w-4 mr-2" />
-                Create First Project
+              <Button class="glow-primary-sm">
+                <Swords class="h-4 w-4 mr-2" />
+                Start New Campaign
               </Button>
             </router-link>
             <Button variant="outline" @click="onboardingDismissed = true">
-              Explore without a project
+              Explore the Arena
             </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </div>
     </template>
 
     <template v-else>
       <!-- Empty State -->
       <template v-if="isEmpty">
-        <Card class="border-dashed">
+        <Card class="border-dashed border-border/50">
           <CardContent class="flex flex-col items-center justify-center py-16 text-center">
-            <div class="rounded-full bg-primary/10 p-4 mb-6">
+            <div class="rounded-lg bg-primary/15 p-4 mb-6">
               <Sparkles class="h-10 w-10 text-primary" />
             </div>
-            <h3 class="text-2xl font-semibold mb-2">Welcome to Wizards QA</h3>
+            <h3 class="text-2xl font-bold mb-2 tracking-tight">Your Arena Awaits</h3>
             <p class="text-muted-foreground max-w-md mb-8">
-              Get started by analyzing a game or creating a test plan. Your testing dashboard will come to life as you run tests.
+              Analyze a game or create a test plan to fill your dashboard with live data. Every great QA campaign starts with a single test.
             </p>
             <div class="flex flex-col sm:flex-row gap-3">
               <router-link to="/analyze">
                 <Button>
                   <Sparkles class="h-4 w-4 mr-2" />
-                  Analyze Your First Game
+                  Scout Your First Game
                 </Button>
               </router-link>
               <router-link to="/tests/new">
                 <Button variant="outline">
                   <FileText class="h-4 w-4 mr-2" />
-                  Create Test Plan
+                  Draft a Test Plan
                 </Button>
               </router-link>
             </div>
@@ -306,58 +316,59 @@ onUnmounted(() => {
         <!-- Quick Actions -->
         <div>
           <h3 class="text-lg font-semibold mb-3">Quick Actions</h3>
+          <!-- Game-themed action cards with refined hover -->
           <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 stagger-grid">
             <router-link to="/analyze" class="block group">
-              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/20">
+              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/30 dark:hover:shadow-primary/5">
                 <CardContent class="flex items-center gap-4 pt-6">
                   <div class="rounded-lg bg-primary/10 p-2.5">
                     <Sparkles class="h-5 w-5 text-primary" />
                   </div>
                   <div class="flex-1 min-w-0">
-                    <p class="font-medium">Analyze Game</p>
-                    <p class="text-sm text-muted-foreground">Scan a game URL with AI</p>
+                    <p class="font-medium">Scout Game</p>
+                    <p class="text-sm text-muted-foreground">AI-powered recon on any URL</p>
                   </div>
                   <ChevronRight class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
                 </CardContent>
               </Card>
             </router-link>
             <router-link to="/projects/new" class="block group">
-              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/20">
+              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/30 dark:hover:shadow-primary/5">
                 <CardContent class="flex items-center gap-4 pt-6">
                   <div class="rounded-lg bg-violet-500/10 p-2.5">
                     <FolderKanban class="h-5 w-5 text-violet-500" />
                   </div>
                   <div class="flex-1 min-w-0">
-                    <p class="font-medium">New Project</p>
-                    <p class="text-sm text-muted-foreground">Organize your testing work</p>
+                    <p class="font-medium">New Campaign</p>
+                    <p class="text-sm text-muted-foreground">Launch a new QA project</p>
                   </div>
                   <ChevronRight class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
                 </CardContent>
               </Card>
             </router-link>
             <router-link to="/tests/new" class="block group">
-              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/20">
+              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/30 dark:hover:shadow-primary/5">
                 <CardContent class="flex items-center gap-4 pt-6">
                   <div class="rounded-lg bg-blue-500/10 p-2.5">
                     <FileText class="h-5 w-5 text-blue-500" />
                   </div>
                   <div class="flex-1 min-w-0">
-                    <p class="font-medium">Create Test Plan</p>
-                    <p class="text-sm text-muted-foreground">Design a new testing strategy</p>
+                    <p class="font-medium">Draft Battle Plan</p>
+                    <p class="text-sm text-muted-foreground">Design your testing strategy</p>
                   </div>
                   <ChevronRight class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
                 </CardContent>
               </Card>
             </router-link>
             <router-link to="/reports" class="block group">
-              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/20">
+              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/30 dark:hover:shadow-primary/5">
                 <CardContent class="flex items-center gap-4 pt-6">
                   <div class="rounded-lg bg-orange-500/10 p-2.5">
                     <BarChart3 class="h-5 w-5 text-orange-500" />
                   </div>
                   <div class="flex-1 min-w-0">
-                    <p class="font-medium">View Reports</p>
-                    <p class="text-sm text-muted-foreground">Review test results and trends</p>
+                    <p class="font-medium">War Room</p>
+                    <p class="text-sm text-muted-foreground">Review results and intel</p>
                   </div>
                   <ChevronRight class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
                 </CardContent>
@@ -384,7 +395,7 @@ onUnmounted(() => {
               :to="`/projects/${project.id}`"
               class="block group"
             >
-              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/20">
+              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/30 dark:hover:shadow-primary/5">
                 <CardContent class="flex items-center gap-4 pt-6">
                   <div
                     class="h-10 w-10 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0"
@@ -542,4 +553,31 @@ onUnmounted(() => {
 .stagger-grid > *:nth-child(2) { animation-delay: 50ms; }
 .stagger-grid > *:nth-child(3) { animation-delay: 100ms; }
 .stagger-grid > *:nth-child(4) { animation-delay: 150ms; }
+
+.onboarding-bg {
+  background: radial-gradient(ellipse at 50% 0%, hsl(var(--primary) / 0.08) 0%, transparent 70%);
+}
+
+.dark .onboarding-bg {
+  background: radial-gradient(ellipse at 50% 0%, hsl(var(--primary) / 0.12) 0%, transparent 70%);
+}
+
+.dark .onboarding-card {
+  box-shadow: 0 0 40px -12px hsl(var(--primary) / 0.15);
+}
+
+@keyframes iconFloat {
+  from {
+    opacity: 0;
+    transform: translateY(12px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.onboarding-icon {
+  animation: iconFloat 0.5s ease-out both;
+}
 </style>
