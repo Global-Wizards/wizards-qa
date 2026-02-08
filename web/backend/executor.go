@@ -155,6 +155,14 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 		successRate = 100
 	}
 
+	// Look up project_id from the test plan
+	var projectID string
+	if planID != "" {
+		if plan, err := s.store.GetTestPlan(planID); err == nil {
+			projectID = plan.ProjectID
+		}
+	}
+
 	result := store.TestResultDetail{
 		ID:          testID,
 		Name:        planName,
@@ -165,6 +173,7 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 		Flows:       flows,
 		ErrorOutput: errorOutput,
 		CreatedBy:   createdBy,
+		ProjectID:   projectID,
 	}
 
 	if err := s.store.SaveTestResult(result); err != nil {

@@ -62,6 +62,9 @@ func NewServer(port string) *Server {
 	// Recover orphaned running analyses from previous crash
 	st.RecoverOrphanedAnalyses()
 
+	// Auto-migrate existing data to projects
+	st.MigrateToProjects()
+
 	// JWT secret
 	jwtSecret := os.Getenv("JWT_SECRET")
 	if jwtSecret == "" {
@@ -143,6 +146,23 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/analyses/{id}/status", s.handleGetAnalysisStatus)
 		r.Delete("/api/analyses/{id}", s.handleDeleteAnalysis)
 		r.Get("/api/analyses/{id}/export", s.handleExportAnalysis)
+
+		// Project routes
+		r.Get("/api/projects", s.handleListProjects)
+		r.Post("/api/projects", s.handleCreateProject)
+		r.Route("/api/projects/{projectId}", func(pr chi.Router) {
+			pr.Get("/", s.handleGetProject)
+			pr.Put("/", s.handleUpdateProject)
+			pr.Delete("/", s.handleDeleteProject)
+			pr.Get("/stats", s.handleGetProjectStats)
+			pr.Get("/analyses", s.handleListProjectAnalyses)
+			pr.Get("/test-plans", s.handleListProjectTestPlans)
+			pr.Get("/tests", s.handleListProjectTests)
+			pr.Get("/members", s.handleListProjectMembers)
+			pr.Post("/members", s.handleAddProjectMember)
+			pr.Put("/members/{userId}", s.handleUpdateMemberRole)
+			pr.Delete("/members/{userId}", s.handleRemoveProjectMember)
+		})
 	})
 
 	// WebSocket — validate token from query param ?token=...
@@ -337,6 +357,7 @@ func (s *Server) handleCreateTestPlan(w http.ResponseWriter, r *http.Request) {
 	if plan.Variables == nil {
 		plan.Variables = make(map[string]string)
 	}
+	// ProjectID is accepted from the request body (already decoded above)
 
 	// Set created_by from auth context
 	if claims := auth.UserFromContext(r.Context()); claims != nil {

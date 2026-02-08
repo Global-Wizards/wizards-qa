@@ -226,6 +226,7 @@
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { templatesApi, testPlansApi } from '@/lib/api'
+import { useProject } from '@/composables/useProject'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -235,6 +236,8 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 
 const router = useRouter()
 const route = useRoute()
+const { currentProject } = useProject()
+const projectId = computed(() => route.params.projectId || '')
 const currentStep = ref('details')
 const templatesLoading = ref(true)
 const templatesError = ref(null)
@@ -319,8 +322,10 @@ async function createPlan() {
       description: plan.description,
       flowNames: [...selectedFlows.value],
       variables: { ...plan.variables },
+      projectId: projectId.value,
     })
-    router.push('/tests')
+    const basePath = projectId.value ? `/projects/${projectId.value}` : ''
+    router.push(`${basePath}/tests`)
   } catch (err) {
     createError.value = err.message
   } finally {
@@ -345,6 +350,11 @@ onMounted(async () => {
   }
   if (route.query.gameUrl) {
     plan.gameUrl = route.query.gameUrl
+  }
+
+  // Pre-fill game URL from project context
+  if (!plan.gameUrl && currentProject.value?.gameUrl) {
+    plan.gameUrl = currentProject.value.gameUrl
   }
 })
 </script>

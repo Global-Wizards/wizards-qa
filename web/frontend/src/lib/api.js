@@ -134,7 +134,7 @@ export const testPlansApi = {
 }
 
 export const analyzeApi = {
-  start: (gameUrl) => api.post('/analyze', { gameUrl }).then((r) => r.data),
+  start: (gameUrl, projectId) => api.post('/analyze', { gameUrl, projectId: projectId || '' }).then((r) => r.data),
 }
 
 export const analysesApi = {
@@ -158,6 +158,24 @@ export const analysesApi = {
 
 export const testPlansDeleteApi = {
   delete: (id) => api.delete(`/test-plans/${id}`).then((r) => r.data),
+}
+
+export const projectsApi = {
+  list: () => api.get('/projects').then((r) => r.data),
+  get: (id) => api.get(`/projects/${id}`).then((r) => r.data),
+  create: (data) => api.post('/projects', data).then((r) => r.data),
+  update: (id, data) => api.put(`/projects/${id}`, data).then((r) => r.data),
+  delete: (id) => api.delete(`/projects/${id}`).then((r) => r.data),
+  stats: (id) => api.get(`/projects/${id}/stats`).then((r) => r.data),
+  analyses: (id) => api.get(`/projects/${id}/analyses`).then((r) => r.data),
+  testPlans: (id) => api.get(`/projects/${id}/test-plans`).then((r) => r.data),
+  tests: (id) => api.get(`/projects/${id}/tests`).then((r) => r.data),
+  members: {
+    list: (pid) => api.get(`/projects/${pid}/members`).then((r) => r.data),
+    add: (pid, data) => api.post(`/projects/${pid}/members`, data).then((r) => r.data),
+    updateRole: (pid, uid, data) => api.put(`/projects/${pid}/members/${uid}`, data).then((r) => r.data),
+    remove: (pid, uid) => api.delete(`/projects/${pid}/members/${uid}`).then((r) => r.data),
+  },
 }
 
 export const versionApi = {

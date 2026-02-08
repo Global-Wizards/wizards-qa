@@ -5,7 +5,7 @@
         <h2 class="text-3xl font-bold tracking-tight">Tests</h2>
         <p class="text-muted-foreground">View test results and manage test plans</p>
       </div>
-      <router-link to="/tests/new">
+      <router-link :to="projectId ? `/projects/${projectId}/tests/new` : '/tests/new'">
         <Button>
           <Plus class="h-4 w-4 mr-2" />
           New Test Plan
@@ -255,8 +255,9 @@
 
 <script setup>
 import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { useRoute } from 'vue-router'
 import { AlertCircle, Plus, Play, Trash2 } from 'lucide-vue-next'
-import { testsApi, testPlansApi, testPlansDeleteApi } from '@/lib/api'
+import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
 import { getWebSocket } from '@/lib/websocket'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
@@ -270,6 +271,9 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import StatusBadge from '@/components/StatusBadge.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import TestExecutionPanel from '@/components/TestExecutionPanel.vue'
+
+const route = useRoute()
+const projectId = computed(() => route.params.projectId || '')
 
 const activeTab = ref('results')
 const loading = ref(true)
@@ -356,7 +360,9 @@ async function loadPlans() {
   plansLoading.value = true
   plansError.value = null
   try {
-    const data = await testPlansApi.list()
+    const data = projectId.value
+      ? await projectsApi.testPlans(projectId.value)
+      : await testPlansApi.list()
     plans.value = data.plans || []
   } catch (err) {
     plansError.value = err.message || 'Failed to load test plans'
@@ -395,7 +401,9 @@ onMounted(async () => {
   setupWs()
 
   try {
-    const data = await testsApi.list()
+    const data = projectId.value
+      ? await projectsApi.tests(projectId.value)
+      : await testsApi.list()
     tests.value = data.tests || []
   } catch (err) {
     error.value = err.message

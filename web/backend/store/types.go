@@ -43,6 +43,7 @@ type TestResultSummary struct {
 	Timestamp   string  `json:"timestamp"`
 	Duration    string  `json:"duration"`
 	SuccessRate float64 `json:"successRate"`
+	ProjectID   string  `json:"projectId,omitempty"`
 }
 
 type TestResultDetail struct {
@@ -55,6 +56,7 @@ type TestResultDetail struct {
 	Flows       []FlowResult `json:"flows,omitempty"`
 	ErrorOutput string       `json:"errorOutput,omitempty"`
 	CreatedBy   string       `json:"createdBy,omitempty"`
+	ProjectID   string       `json:"projectId,omitempty"`
 }
 
 type HistoryPoint struct {
@@ -109,6 +111,7 @@ type TestPlan struct {
 	CreatedAt   string            `json:"createdAt"`
 	LastRunID   string            `json:"lastRunId,omitempty"`
 	CreatedBy   string            `json:"createdBy,omitempty"`
+	ProjectID   string            `json:"projectId,omitempty"`
 }
 
 type TestPlanSummary struct {
@@ -118,6 +121,7 @@ type TestPlanSummary struct {
 	FlowCount int    `json:"flowCount"`
 	CreatedAt string `json:"createdAt"`
 	LastRunID string `json:"lastRunId,omitempty"`
+	ProjectID string `json:"projectId,omitempty"`
 }
 
 type TestPlansFile struct {
@@ -137,6 +141,7 @@ type AnalysisRecord struct {
 	CreatedAt string      `json:"createdAt"`
 	Result    interface{} `json:"result,omitempty"`
 	CreatedBy string      `json:"createdBy,omitempty"`
+	ProjectID string      `json:"projectId,omitempty"`
 }
 
 type AnalysesFile struct {
@@ -161,4 +166,39 @@ type UserSummary struct {
 	DisplayName string `json:"displayName"`
 	Role        string `json:"role"`
 	CreatedAt   string `json:"createdAt"`
+}
+
+// Project represents a top-level organizational entity grouping analyses, test plans, and test results.
+type Project struct {
+	ID          string            `json:"id"`
+	Name        string            `json:"name"`
+	GameURL     string            `json:"gameUrl"`
+	Description string            `json:"description"`
+	Color       string            `json:"color"`
+	Icon        string            `json:"icon"`
+	Tags        []string          `json:"tags"`
+	Settings    map[string]string `json:"settings"`
+	CreatedBy   string            `json:"createdBy,omitempty"`
+	CreatedAt   string            `json:"createdAt"`
+	UpdatedAt   string            `json:"updatedAt"`
+}
+
+// ProjectSummary extends Project with aggregated counts for listing.
+type ProjectSummary struct {
+	Project
+	AnalysisCount int `json:"analysisCount"`
+	PlanCount     int `json:"planCount"`
+	TestCount     int `json:"testCount"`
+	MemberCount   int `json:"memberCount"`
+}
+
+// ProjectMember represents a user's membership in a project.
+type ProjectMember struct {
+	ID          string `json:"id"`
+	ProjectID   string `json:"projectId"`
+	UserID      string `json:"userId"`
+	Role        string `json:"role"`
+	CreatedAt   string `json:"createdAt"`
+	Email       string `json:"email,omitempty"`
+	DisplayName string `json:"displayName,omitempty"`
 }

@@ -5,8 +5,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	neturl "net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	_ "modernc.org/sqlite"
@@ -41,11 +43,37 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("creating tables: %w", err)
 	}
 
+	if err := runMigrations(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("running migrations: %w", err)
+	}
+
 	return db, nil
 }
 
 func createTables(db *sql.DB) error {
 	stmts := []string{
+		`CREATE TABLE IF NOT EXISTS projects (
+			id TEXT PRIMARY KEY,
+			name TEXT NOT NULL,
+			game_url TEXT NOT NULL DEFAULT '',
+			description TEXT DEFAULT '',
+			color TEXT DEFAULT '#6366f1',
+			icon TEXT DEFAULT 'gamepad-2',
+			tags TEXT DEFAULT '[]',
+			settings TEXT DEFAULT '{}',
+			created_by TEXT REFERENCES users(id),
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL
+		)`,
+		`CREATE TABLE IF NOT EXISTS project_members (
+			id TEXT PRIMARY KEY,
+			project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+			user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+			role TEXT NOT NULL DEFAULT 'member',
+			created_at TEXT NOT NULL,
+			UNIQUE(project_id, user_id)
+		)`,
 		`CREATE TABLE IF NOT EXISTS users (
 			id TEXT PRIMARY KEY,
 			email TEXT UNIQUE NOT NULL,
@@ -100,6 +128,113 @@ func createTables(db *sql.DB) error {
 		}
 	}
 	return nil
+}
+
+// runMigrations adds project_id columns to existing tables idempotently.
+func runMigrations(db *sql.DB) error {
+	// Add project_id columns — ignore errors for duplicate columns
+	alters := []string{
+		`ALTER TABLE analyses ADD COLUMN project_id TEXT DEFAULT ''`,
+		`ALTER TABLE test_plans ADD COLUMN project_id TEXT DEFAULT ''`,
+		`ALTER TABLE test_results ADD COLUMN project_id TEXT DEFAULT ''`,
+	}
+	for _, stmt := range alters {
+		if _, err := db.Exec(stmt); err != nil {
+			// Ignore "duplicate column" errors
+			if !strings.Contains(err.Error(), "duplicate column") {
+				log.Printf("Migration warning (non-fatal): %v", err)
+			}
+		}
+	}
+
+	// Create indexes
+	indexes := []string{
+		`CREATE INDEX IF NOT EXISTS idx_analyses_project ON analyses(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_test_plans_project ON test_plans(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_test_results_project ON test_results(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id)`,
+	}
+	for _, stmt := range indexes {
+		if _, err := db.Exec(stmt); err != nil {
+			return fmt.Errorf("creating index: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// MigrateToProjects auto-creates projects from existing game_url data.
+// Idempotent: only runs when unassigned records exist.
+func (s *Store) MigrateToProjects() {
+	var unassigned int
+	s.db.QueryRow(`SELECT COUNT(*) FROM analyses WHERE project_id = '' AND game_url != ''`).Scan(&unassigned)
+	var unassignedPlans int
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_plans WHERE project_id = '' AND game_url != ''`).Scan(&unassignedPlans)
+
+	if unassigned == 0 && unassignedPlans == 0 {
+		return
+	}
+
+	// Collect distinct game_urls
+	urls := make(map[string]bool)
+	rows, err := s.db.Query(`SELECT DISTINCT game_url FROM analyses WHERE project_id = '' AND game_url != ''`)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var u string
+			if rows.Scan(&u) == nil {
+				urls[u] = true
+			}
+		}
+	}
+	rows2, err := s.db.Query(`SELECT DISTINCT game_url FROM test_plans WHERE project_id = '' AND game_url != ''`)
+	if err == nil {
+		defer rows2.Close()
+		for rows2.Next() {
+			var u string
+			if rows2.Scan(&u) == nil {
+				urls[u] = true
+			}
+		}
+	}
+
+	created := 0
+	now := time.Now().Format(time.RFC3339)
+
+	for gameURL := range urls {
+		// Derive project name from hostname
+		name := gameURL
+		if parsed, err := neturl.Parse(gameURL); err == nil && parsed.Host != "" {
+			name = parsed.Host
+		}
+
+		projectID := fmt.Sprintf("proj-%d-%d", time.Now().UnixNano(), created)
+
+		_, err := s.db.Exec(
+			`INSERT INTO projects (id, name, game_url, description, color, icon, tags, settings, created_at, updated_at)
+			 VALUES (?, ?, ?, '', '#6366f1', 'gamepad-2', '[]', '{}', ?, ?)`,
+			projectID, name, gameURL, now, now,
+		)
+		if err != nil {
+			log.Printf("MigrateToProjects: failed to create project for %s: %v", gameURL, err)
+			continue
+		}
+
+		// Assign analyses
+		s.db.Exec(`UPDATE analyses SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL)
+		// Assign test plans
+		s.db.Exec(`UPDATE test_plans SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL)
+		// Assign test results via test plan's last_run_id
+		s.db.Exec(`UPDATE test_results SET project_id = ? WHERE id IN (
+			SELECT last_run_id FROM test_plans WHERE project_id = ? AND last_run_id != ''
+		)`, projectID, projectID)
+
+		created++
+	}
+
+	if created > 0 {
+		log.Printf("MigrateToProjects: auto-created %d project(s) from existing game_url data", created)
+	}
 }
 
 // MigrateFromJSON performs a one-time migration of existing JSON data files into SQLite.

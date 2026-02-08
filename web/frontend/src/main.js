@@ -15,6 +15,23 @@ const router = createRouter({
     { path: '/tests/new', component: () => import('./views/NewTestPlan.vue') },
     { path: '/reports', component: () => import('./views/Reports.vue') },
     { path: '/flows', component: () => import('./views/Flows.vue') },
+    { path: '/projects', component: () => import('./views/ProjectList.vue') },
+    { path: '/projects/new', component: () => import('./views/ProjectForm.vue') },
+    {
+      path: '/projects/:projectId',
+      component: () => import('./views/ProjectLayout.vue'),
+      children: [
+        { path: '', component: () => import('./views/ProjectDashboard.vue') },
+        { path: 'analyze', component: () => import('./views/Analyze.vue') },
+        { path: 'tests', component: () => import('./views/Tests.vue') },
+        { path: 'tests/new', component: () => import('./views/NewTestPlan.vue') },
+        { path: 'reports', component: () => import('./views/Reports.vue') },
+        { path: 'flows', component: () => import('./views/Flows.vue') },
+        { path: 'settings', component: () => import('./views/ProjectSettings.vue') },
+        { path: 'members', component: () => import('./views/ProjectMembers.vue') },
+        { path: 'edit', component: () => import('./views/ProjectForm.vue') },
+      ],
+    },
   ],
 })
 

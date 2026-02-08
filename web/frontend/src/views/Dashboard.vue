@@ -4,9 +4,9 @@ import { useRouter } from 'vue-router'
 import {
   Activity, CheckCircle2, XCircle, TrendingUp, AlertCircle, Sparkles,
   GitBranch, FlaskConical, ChevronRight, HeartPulse, ShieldCheck,
-  ArrowRight, Clock, FileText, BarChart3, RefreshCw,
+  ArrowRight, Clock, FileText, BarChart3, RefreshCw, FolderKanban,
 } from 'lucide-vue-next'
-import { statsApi } from '@/lib/api'
+import { statsApi, projectsApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
@@ -35,6 +35,8 @@ const stats = ref({
   history: [],
 })
 
+const projects = ref([])
+
 let refreshInterval = null
 
 async function loadStats() {
@@ -46,6 +48,15 @@ async function loadStats() {
     }
   } finally {
     loading.value = false
+  }
+}
+
+async function loadProjects() {
+  try {
+    const data = await projectsApi.list()
+    projects.value = (data.projects || []).slice(0, 3)
+  } catch {
+    // non-critical
   }
 }
 
@@ -106,6 +117,7 @@ function openTest(test) {
 
 onMounted(() => {
   loadStats()
+  loadProjects()
   refreshInterval = setInterval(loadStats, 30000)
 })
 
@@ -262,7 +274,7 @@ onUnmounted(() => {
         <!-- Quick Actions -->
         <div>
           <h3 class="text-lg font-semibold mb-3">Quick Actions</h3>
-          <div class="grid gap-4 grid-cols-1 sm:grid-cols-3 stagger-grid">
+          <div class="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 stagger-grid">
             <router-link to="/analyze" class="block group">
               <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/20">
                 <CardContent class="flex items-center gap-4 pt-6">
@@ -272,6 +284,20 @@ onUnmounted(() => {
                   <div class="flex-1 min-w-0">
                     <p class="font-medium">Analyze Game</p>
                     <p class="text-sm text-muted-foreground">Scan a game URL with AI</p>
+                  </div>
+                  <ChevronRight class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                </CardContent>
+              </Card>
+            </router-link>
+            <router-link to="/projects/new" class="block group">
+              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/20">
+                <CardContent class="flex items-center gap-4 pt-6">
+                  <div class="rounded-lg bg-violet-500/10 p-2.5">
+                    <FolderKanban class="h-5 w-5 text-violet-500" />
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <p class="font-medium">New Project</p>
+                    <p class="text-sm text-muted-foreground">Organize your testing work</p>
                   </div>
                   <ChevronRight class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
                 </CardContent>
@@ -302,6 +328,45 @@ onUnmounted(() => {
                     <p class="text-sm text-muted-foreground">Review test results and trends</p>
                   </div>
                   <ChevronRight class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                </CardContent>
+              </Card>
+            </router-link>
+          </div>
+        </div>
+
+        <!-- Your Projects -->
+        <div v-if="projects.length">
+          <div class="flex items-center justify-between mb-3">
+            <h3 class="text-lg font-semibold">Your Projects</h3>
+            <router-link to="/projects">
+              <Button variant="ghost" size="sm">
+                View all
+                <ArrowRight class="h-4 w-4 ml-1" />
+              </Button>
+            </router-link>
+          </div>
+          <div class="grid gap-4 grid-cols-1 sm:grid-cols-3">
+            <router-link
+              v-for="project in projects"
+              :key="project.id"
+              :to="`/projects/${project.id}`"
+              class="block group"
+            >
+              <Card class="cursor-pointer transition-all duration-200 hover:shadow-md hover:border-primary/20">
+                <CardContent class="flex items-center gap-4 pt-6">
+                  <div
+                    class="h-10 w-10 rounded-lg flex items-center justify-center text-white text-sm font-bold shrink-0"
+                    :style="{ backgroundColor: project.color || '#6366f1' }"
+                  >
+                    {{ project.name.charAt(0).toUpperCase() }}
+                  </div>
+                  <div class="flex-1 min-w-0">
+                    <p class="font-medium truncate">{{ project.name }}</p>
+                    <p class="text-sm text-muted-foreground">
+                      {{ project.analysisCount }} analyses &middot; {{ project.testCount }} tests
+                    </p>
+                  </div>
+                  <ChevronRight class="h-4 w-4 text-muted-foreground transition-colors group-hover:text-primary shrink-0" />
                 </CardContent>
               </Card>
             </router-link>

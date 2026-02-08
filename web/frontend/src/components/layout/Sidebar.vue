@@ -1,18 +1,20 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut } from 'lucide-vue-next'
+import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut, FolderKanban, ArrowLeft, Settings, Users } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/composables/useAuth'
+import { useProject } from '@/composables/useProject'
 import { versionApi } from '@/lib/api'
 
 const route = useRoute()
 const collapsed = ref(false)
 const version = ref('')
 const { user, isAdmin, logout } = useAuth()
+const { currentProject, isInProject } = useProject()
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -20,11 +22,37 @@ const navItems = [
   { path: '/tests', label: 'Tests', icon: FlaskConical },
   { path: '/reports', label: 'Reports', icon: FileText },
   { path: '/flows', label: 'Flows', icon: GitBranch },
+  { path: '/projects', label: 'Projects', icon: FolderKanban },
 ]
+
+const projectNavItems = computed(() => {
+  if (!currentProject.value) return []
+  const base = `/projects/${currentProject.value.id}`
+  return [
+    { path: base, label: 'Dashboard', icon: LayoutDashboard, exact: true },
+    { path: `${base}/analyze`, label: 'Analyze', icon: Sparkles },
+    { path: `${base}/tests`, label: 'Tests', icon: FlaskConical },
+    { path: `${base}/reports`, label: 'Reports', icon: FileText },
+    { path: `${base}/flows`, label: 'Flows', icon: GitBranch },
+  ]
+})
+
+const projectSecondaryNav = computed(() => {
+  if (!currentProject.value) return []
+  const base = `/projects/${currentProject.value.id}`
+  return [
+    { path: `${base}/members`, label: 'Members', icon: Users },
+    { path: `${base}/settings`, label: 'Settings', icon: Settings },
+  ]
+})
 
 function isActive(path) {
   if (path === '/') return route.path === '/'
   return route.path.startsWith(path)
+}
+
+function isExactActive(path) {
+  return route.path === path
 }
 
 const userInitial = computed(() => {
@@ -57,22 +85,86 @@ onMounted(async () => {
     </div>
 
     <!-- Navigation -->
-    <nav class="flex-1 p-2 space-y-1">
-      <router-link
-        v-for="item in navItems"
-        :key="item.path"
-        :to="item.path"
-        :class="cn(
-          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-          isActive(item.path)
-            ? 'bg-primary/10 text-primary'
-            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-          collapsed && 'justify-center px-2'
-        )"
-      >
-        <component :is="item.icon" class="h-4 w-4 shrink-0" />
-        <span v-if="!collapsed">{{ item.label }}</span>
-      </router-link>
+    <nav class="flex-1 p-2 space-y-1 overflow-y-auto">
+      <!-- Project Mode -->
+      <template v-if="isInProject">
+        <router-link
+          to="/projects"
+          :class="cn(
+            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            collapsed && 'justify-center px-2'
+          )"
+        >
+          <ArrowLeft class="h-4 w-4 shrink-0" />
+          <span v-if="!collapsed">Back to Projects</span>
+        </router-link>
+
+        <!-- Project Header -->
+        <div v-if="!collapsed" class="flex items-center gap-2 px-3 py-2">
+          <div
+            class="h-6 w-6 rounded flex items-center justify-center text-white text-xs font-bold shrink-0"
+            :style="{ backgroundColor: currentProject?.color || '#6366f1' }"
+          >
+            {{ currentProject?.name?.charAt(0)?.toUpperCase() }}
+          </div>
+          <span class="text-sm font-semibold truncate">{{ currentProject?.name }}</span>
+        </div>
+
+        <Separator v-if="!collapsed" class="my-1" />
+
+        <router-link
+          v-for="item in projectNavItems"
+          :key="item.path"
+          :to="item.path"
+          :class="cn(
+            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+            (item.exact ? isExactActive(item.path) : isActive(item.path))
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            collapsed && 'justify-center px-2'
+          )"
+        >
+          <component :is="item.icon" class="h-4 w-4 shrink-0" />
+          <span v-if="!collapsed">{{ item.label }}</span>
+        </router-link>
+
+        <Separator v-if="!collapsed" class="my-1" />
+
+        <router-link
+          v-for="item in projectSecondaryNav"
+          :key="item.path"
+          :to="item.path"
+          :class="cn(
+            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+            isActive(item.path)
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            collapsed && 'justify-center px-2'
+          )"
+        >
+          <component :is="item.icon" class="h-4 w-4 shrink-0" />
+          <span v-if="!collapsed">{{ item.label }}</span>
+        </router-link>
+      </template>
+
+      <!-- Global Mode -->
+      <template v-else>
+        <router-link
+          v-for="item in navItems"
+          :key="item.path"
+          :to="item.path"
+          :class="cn(
+            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
+            isActive(item.path)
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+            collapsed && 'justify-center px-2'
+          )"
+        >
+          <component :is="item.icon" class="h-4 w-4 shrink-0" />
+          <span v-if="!collapsed">{{ item.label }}</span>
+        </router-link>
+      </template>
     </nav>
 
     <!-- User + Footer -->

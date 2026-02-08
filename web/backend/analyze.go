@@ -20,7 +20,8 @@ import (
 )
 
 type AnalysisRequest struct {
-	GameURL string `json:"gameUrl"`
+	GameURL   string `json:"gameUrl"`
+	ProjectID string `json:"projectId"`
 }
 
 type AnalysisProgress struct {
@@ -55,6 +56,8 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 		createdBy = claims.UserID
 	}
 
+	projectID := req.ProjectID
+
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -68,7 +71,7 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}()
-		s.executeAnalysis(analysisID, req.GameURL, createdBy)
+		s.executeAnalysis(analysisID, req.GameURL, createdBy, projectID)
 	}()
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
@@ -78,7 +81,7 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) executeAnalysis(analysisID, gameURL, createdBy string) {
+func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID string) {
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_progress",
 		Data: AnalysisProgress{
@@ -97,6 +100,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy string) {
 		CreatedAt: time.Now().Format(time.RFC3339),
 		UpdatedAt: time.Now().Format(time.RFC3339),
 		CreatedBy: createdBy,
+		ProjectID: projectID,
 	}
 	if err := s.store.SaveAnalysis(runningRecord); err != nil {
 		log.Printf("Warning: failed to save running analysis record for %s: %v", analysisID, err)

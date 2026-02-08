@@ -238,10 +238,10 @@ func (s *Store) SaveAnalysis(record AnalysisRecord) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO analyses (id, game_url, status, step, framework, game_name, flow_count, result, created_by, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO analyses (id, game_url, status, step, framework, game_name, flow_count, result, created_by, project_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		record.ID, record.GameURL, record.Status, record.Step, record.Framework,
-		record.GameName, record.FlowCount, resultJSON, createdBy, record.CreatedAt, record.UpdatedAt,
+		record.GameName, record.FlowCount, resultJSON, createdBy, record.ProjectID, record.CreatedAt, record.UpdatedAt,
 	)
 	return err
 }
@@ -286,11 +286,11 @@ func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, game
 
 func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 	row := s.db.QueryRow(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), created_at, updated_at FROM analyses WHERE id = ?`, id,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses WHERE id = ?`, id,
 	)
 	var a AnalysisRecord
 	var resultJSON sql.NullString
-	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt)
+	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("analysis not found: %s", id)
 	}
@@ -305,7 +305,7 @@ func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 
 func (s *Store) ListAnalyses() ([]AnalysisRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), created_at, updated_at FROM analyses ORDER BY created_at DESC`,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -315,7 +315,7 @@ func (s *Store) ListAnalyses() ([]AnalysisRecord, error) {
 	var analyses []AnalysisRecord
 	for rows.Next() {
 		var a AnalysisRecord
-		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			continue
 		}
 		analyses = append(analyses, a)
@@ -368,16 +368,16 @@ func (s *Store) SaveTestResult(result TestResultDetail) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_by, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, ts,
+		`INSERT INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_by, project_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, result.ProjectID, ts,
 	)
 	return err
 }
 
 func (s *Store) ListTestResults() ([]TestResultSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, timestamp, duration, success_rate FROM test_results ORDER BY timestamp DESC`,
+		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,'') FROM test_results ORDER BY timestamp DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -387,7 +387,7 @@ func (s *Store) ListTestResults() ([]TestResultSummary, error) {
 	var summaries []TestResultSummary
 	for rows.Next() {
 		var r TestResultSummary
-		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID); err != nil {
 			continue
 		}
 		summaries = append(summaries, r)
@@ -397,11 +397,11 @@ func (s *Store) ListTestResults() ([]TestResultSummary, error) {
 
 func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, status, timestamp, duration, success_rate, flows, error_output, COALESCE(created_by,'') FROM test_results WHERE id = ?`, id,
+		`SELECT id, name, status, timestamp, duration, success_rate, flows, error_output, COALESCE(created_by,''), COALESCE(project_id,'') FROM test_results WHERE id = ?`, id,
 	)
 	var r TestResultDetail
 	var flowsJSON sql.NullString
-	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &flowsJSON, &r.ErrorOutput, &r.CreatedBy)
+	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &flowsJSON, &r.ErrorOutput, &r.CreatedBy, &r.ProjectID)
 	if err != nil {
 		return nil, fmt.Errorf("test result not found: %s", id)
 	}
@@ -437,16 +437,16 @@ func (s *Store) SaveTestPlan(plan TestPlan) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_by, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		plan.ID, plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Status, plan.LastRunID, createdBy, plan.CreatedAt,
+		`INSERT OR REPLACE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_by, project_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		plan.ID, plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Status, plan.LastRunID, createdBy, plan.ProjectID, plan.CreatedAt,
 	)
 	return err
 }
 
 func (s *Store) ListTestPlans() ([]TestPlanSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, flow_names, created_at, last_run_id FROM test_plans ORDER BY created_at DESC`,
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,'') FROM test_plans ORDER BY created_at DESC`,
 	)
 	if err != nil {
 		return nil, err
@@ -457,7 +457,7 @@ func (s *Store) ListTestPlans() ([]TestPlanSummary, error) {
 	for rows.Next() {
 		var p TestPlanSummary
 		var flowNamesJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID); err != nil {
 			continue
 		}
 		if flowNamesJSON.Valid && flowNamesJSON.String != "" {
@@ -474,11 +474,11 @@ func (s *Store) ListTestPlans() ([]TestPlanSummary, error) {
 
 func (s *Store) GetTestPlan(id string) (*TestPlan, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, description, game_url, flow_names, variables, status, last_run_id, COALESCE(created_by,''), created_at FROM test_plans WHERE id = ?`, id,
+		`SELECT id, name, description, game_url, flow_names, variables, status, last_run_id, COALESCE(created_by,''), COALESCE(project_id,''), created_at FROM test_plans WHERE id = ?`, id,
 	)
 	var p TestPlan
 	var flowNamesJSON, variablesJSON sql.NullString
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.GameURL, &flowNamesJSON, &variablesJSON, &p.Status, &p.LastRunID, &p.CreatedBy, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.GameURL, &flowNamesJSON, &variablesJSON, &p.Status, &p.LastRunID, &p.CreatedBy, &p.ProjectID, &p.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("test plan not found: %s", id)
 	}
@@ -816,6 +816,292 @@ func (s *Store) UserCount() (int, error) {
 	var count int
 	err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
 	return count, err
+}
+
+// --- Projects ---
+
+func (s *Store) SaveProject(p Project) error {
+	tagsJSON, _ := json.Marshal(p.Tags)
+	settingsJSON, _ := json.Marshal(p.Settings)
+	var createdBy *string
+	if p.CreatedBy != "" {
+		createdBy = &p.CreatedBy
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO projects (id, name, game_url, description, color, icon, tags, settings, created_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.GameURL, p.Description, p.Color, p.Icon, string(tagsJSON), string(settingsJSON), createdBy, p.CreatedAt, p.UpdatedAt,
+	)
+	return err
+}
+
+func (s *Store) GetProject(id string) (*Project, error) {
+	row := s.db.QueryRow(
+		`SELECT id, name, game_url, description, color, icon, tags, settings, COALESCE(created_by,''), created_at, updated_at FROM projects WHERE id = ?`, id,
+	)
+	var p Project
+	var tagsJSON, settingsJSON string
+	err := row.Scan(&p.ID, &p.Name, &p.GameURL, &p.Description, &p.Color, &p.Icon, &tagsJSON, &settingsJSON, &p.CreatedBy, &p.CreatedAt, &p.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("project not found: %s", id)
+	}
+	json.Unmarshal([]byte(tagsJSON), &p.Tags)
+	json.Unmarshal([]byte(settingsJSON), &p.Settings)
+	if p.Tags == nil {
+		p.Tags = []string{}
+	}
+	if p.Settings == nil {
+		p.Settings = map[string]string{}
+	}
+	return &p, nil
+}
+
+func (s *Store) ListProjects() ([]ProjectSummary, error) {
+	rows, err := s.db.Query(`
+		SELECT p.id, p.name, p.game_url, p.description, p.color, p.icon, p.tags, p.settings,
+		       COALESCE(p.created_by,''), p.created_at, p.updated_at,
+		       (SELECT COUNT(*) FROM analyses WHERE project_id = p.id),
+		       (SELECT COUNT(*) FROM test_plans WHERE project_id = p.id),
+		       (SELECT COUNT(*) FROM test_results WHERE project_id = p.id),
+		       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id)
+		FROM projects p ORDER BY p.updated_at DESC`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var projects []ProjectSummary
+	for rows.Next() {
+		var ps ProjectSummary
+		var tagsJSON, settingsJSON string
+		if err := rows.Scan(&ps.ID, &ps.Name, &ps.GameURL, &ps.Description, &ps.Color, &ps.Icon,
+			&tagsJSON, &settingsJSON, &ps.CreatedBy, &ps.CreatedAt, &ps.UpdatedAt,
+			&ps.AnalysisCount, &ps.PlanCount, &ps.TestCount, &ps.MemberCount); err != nil {
+			continue
+		}
+		json.Unmarshal([]byte(tagsJSON), &ps.Tags)
+		json.Unmarshal([]byte(settingsJSON), &ps.Settings)
+		if ps.Tags == nil {
+			ps.Tags = []string{}
+		}
+		if ps.Settings == nil {
+			ps.Settings = map[string]string{}
+		}
+		projects = append(projects, ps)
+	}
+	return projects, rows.Err()
+}
+
+func (s *Store) UpdateProject(p Project) error {
+	tagsJSON, _ := json.Marshal(p.Tags)
+	settingsJSON, _ := json.Marshal(p.Settings)
+	result, err := s.db.Exec(
+		`UPDATE projects SET name = ?, game_url = ?, description = ?, color = ?, icon = ?, tags = ?, settings = ?, updated_at = ? WHERE id = ?`,
+		p.Name, p.GameURL, p.Description, p.Color, p.Icon, string(tagsJSON), string(settingsJSON), p.UpdatedAt, p.ID,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("project not found: %s", p.ID)
+	}
+	return nil
+}
+
+func (s *Store) DeleteProject(id string) error {
+	// Unassign entities before deleting (CASCADE handles project_members)
+	s.db.Exec(`UPDATE analyses SET project_id = '' WHERE project_id = ?`, id)
+	s.db.Exec(`UPDATE test_plans SET project_id = '' WHERE project_id = ?`, id)
+	s.db.Exec(`UPDATE test_results SET project_id = '' WHERE project_id = ?`, id)
+
+	result, err := s.db.Exec(`DELETE FROM projects WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("project not found: %s", id)
+	}
+	return nil
+}
+
+// --- Project Members ---
+
+func (s *Store) AddProjectMember(m ProjectMember) error {
+	_, err := s.db.Exec(
+		`INSERT INTO project_members (id, project_id, user_id, role, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		m.ID, m.ProjectID, m.UserID, m.Role, m.CreatedAt,
+	)
+	return err
+}
+
+func (s *Store) RemoveProjectMember(projectID, userID string) error {
+	result, err := s.db.Exec(`DELETE FROM project_members WHERE project_id = ? AND user_id = ?`, projectID, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("member not found")
+	}
+	return nil
+}
+
+func (s *Store) ListProjectMembers(projectID string) ([]ProjectMember, error) {
+	rows, err := s.db.Query(`
+		SELECT pm.id, pm.project_id, pm.user_id, pm.role, pm.created_at,
+		       u.email, u.display_name
+		FROM project_members pm
+		JOIN users u ON u.id = pm.user_id
+		WHERE pm.project_id = ?
+		ORDER BY pm.created_at`, projectID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var members []ProjectMember
+	for rows.Next() {
+		var m ProjectMember
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Role, &m.CreatedAt, &m.Email, &m.DisplayName); err != nil {
+			continue
+		}
+		members = append(members, m)
+	}
+	return members, rows.Err()
+}
+
+func (s *Store) UpdateProjectMemberRole(projectID, userID, role string) error {
+	result, err := s.db.Exec(`UPDATE project_members SET role = ? WHERE project_id = ? AND user_id = ?`, role, projectID, userID)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("member not found")
+	}
+	return nil
+}
+
+// --- Project-scoped queries ---
+
+func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error) {
+	rows, err := s.db.Query(
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses WHERE project_id = ? ORDER BY created_at DESC`, projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var analyses []AnalysisRecord
+	for rows.Next() {
+		var a AnalysisRecord
+		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			continue
+		}
+		analyses = append(analyses, a)
+	}
+	return analyses, rows.Err()
+}
+
+func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,'') FROM test_plans WHERE project_id = ? ORDER BY created_at DESC`, projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []TestPlanSummary
+	for rows.Next() {
+		var p TestPlanSummary
+		var flowNamesJSON sql.NullString
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID); err != nil {
+			continue
+		}
+		if flowNamesJSON.Valid && flowNamesJSON.String != "" {
+			var names []string
+			if err := json.Unmarshal([]byte(flowNamesJSON.String), &names); err != nil {
+				log.Printf("Warning: failed to unmarshal flow names for plan %s: %v", p.ID, err)
+			}
+			p.FlowCount = len(names)
+		}
+		summaries = append(summaries, p)
+	}
+	return summaries, rows.Err()
+}
+
+func (s *Store) ListTestResultsByProject(projectID string) ([]TestResultSummary, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,'') FROM test_results WHERE project_id = ? ORDER BY timestamp DESC`, projectID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var summaries []TestResultSummary
+	for rows.Next() {
+		var r TestResultSummary
+		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID); err != nil {
+			continue
+		}
+		summaries = append(summaries, r)
+	}
+	return summaries, rows.Err()
+}
+
+func (s *Store) GetStatsByProject(projectID string) (*Stats, error) {
+	var totalTests, passedTests, failedTests int
+	var avgRate float64
+
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE project_id = ?`, projectID).Scan(&totalTests)
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE status = 'passed' AND project_id = ?`, projectID).Scan(&passedTests)
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE status = 'failed' AND project_id = ?`, projectID).Scan(&failedTests)
+	s.db.QueryRow(`SELECT COALESCE(AVG(success_rate), 0) FROM test_results WHERE project_id = ?`, projectID).Scan(&avgRate)
+
+	recent := s.recentTestsByProject(projectID, 10)
+	history := s.buildHistoryFromDB(14) // reuse global for now
+
+	var totalAnalyses, totalPlans int
+	s.db.QueryRow(`SELECT COUNT(*) FROM analyses WHERE project_id = ?`, projectID).Scan(&totalAnalyses)
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_plans WHERE project_id = ?`, projectID).Scan(&totalPlans)
+
+	return &Stats{
+		TotalTests:     totalTests,
+		PassedTests:    passedTests,
+		FailedTests:    failedTests,
+		AvgDuration:    "42s",
+		AvgSuccessRate: float64(int(avgRate*10)) / 10,
+		TotalAnalyses:  totalAnalyses,
+		TotalFlows:     0,
+		TotalPlans:     totalPlans,
+		RecentTests:    recent,
+		History:        history,
+	}, nil
+}
+
+func (s *Store) recentTestsByProject(projectID string, limit int) []TestResultSummary {
+	rows, err := s.db.Query(
+		`SELECT id, name, status, timestamp, duration, success_rate FROM test_results WHERE project_id = ? ORDER BY timestamp DESC LIMIT ?`, projectID, limit,
+	)
+	if err != nil {
+		return []TestResultSummary{}
+	}
+	defer rows.Close()
+
+	var results []TestResultSummary
+	for rows.Next() {
+		var r TestResultSummary
+		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate); err != nil {
+			continue
+		}
+		results = append(results, r)
+	}
+	if results == nil {
+		return []TestResultSummary{}
+	}
+	return results
 }
 
 func formatSize(bytes int64) string {

@@ -370,9 +370,10 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRouter, useRoute } from 'vue-router'
 import { useAnalysis } from '@/composables/useAnalysis'
-import { testsApi, analysesApi } from '@/lib/api'
+import { testsApi, analysesApi, projectsApi } from '@/lib/api'
+import { useProject } from '@/composables/useProject'
 import { RefreshCw, Trash2, Download } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -385,6 +386,9 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import ProgressStep from '@/components/ProgressStep.vue'
 
 const router = useRouter()
+const route = useRoute()
+const { currentProject } = useProject()
+const projectId = computed(() => route.params.projectId || '')
 const gameUrl = ref('')
 const analyzing = ref(false)
 const recentAnalyses = ref([])
@@ -582,7 +586,7 @@ async function handleAnalyze() {
   if (!isValidUrl(gameUrl.value)) return
   analyzing.value = true
   try {
-    await start(gameUrl.value)
+    await start(gameUrl.value, projectId.value)
   } catch {
     analyzing.value = false
   }
@@ -610,17 +614,20 @@ function handleReset() {
 
 function navigateToNewPlan() {
   const flowNames = flowList.value.map((f) => f.name).join(',')
-  router.push({ path: '/tests/new', query: { flows: flowNames, gameUrl: gameUrl.value } })
+  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push({ path: `${basePath}/tests/new`, query: { flows: flowNames, gameUrl: gameUrl.value } })
 }
 
 function navigateToFlows() {
-  router.push('/flows')
+  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push(`${basePath}/flows`)
 }
 
 async function runFlowsNow() {
   try {
     await testsApi.run({ gameUrl: gameUrl.value })
-    router.push('/tests')
+    const basePath = projectId.value ? `/projects/${projectId.value}` : ''
+    router.push(`${basePath}/tests`)
   } catch (err) {
     console.error('Failed to run flows:', err)
   }
@@ -722,7 +729,9 @@ async function viewAnalysis(item) {
 
 async function loadRecentAnalyses() {
   try {
-    const data = await analysesApi.list()
+    const data = projectId.value
+      ? await projectsApi.analyses(projectId.value)
+      : await analysesApi.list()
     const all = data.analyses || []
     recentAnalyses.value = all.slice(-5).reverse()
   } catch {
@@ -740,6 +749,11 @@ watch(logs, () => {
 })
 
 onMounted(async () => {
+  // Pre-fill game URL from project context
+  if (currentProject.value?.gameUrl && !gameUrl.value) {
+    gameUrl.value = currentProject.value.gameUrl
+  }
+
   // Try to recover a running or completed analysis from localStorage
   const recovery = await tryRecover()
   if (recovery) {

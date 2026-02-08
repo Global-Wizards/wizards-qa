@@ -153,7 +153,7 @@ export function useAnalysis() {
     cleanups = [offProgress, offCompleted, offFailed]
   }
 
-  async function start(gameUrl) {
+  async function start(gameUrl, projectId) {
     status.value = 'scouting'
     currentStep.value = 'scouting'
     analysisId.value = null
@@ -168,7 +168,7 @@ export function useAnalysis() {
     setupListeners()
 
     try {
-      const response = await analyzeApi.start(gameUrl)
+      const response = await analyzeApi.start(gameUrl, projectId)
       analysisId.value = response.analysisId
 
       // Persist to localStorage so we can recover
