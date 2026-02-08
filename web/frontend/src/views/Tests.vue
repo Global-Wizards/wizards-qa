@@ -375,6 +375,7 @@ async function loadPlans() {
 let wsCleanup = null
 
 function setupWs() {
+  if (wsCleanup) wsCleanup()
   const ws = getWebSocket()
   ws.connect()
 

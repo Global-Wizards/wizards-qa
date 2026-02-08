@@ -157,10 +157,10 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 			if strings.HasPrefix(line, "PROGRESS:") {
 				rest := line[len("PROGRESS:"):]
 				parts := strings.SplitN(rest, ":", 2)
-				step := parts[0]
+				step := strings.TrimSpace(parts[0])
 				message := ""
 				if len(parts) > 1 {
-					message = parts[1]
+					message = strings.TrimSpace(parts[1])
 				}
 				s.wsHub.Broadcast(ws.Message{
 					Type: "analysis_progress",
@@ -170,7 +170,11 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 						Data:    map[string]string{"analysisId": analysisID},
 					},
 				})
-				go s.store.UpdateAnalysisStatus(analysisID, "running", step)
+				go func(id, st string) {
+					if err := s.store.UpdateAnalysisStatus(id, "running", st); err != nil {
+						log.Printf("Warning: failed to update analysis %s step to %s: %v", id, st, err)
+					}
+				}(analysisID, step)
 			} else {
 				stderrLines = append(stderrLines, line)
 				log.Printf("Analysis %s stderr: %s", analysisID, line)

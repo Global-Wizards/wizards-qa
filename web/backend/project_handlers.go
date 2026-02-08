@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"time"
 
@@ -66,13 +67,15 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 
 	// Auto-add creator as owner member
 	if p.CreatedBy != "" {
-		s.store.AddProjectMember(store.ProjectMember{
+		if err := s.store.AddProjectMember(store.ProjectMember{
 			ID:        fmt.Sprintf("pm-%d", time.Now().UnixNano()),
 			ProjectID: p.ID,
 			UserID:    p.CreatedBy,
 			Role:      "owner",
 			CreatedAt: now,
-		})
+		}); err != nil {
+			log.Printf("Warning: failed to add creator as project member for %s: %v", p.ID, err)
+		}
 	}
 
 	respondJSON(w, http.StatusCreated, p)

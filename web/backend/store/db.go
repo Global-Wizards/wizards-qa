@@ -221,13 +221,19 @@ func (s *Store) MigrateToProjects() {
 		}
 
 		// Assign analyses
-		s.db.Exec(`UPDATE analyses SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL)
+		if _, err := s.db.Exec(`UPDATE analyses SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
+			log.Printf("MigrateToProjects: failed to assign analyses for %s: %v", gameURL, err)
+		}
 		// Assign test plans
-		s.db.Exec(`UPDATE test_plans SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL)
+		if _, err := s.db.Exec(`UPDATE test_plans SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
+			log.Printf("MigrateToProjects: failed to assign test plans for %s: %v", gameURL, err)
+		}
 		// Assign test results via test plan's last_run_id
-		s.db.Exec(`UPDATE test_results SET project_id = ? WHERE id IN (
+		if _, err := s.db.Exec(`UPDATE test_results SET project_id = ? WHERE id IN (
 			SELECT last_run_id FROM test_plans WHERE project_id = ? AND last_run_id != ''
-		)`, projectID, projectID)
+		)`, projectID, projectID); err != nil {
+			log.Printf("MigrateToProjects: failed to assign test results for project %s: %v", projectID, err)
+		}
 
 		created++
 	}
