@@ -23,7 +23,9 @@ import (
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
 
-const Version = "0.4.0"
+// Version is set at build time via -ldflags "-X main.Version=...".
+// Defaults to "dev" for local development; see VERSION file for the release version.
+var Version = "dev"
 
 type Server struct {
 	router    *chi.Mux
@@ -31,6 +33,8 @@ type Server struct {
 	store     *store.Store
 	wsHub     *ws.Hub
 	jwtSecret string
+	serverCtx context.Context
+	cancelCtx context.CancelFunc
 }
 
 func NewServer(port string) *Server {
@@ -80,12 +84,16 @@ func NewServer(port string) *Server {
 	hub := ws.NewHub()
 	go hub.Run()
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	s := &Server{
 		router:    chi.NewRouter(),
 		port:      port,
 		store:     st,
 		wsHub:     hub,
 		jwtSecret: jwtSecret,
+		serverCtx: ctx,
+		cancelCtx: cancel,
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -597,17 +605,15 @@ func (s *Server) handleDeleteTestPlan(w http.ResponseWriter, r *http.Request) {
 
 // --- Server lifecycle ---
 
-func (s *Server) Start() error {
-	srv := &http.Server{
+// NewHTTPServer creates a configured *http.Server from the Server's router.
+func (s *Server) NewHTTPServer() *http.Server {
+	return &http.Server{
 		Addr:         ":" + s.port,
 		Handler:      s.router,
 		ReadTimeout:  15 * time.Second,
 		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
-
-	log.Printf("Wizards QA Dashboard v%s starting on http://localhost:%s", Version, s.port)
-	return srv.ListenAndServe()
 }
 
 // --- Helpers ---
@@ -681,6 +687,7 @@ func main() {
 	}
 
 	server := NewServer(port)
+	srv := server.NewHTTPServer()
 
 	// Graceful shutdown
 	sigChan := make(chan os.Signal, 1)
@@ -689,13 +696,16 @@ func main() {
 	go func() {
 		sig := <-sigChan
 		log.Printf("Received signal %v, shutting down gracefully...", sig)
+		server.cancelCtx()
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_ = ctx
-		os.Exit(0)
+		if err := srv.Shutdown(ctx); err != nil {
+			log.Printf("HTTP server shutdown error: %v", err)
+		}
 	}()
 
-	if err := server.Start(); err != nil && err != http.ErrServerClosed {
+	log.Printf("Wizards QA Dashboard v%s starting on http://localhost:%s", Version, port)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
 	}
 }

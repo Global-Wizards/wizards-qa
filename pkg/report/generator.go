@@ -3,6 +3,7 @@ package report
 import (
 	"encoding/json"
 	"fmt"
+	"html"
 	"os"
 	"path/filepath"
 	"strings"
@@ -234,12 +235,12 @@ func (g *Generator) generateJUnit(results *maestro.TestResults, gameName string)
 			
 			if result.Status == maestro.StatusFailed {
 				xml.WriteString(fmt.Sprintf("    <failure message=\"%s\">%s</failure>\n",
-					escapeXML(result.Error),
-					escapeXML(result.Stderr),
+					html.EscapeString(result.Error),
+					html.EscapeString(result.Stderr),
 				))
 			} else if result.Status == maestro.StatusTimeout {
 				xml.WriteString(fmt.Sprintf("    <error message=\"Test timeout\" type=\"timeout\">%s</error>\n",
-					escapeXML(result.Error),
+					html.EscapeString(result.Error),
 				))
 			}
 			
@@ -255,16 +256,6 @@ func (g *Generator) generateJUnit(results *maestro.TestResults, gameName string)
 	}
 
 	return path, nil
-}
-
-// escapeXML escapes special XML characters
-func escapeXML(s string) string {
-	s = strings.ReplaceAll(s, "&", "&amp;")
-	s = strings.ReplaceAll(s, "<", "&lt;")
-	s = strings.ReplaceAll(s, ">", "&gt;")
-	s = strings.ReplaceAll(s, "\"", "&quot;")
-	s = strings.ReplaceAll(s, "'", "&apos;")
-	return s
 }
 
 // getStatusEmoji returns an emoji for overall test results

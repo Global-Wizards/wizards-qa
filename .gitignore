@@ -6,3 +6,8 @@ web/backend/backend
 .env.*
 screenshots/
 *.tmp
+*.log
+.DS_Store
+*.swp
+*.swo
+*~

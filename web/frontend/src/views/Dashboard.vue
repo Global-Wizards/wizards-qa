@@ -8,6 +8,7 @@ import {
   Gamepad2, Swords, Trophy,
 } from 'lucide-vue-next'
 import { statsApi, projectsApi } from '@/lib/api'
+import { timeAgo, fullTimestamp } from '@/lib/dateUtils'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
@@ -97,26 +98,6 @@ const successRateColor = computed(() => {
   if (rate > 0) return 'text-red-500'
   return 'text-muted-foreground'
 })
-
-function timeAgo(timestamp) {
-  if (!timestamp) return '-'
-  const now = Date.now()
-  const diff = now - new Date(timestamp).getTime()
-  const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return new Date(timestamp).toLocaleDateString()
-}
-
-function fullTimestamp(timestamp) {
-  if (!timestamp) return ''
-  return new Date(timestamp).toLocaleString()
-}
 
 function openTest(test) {
   router.push('/tests')

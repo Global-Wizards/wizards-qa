@@ -41,7 +41,7 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 
 	cliPath := envOrDefault("WIZARDS_QA_CLI_PATH", "wizards-qa")
 
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	ctx, cancel := context.WithTimeout(s.serverCtx, 10*time.Minute)
 	defer cancel()
 
 	args := []string{"run", "--flows", flowDir}

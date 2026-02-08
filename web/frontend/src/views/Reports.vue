@@ -94,6 +94,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { FileText, FileJson, FileCode, Download, AlertCircle } from 'lucide-vue-next'
 import { reportsApi } from '@/lib/api'
+import { downloadBlob } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -128,13 +129,7 @@ async function viewReport(report) {
 async function downloadReport(report) {
   try {
     const data = await reportsApi.get(report.id)
-    const blob = new Blob([data.content || ''], { type: 'text/plain' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = report.id
-    a.click()
-    URL.revokeObjectURL(url)
+    downloadBlob(data.content || '', report.id)
   } catch (err) {
     console.error('Failed to download report:', err)
   }

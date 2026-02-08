@@ -86,7 +86,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { AlertCircle, Copy } from 'lucide-vue-next'
 import { flowsApi } from '@/lib/api'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -107,6 +107,7 @@ const dialogOpen = ref(false)
 const selectedFlow = ref(null)
 const flowContent = ref('')
 const copied = ref(false)
+let copyTimeoutId = null
 
 const categories = computed(() => {
   const cats = new Set(flows.value.map((f) => f.category))
@@ -144,11 +145,16 @@ async function copyContent() {
   try {
     await navigator.clipboard.writeText(flowContent.value)
     copied.value = true
-    setTimeout(() => { copied.value = false }, 2000)
+    if (copyTimeoutId != null) clearTimeout(copyTimeoutId)
+    copyTimeoutId = setTimeout(() => { copied.value = false }, 2000)
   } catch {
     // clipboard API not available
   }
 }
+
+onUnmounted(() => {
+  if (copyTimeoutId != null) clearTimeout(copyTimeoutId)
+})
 
 onMounted(async () => {
   try {

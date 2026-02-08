@@ -12,7 +12,8 @@ WORKDIR /app/backend
 COPY web/backend/go.mod web/backend/go.sum ./
 RUN go mod download
 COPY web/backend/ ./
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /dashboard-server .
+COPY VERSION /tmp/VERSION
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.Version=$(cat /tmp/VERSION | tr -d '\n')" -trimpath -o /dashboard-server .
 
 # Stage 2b: Build CLI
 FROM golang:1.25-alpine AS cli-build
@@ -20,7 +21,7 @@ WORKDIR /app/cli
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . ./
-RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /wizards-qa ./cmd
+RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(cat VERSION | tr -d '\n')" -trimpath -o /wizards-qa ./cmd
 
 # Stage 3: Runtime
 FROM alpine:3.19

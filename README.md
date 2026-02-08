@@ -1,6 +1,6 @@
 # 🧙‍♂️ Wizards QA - AI-Powered Game Testing
 
-**Version:** 0.1.0 (Alpha)  
+**Version:** 0.4.0
 **Status:** 🚧 Active Development
 
 AI-powered QA automation system for Phaser 4 web games. Analyzes games, generates intelligent test flows, and executes comprehensive testing via Maestro CLI.
@@ -22,7 +22,7 @@ Send a game spec + URL → Get comprehensive automated test coverage powered by 
 
 ### Prerequisites
 
-- **Go 1.21+** - [Install Go](https://go.dev/dl/)
+- **Go 1.25+** - [Install Go](https://go.dev/dl/)
 - **Java 17+** - Required by Maestro
 - **Maestro CLI** - Installed automatically or manually
 

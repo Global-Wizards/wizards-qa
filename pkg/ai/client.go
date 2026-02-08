@@ -88,28 +88,11 @@ type claudeResponse struct {
 	} `json:"usage"`
 }
 
-// callAPIOnce makes a single API request to Claude
-func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
-	req := claudeRequest{
-		Model:       c.Model,
-		MaxTokens:   c.MaxTokens,
-		Temperature: c.Temperature,
-		Messages: []message{
-			{
-				Role:    "user",
-				Content: prompt,
-			},
-		},
-	}
-
-	reqBody, err := json.Marshal(req)
-	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
-	}
-
+// doRequest sends a pre-marshalled request body to the Claude API and returns the raw response bytes.
+func (c *ClaudeClient) doRequest(reqBody []byte) ([]byte, error) {
 	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 
 	httpReq.Header.Set("Content-Type", "application/json")
@@ -118,105 +101,80 @@ func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
 
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %w", err)
+		return nil, fmt.Errorf("HTTP request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
+		return nil, fmt.Errorf("failed to read response: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
 	}
 
+	return body, nil
+}
+
+// unmarshalTextResponse parses a claudeResponse and returns the first text content block.
+func unmarshalTextResponse(body []byte) (string, error) {
 	var claudeResp claudeResponse
 	if err := json.Unmarshal(body, &claudeResp); err != nil {
 		return "", fmt.Errorf("failed to parse response: %w", err)
 	}
-
 	if len(claudeResp.Content) == 0 {
 		return "", fmt.Errorf("empty response from API")
 	}
-
 	return claudeResp.Content[0].Text, nil
+}
+
+// callAPIOnce makes a single API request to Claude
+func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
+	reqBody, err := json.Marshal(claudeRequest{
+		Model:       c.Model,
+		MaxTokens:   c.MaxTokens,
+		Temperature: c.Temperature,
+		Messages:    []message{{Role: "user", Content: prompt}},
+	})
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	body, err := c.doRequest(reqBody)
+	if err != nil {
+		return "", err
+	}
+	return unmarshalTextResponse(body)
 }
 
 // AnalyzeWithImages sends a multimodal request with multiple images and an optional system prompt.
 func (c *ClaudeClient) AnalyzeWithImages(systemPrompt string, prompt string, imagesB64 []string) (string, error) {
 	var content []contentBlock
-
-	// Add all images first
 	for _, imgB64 := range imagesB64 {
 		content = append(content, contentBlock{
-			Type: "image",
-			Source: &imageSource{
-				Type:      "base64",
-				MediaType: "image/jpeg",
-				Data:      imgB64,
-			},
+			Type:   "image",
+			Source: &imageSource{Type: "base64", MediaType: "image/jpeg", Data: imgB64},
 		})
 	}
+	content = append(content, contentBlock{Type: "text", Text: prompt})
 
-	// Add text prompt
-	content = append(content, contentBlock{
-		Type: "text",
-		Text: prompt,
-	})
-
-	req := claudeMultimodalRequest{
+	reqBody, err := json.Marshal(claudeMultimodalRequest{
 		Model:       c.Model,
 		MaxTokens:   c.MaxTokens,
 		Temperature: c.Temperature,
 		System:      systemPrompt,
-		Messages: []multimodalMessage{
-			{
-				Role:    "user",
-				Content: content,
-			},
-		},
-	}
-
-	reqBody, err := json.Marshal(req)
+		Messages:    []multimodalMessage{{Role: "user", Content: content}},
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal multimodal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
+	body, err := c.doRequest(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", err
 	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.APIKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := c.HTTPClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var claudeResp claudeResponse
-	if err := json.Unmarshal(body, &claudeResp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if len(claudeResp.Content) == 0 {
-		return "", fmt.Errorf("empty response from API")
-	}
-
-	return claudeResp.Content[0].Text, nil
+	return unmarshalTextResponse(body)
 }
 
 // --- Tool Use types ---
@@ -273,116 +231,51 @@ type claudeToolUseRequest struct {
 
 // CallWithTools sends a tool-use request to the Claude API.
 func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessage, tools []ToolDefinition) (*ToolUseResponse, error) {
-	req := claudeToolUseRequest{
+	reqBody, err := json.Marshal(claudeToolUseRequest{
 		Model:       c.Model,
 		MaxTokens:   c.MaxTokens,
 		Temperature: c.Temperature,
 		System:      systemPrompt,
 		Tools:       tools,
 		Messages:    messages,
-	}
-
-	reqBody, err := json.Marshal(req)
+	})
 	if err != nil {
 		return nil, fmt.Errorf("failed to marshal tool use request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
+	body, err := c.doRequest(reqBody)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.APIKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := c.HTTPClient.Do(httpReq)
-	if err != nil {
-		return nil, fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, err
 	}
 
 	var toolResp ToolUseResponse
 	if err := json.Unmarshal(body, &toolResp); err != nil {
 		return nil, fmt.Errorf("failed to parse tool use response: %w", err)
 	}
-
 	return &toolResp, nil
 }
 
 // AnalyzeWithImage sends a multimodal request with an image and text prompt to the Claude API.
 func (c *ClaudeClient) AnalyzeWithImage(prompt string, imageB64 string) (string, error) {
-	req := claudeMultimodalRequest{
+	reqBody, err := json.Marshal(claudeMultimodalRequest{
 		Model:       c.Model,
 		MaxTokens:   c.MaxTokens,
 		Temperature: c.Temperature,
-		Messages: []multimodalMessage{
-			{
-				Role: "user",
-				Content: []contentBlock{
-					{
-						Type: "image",
-						Source: &imageSource{
-							Type:      "base64",
-							MediaType: "image/jpeg",
-							Data:      imageB64,
-						},
-					},
-					{
-						Type: "text",
-						Text: prompt,
-					},
-				},
+		Messages: []multimodalMessage{{
+			Role: "user",
+			Content: []contentBlock{
+				{Type: "image", Source: &imageSource{Type: "base64", MediaType: "image/jpeg", Data: imageB64}},
+				{Type: "text", Text: prompt},
 			},
-		},
-	}
-
-	reqBody, err := json.Marshal(req)
+		}},
+	})
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal multimodal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
+	body, err := c.doRequest(reqBody)
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return "", err
 	}
-
-	httpReq.Header.Set("Content-Type", "application/json")
-	httpReq.Header.Set("x-api-key", c.APIKey)
-	httpReq.Header.Set("anthropic-version", "2023-06-01")
-
-	resp, err := c.HTTPClient.Do(httpReq)
-	if err != nil {
-		return "", fmt.Errorf("HTTP request failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
-	}
-
-	var claudeResp claudeResponse
-	if err := json.Unmarshal(body, &claudeResp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
-	}
-
-	if len(claudeResp.Content) == 0 {
-		return "", fmt.Errorf("empty response from API")
-	}
-
-	return claudeResp.Content[0].Text, nil
+	return unmarshalTextResponse(body)
 }

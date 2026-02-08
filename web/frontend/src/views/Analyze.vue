@@ -434,10 +434,12 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAnalysis } from '@/composables/useAnalysis'
+import { truncateUrl, isValidUrl } from '@/lib/utils'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
+import { formatDate } from '@/lib/dateUtils'
 import { useProject } from '@/composables/useProject'
 import { RefreshCw, Trash2, Download } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -470,6 +472,9 @@ const flowCopied = ref(false)
 // Agent screenshot preview state
 const agentScreenshotOpen = ref(false)
 const agentScreenshotStep = ref(null)
+
+// Clipboard timeout tracking
+let copyTimeoutId = null
 
 const {
   status,
@@ -596,29 +601,6 @@ const agentExplorationDetail = computed(() => {
 function expandAgentScreenshot(step) {
   agentScreenshotStep.value = step
   agentScreenshotOpen.value = true
-}
-
-function truncateUrl(urlStr, maxLen = 50) {
-  if (!urlStr || urlStr.length <= maxLen) return urlStr
-  try {
-    const url = new URL(urlStr)
-    const host = url.hostname.replace(/^www\./, '')
-    const path = url.pathname
-    const shortPath = path.length > 20 ? path.slice(0, 17) + '...' : path
-    const result = host + shortPath
-    return result.length > maxLen ? result.slice(0, maxLen - 3) + '...' : result
-  } catch {
-    return urlStr.slice(0, maxLen - 3) + '...'
-  }
-}
-
-function isValidUrl(str) {
-  try {
-    const url = new URL(str)
-    return url.protocol === 'http:' || url.protocol === 'https:'
-  } catch {
-    return false
-  }
 }
 
 // Ordered step names for granular progress
@@ -801,23 +783,10 @@ async function copyFlowYaml() {
   try {
     await navigator.clipboard.writeText(previewFlowYaml.value)
     flowCopied.value = true
-    setTimeout(() => { flowCopied.value = false }, 2000)
+    if (copyTimeoutId != null) clearTimeout(copyTimeoutId)
+    copyTimeoutId = setTimeout(() => { flowCopied.value = false }, 2000)
   } catch {
     // clipboard API not available
-  }
-}
-
-function formatDate(dateStr) {
-  if (!dateStr) return ''
-  try {
-    return new Date(dateStr).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
-  } catch {
-    return dateStr
   }
 }
 
@@ -850,6 +819,10 @@ async function loadRecentAnalyses() {
     // Silently ignore — analyses endpoint may not have data yet
   }
 }
+
+onUnmounted(() => {
+  if (copyTimeoutId != null) clearTimeout(copyTimeoutId)
+})
 
 // Auto-scroll log area when new logs arrive
 watch(logs, () => {

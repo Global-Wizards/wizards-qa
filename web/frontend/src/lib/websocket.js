@@ -12,6 +12,7 @@ export class WebSocketManager {
     this.maxDelay = 30000
     this.shouldReconnect = true
     this.connected = false
+    this._reconnectTimeout = null
   }
 
   _getWsUrl() {
@@ -73,13 +74,17 @@ export class WebSocketManager {
         this.maxDelay,
       )
       this.reconnectAttempts++
-      setTimeout(() => this.connect(), delay)
+      this._reconnectTimeout = setTimeout(() => this.connect(), delay)
     }
   }
 
   disconnect() {
     this.shouldReconnect = false
     this.connected = false
+    if (this._reconnectTimeout != null) {
+      clearTimeout(this._reconnectTimeout)
+      this._reconnectTimeout = null
+    }
     if (this.ws) {
       this.ws.close()
       this.ws = null

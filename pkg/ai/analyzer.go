@@ -424,46 +424,18 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 
 // parseFlowsJSON attempts to parse the AI response as a JSON array of MaestroFlow.
 func parseFlowsJSON(response string) []*MaestroFlow {
-	cleaned := stripCodeFences(response)
-
-	// Try direct unmarshal as array
-	var flows []*MaestroFlow
-	if err := json.Unmarshal([]byte(cleaned), &flows); err == nil && len(flows) > 0 {
-		return flows
+	flows, err := parseJSONArrayFromAI[*MaestroFlow](response)
+	if err != nil {
+		return nil
 	}
-
-	// Fallback: extract JSON array between first [ and last ]
-	start := strings.Index(cleaned, "[")
-	end := strings.LastIndex(cleaned, "]")
-	if start >= 0 && end > start {
-		if err := json.Unmarshal([]byte(cleaned[start:end+1]), &flows); err == nil && len(flows) > 0 {
-			return flows
-		}
-	}
-
-	return nil
+	return flows
 }
 
 // parseComprehensiveJSON attempts to parse the AI response as a ComprehensiveAnalysisResult.
 func parseComprehensiveJSON(response string) (*ComprehensiveAnalysisResult, error) {
-	cleaned := stripCodeFences(response)
-
-	// Try direct unmarshal
-	var result ComprehensiveAnalysisResult
-	if err := json.Unmarshal([]byte(cleaned), &result); err == nil && len(result.Mechanics) > 0 {
-		return &result, nil
-	}
-
-	// Fallback: extract JSON object between first { and last }
-	start := strings.Index(cleaned, "{")
-	end := strings.LastIndex(cleaned, "}")
-	if start >= 0 && end > start {
-		if err := json.Unmarshal([]byte(cleaned[start:end+1]), &result); err == nil && len(result.Mechanics) > 0 {
-			return &result, nil
-		}
-	}
-
-	return nil, fmt.Errorf("could not parse comprehensive analysis from response")
+	return parseJSONObjectFromAI[ComprehensiveAnalysisResult](response, func(r *ComprehensiveAnalysisResult) bool {
+		return len(r.Mechanics) > 0
+	})
 }
 
 // GenerateScenarios generates test scenarios from game analysis (legacy path).
@@ -658,26 +630,52 @@ func stripCodeFences(s string) string {
 	return strings.Join(parts, "\n")
 }
 
-// parseScenarioJSON attempts to parse the AI response as a JSON array of TestScenario.
-func parseScenarioJSON(response string) ([]TestScenario, error) {
+// parseJSONArrayFromAI strips code fences and parses a JSON array from an AI response.
+// Falls back to extracting the substring between the first '[' and last ']'.
+func parseJSONArrayFromAI[T any](response string) ([]T, error) {
 	cleaned := stripCodeFences(response)
 
-	// Try direct unmarshal
-	var scenarios []TestScenario
-	if err := json.Unmarshal([]byte(cleaned), &scenarios); err == nil && len(scenarios) > 0 {
-		return scenarios, nil
+	var result []T
+	if err := json.Unmarshal([]byte(cleaned), &result); err == nil && len(result) > 0 {
+		return result, nil
 	}
 
-	// Fallback: extract JSON array between first [ and last ]
 	start := strings.Index(cleaned, "[")
 	end := strings.LastIndex(cleaned, "]")
 	if start >= 0 && end > start {
-		if err := json.Unmarshal([]byte(cleaned[start:end+1]), &scenarios); err == nil && len(scenarios) > 0 {
-			return scenarios, nil
+		if err := json.Unmarshal([]byte(cleaned[start:end+1]), &result); err == nil && len(result) > 0 {
+			return result, nil
 		}
 	}
 
-	return nil, fmt.Errorf("could not parse scenarios from response")
+	return nil, fmt.Errorf("could not parse JSON array from response")
+}
+
+// parseJSONObjectFromAI strips code fences and parses a JSON object from an AI response.
+// Falls back to extracting the substring between the first '{' and last '}'.
+// The validate function is called to confirm the parsed result is meaningful (e.g., has required fields).
+func parseJSONObjectFromAI[T any](response string, validate func(*T) bool) (*T, error) {
+	cleaned := stripCodeFences(response)
+
+	var result T
+	if err := json.Unmarshal([]byte(cleaned), &result); err == nil && validate(&result) {
+		return &result, nil
+	}
+
+	start := strings.Index(cleaned, "{")
+	end := strings.LastIndex(cleaned, "}")
+	if start >= 0 && end > start {
+		if err := json.Unmarshal([]byte(cleaned[start:end+1]), &result); err == nil && validate(&result) {
+			return &result, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not parse JSON object from response")
+}
+
+// parseScenarioJSON attempts to parse the AI response as a JSON array of TestScenario.
+func parseScenarioJSON(response string) ([]TestScenario, error) {
+	return parseJSONArrayFromAI[TestScenario](response)
 }
 
 // splitYAMLDocuments splits a string on YAML document separators (---).

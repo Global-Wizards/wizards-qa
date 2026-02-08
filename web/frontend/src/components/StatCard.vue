@@ -1,5 +1,5 @@
 <script setup>
-import { ref, onMounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 
 const props = defineProps({
@@ -15,8 +15,14 @@ const props = defineProps({
 })
 
 const displayValue = ref(0)
+let rafId = null
 
 function animateValue(target) {
+  if (rafId != null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+
   const num = typeof target === 'number' ? target : parseFloat(target)
   if (isNaN(num)) {
     displayValue.value = target
@@ -31,12 +37,22 @@ function animateValue(target) {
     const progress = Math.min((timestamp - start) / duration, 1)
     const eased = 1 - Math.pow(1 - progress, 3)
     displayValue.value = Math.round(startVal + (num - startVal) * eased)
-    if (progress < 1) requestAnimationFrame(step)
+    if (progress < 1) {
+      rafId = requestAnimationFrame(step)
+    } else {
+      rafId = null
+    }
   }
-  requestAnimationFrame(step)
+  rafId = requestAnimationFrame(step)
 }
 
 onMounted(() => animateValue(props.value))
+onUnmounted(() => {
+  if (rafId != null) {
+    cancelAnimationFrame(rafId)
+    rafId = null
+  }
+})
 watch(() => props.value, animateValue)
 </script>
 

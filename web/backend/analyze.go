@@ -118,7 +118,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 	}
 	defer os.RemoveAll(tmpDir)
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(s.serverCtx, 5*time.Minute)
 	defer cancel()
 
 	args := []string{"scout", "--game", gameURL, "--json", "--save-flows", "--output", tmpDir, "--headless", "--timeout", "60"}
