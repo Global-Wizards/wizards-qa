@@ -114,7 +114,8 @@ func Load(path string) (*Config, error) {
 	if path == "" {
 		path = findConfigFile()
 		if path == "" {
-			// No config file found, use defaults
+			// No config file found, use defaults but still expand env vars
+			cfg.expandEnvVars()
 			return cfg, nil
 		}
 	}
@@ -123,7 +124,8 @@ func Load(path string) (*Config, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			// File doesn't exist, use defaults
+			// File doesn't exist, use defaults but still expand env vars
+			cfg.expandEnvVars()
 			return cfg, nil
 		}
 		return nil, fmt.Errorf("failed to read config file: %w", err)
