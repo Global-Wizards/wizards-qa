@@ -212,23 +212,47 @@ Respond with valid Maestro YAML for each flow.`,
 	URLAnalysisPrompt = PromptTemplate{
 		Name:        "url-analysis",
 		Description: "Analyze a game from URL with auto-detected page metadata",
-		Template: `You are analyzing a web-based game for QA testing.
+		Template: `You are an expert QA engineer analyzing a web-based game for automated testing.
 
 Game URL: {{url}}
+URL Hints: {{urlHints}}
 
 Page metadata (auto-detected):
 {{pageMeta}}
 
-Based on the page metadata, especially the detected framework ({{framework}}), canvas presence, and page structure, analyze this game and identify:
-1. Game mechanics and interactive elements
-2. UI elements (buttons, overlays, score displays)
-3. Key user flows to test
-4. Potential edge cases
+{{screenshotSection}}
 
-If the framework is "phaser" or uses HTML5 canvas, focus on coordinate-based interactions.
-If the framework is "unity", note that WebGL interactions may need special handling.
+IMPORTANT INSTRUCTIONS:
+1. The URL parameters often reveal critical game info. For example:
+   - game_type=LOTTERY → This is a lottery/scratch card game
+   - game_type=SLOTS → This is a slot machine game
+   - mode=demo → Running in demo/free-play mode
+   - Use the domain and path to infer the game studio/platform
 
-Respond with structured JSON matching the AnalysisResult format:
+2. If the page metadata shows minimal content (e.g., just a JS loader),
+   the game is a JS-rendered SPA. Focus on what the URL parameters and
+   any screenshot tell you about the game type.
+
+3. For canvas-based games (Phaser, PIXI, etc.):
+   - All game interactions are coordinate-based taps on the canvas
+   - HTML overlays (buttons, dialogs) use text-based selectors
+   - Common patterns: "Play" button, "Spin" button, bet controls,
+     balance display, settings gear icon
+
+4. Generate REALISTIC mechanics based on the game type. For a LOTTERY game:
+   - Scratch/reveal mechanics, number selection, draw animations
+   - Bet amount controls, auto-play, balance display
+   - Win/loss states, prize tiers, bonus features
+
+5. For a SLOTS game:
+   - Spin mechanic, reel animations, payline display
+   - Bet controls, auto-spin, turbo mode
+   - Free spins, bonus rounds, scatter/wild symbols
+
+6. If the framework is "phaser" or uses HTML5 canvas, focus on coordinate-based interactions.
+   If the framework is "unity", note that WebGL interactions may need special handling.
+
+Respond with structured JSON matching this format:
 {
   "gameInfo": {
     "name": "...",
@@ -272,6 +296,6 @@ Respond with structured JSON matching the AnalysisResult format:
     }
   ]
 }`,
-		Variables: []string{"url", "pageMeta", "framework"},
+		Variables: []string{"url", "pageMeta", "framework", "urlHints", "screenshotSection"},
 	}
 )

@@ -27,6 +27,11 @@ primary_region = "ord"
 [env]
   PORT = "8080"
 
+[vm]
+  memory = "1gb"
+  cpu_kind = "shared"
+  cpus = 2
+
 [mounts]
   source = "wizards_data"
   destination = "/app/data"

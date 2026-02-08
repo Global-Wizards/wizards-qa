@@ -15,6 +15,11 @@ type APICallerOnce interface {
 	callAPIOnce(prompt string) (string, error)
 }
 
+// ImageAnalyzer is an optional interface for AI clients that support multimodal (image+text) analysis.
+type ImageAnalyzer interface {
+	AnalyzeWithImage(prompt string, imageB64 string) (string, error)
+}
+
 // BaseClient contains shared fields and methods for AI provider clients.
 type BaseClient struct {
 	APIKey      string

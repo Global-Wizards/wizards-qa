@@ -114,7 +114,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy string) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
-	args := []string{"scout", "--game", gameURL, "--json", "--save-flows", "--output", tmpDir}
+	args := []string{"scout", "--game", gameURL, "--json", "--save-flows", "--output", tmpDir, "--headless", "--timeout", "60"}
 	cmd := exec.CommandContext(ctx, cliPath, args...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 

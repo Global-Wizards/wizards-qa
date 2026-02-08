@@ -13,23 +13,26 @@ import (
 
 // PageMeta contains metadata extracted from scouting a game URL.
 type PageMeta struct {
-	Title       string            `json:"title"`
-	Description string            `json:"description"`
-	Framework   string            `json:"framework"`
-	CanvasFound bool              `json:"canvasFound"`
-	ScriptSrcs  []string          `json:"scriptSrcs"`
-	MetaTags    map[string]string `json:"metaTags"`
-	BodySnippet string            `json:"bodySnippet"`
-	Links       []string          `json:"links"`
-	Error       string            `json:"error,omitempty"`
+	Title         string            `json:"title"`
+	Description   string            `json:"description"`
+	Framework     string            `json:"framework"`
+	CanvasFound   bool              `json:"canvasFound"`
+	ScriptSrcs    []string          `json:"scriptSrcs"`
+	MetaTags      map[string]string `json:"metaTags"`
+	BodySnippet   string            `json:"bodySnippet"`
+	Links         []string          `json:"links"`
+	Error         string            `json:"error,omitempty"`
+	ScreenshotB64 string            `json:"screenshotB64,omitempty"`
+	JSGlobals     []string          `json:"jsGlobals,omitempty"`
 }
 
 // HeadlessConfig configures headless browser scouting.
 type HeadlessConfig struct {
-	Enabled bool
-	Width   int
-	Height  int
-	Timeout time.Duration
+	Enabled        bool
+	Width          int
+	Height         int
+	Timeout        time.Duration
+	ScreenshotPath string // if non-empty, save screenshot PNG here
 }
 
 const (
@@ -213,6 +216,8 @@ func DetectFramework(scriptSrcs []string, inlineScripts string) string {
 	switch {
 	case strings.Contains(combined, "phaser"):
 		return "phaser"
+	case strings.Contains(combined, "/assets/index-") && strings.Contains(combined, ".js"):
+		return "vite-spa"
 	case strings.Contains(combined, "pixi.js") || strings.Contains(combined, "pixi.min.js") || strings.Contains(combined, "pixijs"):
 		return "pixi"
 	case strings.Contains(combined, "unityloader") || strings.Contains(combined, "unityprogress") || strings.Contains(combined, "unityinstance"):

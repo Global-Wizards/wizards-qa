@@ -34,10 +34,38 @@ type claudeRequest struct {
 	Messages    []message `json:"messages"`
 }
 
-// message represents a message in the conversation
+// message represents a message in the conversation (text-only)
 type message struct {
 	Role    string `json:"role"`
 	Content string `json:"content"`
+}
+
+// contentBlock represents a content block in a multimodal message (text or image)
+type contentBlock struct {
+	Type   string       `json:"type"`
+	Text   string       `json:"text,omitempty"`
+	Source *imageSource `json:"source,omitempty"`
+}
+
+// imageSource represents a base64-encoded image for the Claude API
+type imageSource struct {
+	Type      string `json:"type"`       // "base64"
+	MediaType string `json:"media_type"` // "image/png"
+	Data      string `json:"data"`       // base64 data
+}
+
+// multimodalMessage supports both text and image content
+type multimodalMessage struct {
+	Role    string         `json:"role"`
+	Content []contentBlock `json:"content"`
+}
+
+// claudeMultimodalRequest is like claudeRequest but uses multimodal messages
+type claudeMultimodalRequest struct {
+	Model       string              `json:"model"`
+	MaxTokens   int                 `json:"max_tokens"`
+	Temperature float64             `json:"temperature,omitempty"`
+	Messages    []multimodalMessage `json:"messages"`
 }
 
 // claudeResponse represents the response from Claude API
@@ -75,6 +103,74 @@ func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", c.APIKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var claudeResp claudeResponse
+	if err := json.Unmarshal(body, &claudeResp); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(claudeResp.Content) == 0 {
+		return "", fmt.Errorf("empty response from API")
+	}
+
+	return claudeResp.Content[0].Text, nil
+}
+
+// AnalyzeWithImage sends a multimodal request with an image and text prompt to the Claude API.
+func (c *ClaudeClient) AnalyzeWithImage(prompt string, imageB64 string) (string, error) {
+	req := claudeMultimodalRequest{
+		Model:       c.Model,
+		MaxTokens:   c.MaxTokens,
+		Temperature: c.Temperature,
+		Messages: []multimodalMessage{
+			{
+				Role: "user",
+				Content: []contentBlock{
+					{
+						Type: "image",
+						Source: &imageSource{
+							Type:      "base64",
+							MediaType: "image/png",
+							Data:      imageB64,
+						},
+					},
+					{
+						Type: "text",
+						Text: prompt,
+					},
+				},
+			},
+		},
+	}
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal multimodal request: %w", err)
 	}
 
 	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))

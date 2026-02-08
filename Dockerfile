@@ -24,8 +24,9 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /wizards-qa ./cmd
 
 # Stage 3: Runtime
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates \
+RUN apk add --no-cache ca-certificates chromium nss freetype harfbuzz \
     && addgroup -S appgroup && adduser -S appuser -G appgroup
+ENV CHROME_BIN=/usr/bin/chromium-browser
 WORKDIR /app
 COPY --from=backend-build /dashboard-server ./dashboard-server
 COPY --from=cli-build /wizards-qa ./wizards-qa

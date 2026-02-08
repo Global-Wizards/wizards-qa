@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"time"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/ai"
@@ -72,6 +73,27 @@ Example:
 				return fmt.Errorf("page scout failed: %w", err)
 			}
 
+			// Auto-fallback to headless if HTTP scout got minimal results
+			if !headless && pageMeta.Framework == "unknown" && !pageMeta.CanvasFound && len(pageMeta.ScriptSrcs) <= 2 {
+				if !jsonOutput {
+					fmt.Printf("   Minimal page detected, retrying with headless Chrome...\n")
+				} else {
+					fmt.Fprintf(os.Stderr, "PROGRESS:fallback:Minimal page detected, retrying with headless Chrome...\n")
+				}
+				headlessMeta, headlessErr := scout.ScoutURLHeadless(ctx, gameURL, scout.HeadlessConfig{
+					Enabled: true,
+					Width:   cfg.Browser.Viewport.Width,
+					Height:  cfg.Browser.Viewport.Height,
+					Timeout: timeoutDur,
+				})
+				if headlessErr == nil {
+					pageMeta = headlessMeta
+					headless = true
+				} else if !jsonOutput {
+					fmt.Printf("   Headless fallback failed: %v\n", headlessErr)
+				}
+			}
+
 			if !jsonOutput {
 				fmt.Printf("   Title: %s\n", pageMeta.Title)
 				fmt.Printf("   Framework: %s\n", pageMeta.Framework)
@@ -88,12 +110,26 @@ Example:
 				return err
 			}
 
+			// Emit scouting progress for --json mode
+			if jsonOutput {
+				fmt.Fprintf(os.Stderr, "PROGRESS:scouting:Scouting page %s\n", gameURL)
+				detail := fmt.Sprintf("%s | Canvas: %v | Scripts: %d", pageMeta.Framework, pageMeta.CanvasFound, len(pageMeta.ScriptSrcs))
+				fmt.Fprintf(os.Stderr, "PROGRESS:scouted:%s\n", detail)
+			}
+
 			if !jsonOutput {
 				fmt.Printf("%s Analyzing game with AI...\n", util.EmojiClip)
 			}
 
 			// Step 2: Full pipeline — reuse pre-fetched pageMeta to avoid double-fetch
-			_, result, flows, err := analyzer.AnalyzeFromURLWithMeta(ctx, gameURL, pageMeta)
+			var onProgress ai.ProgressFunc
+			if jsonOutput {
+				onProgress = func(step, message string) {
+					fmt.Fprintf(os.Stderr, "PROGRESS:%s:%s\n", step, message)
+				}
+			}
+
+			_, result, flows, err := analyzer.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, onProgress)
 			if err != nil {
 				return fmt.Errorf("analysis failed: %w", err)
 			}
