@@ -26,7 +26,7 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(cat VERSION | tr -d
 # Stage 3: Runtime
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates chromium nss freetype harfbuzz \
-    openjdk17-jre-headless curl unzip \
+    openjdk17-jre-headless curl unzip bash \
     && addgroup -S appgroup && adduser -S appuser -G appgroup
 
 # Install Maestro CLI (pinned version) to /opt/maestro
