@@ -98,7 +98,15 @@ Example:
 				fmt.Printf("   Title: %s\n", pageMeta.Title)
 				fmt.Printf("   Framework: %s\n", pageMeta.Framework)
 				fmt.Printf("   Canvas: %v\n", pageMeta.CanvasFound)
-				fmt.Printf("   Scripts: %d\n\n", len(pageMeta.ScriptSrcs))
+				fmt.Printf("   Scripts: %d\n", len(pageMeta.ScriptSrcs))
+				if pageMeta.ScreenshotB64 != "" {
+					screenshotKB := len(pageMeta.ScreenshotB64) * 3 / 4 / 1024
+					fmt.Printf("   Screenshot: %d KB\n", screenshotKB)
+				}
+				if len(pageMeta.JSGlobals) > 0 {
+					fmt.Printf("   JS Globals: %v\n", pageMeta.JSGlobals)
+				}
+				fmt.Println()
 			}
 
 			if err := validateAPIKey(cfg); err != nil {

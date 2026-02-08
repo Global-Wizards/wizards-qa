@@ -78,23 +78,25 @@
           <div class="space-y-1">
             <ProgressStep
               :status="granularStepStatus('scouting')"
-              label="Scouting page..."
-              :detail="pageMeta ? `${pageMeta.framework} | Canvas: ${pageMeta.canvasFound}${pageMeta.jsGlobals?.length ? ' | ' + pageMeta.jsGlobals.join(', ') : ''}${pageMeta.screenshotB64 ? ' | Screenshot' : ''}${stepDuration('scouting') ? ' (' + stepDuration('scouting') + 's)' : ''}` : ''"
+              label="Scouting page"
+              :detail="stepDuration('scouting') ? `Completed in ${stepDuration('scouting')}s` : 'Fetching page and extracting metadata...'"
+              :sub-details="scoutingDetails"
             />
             <ProgressStep
               :status="granularStepStatus('analyzing')"
-              label="Analyzing game mechanics..."
-              :detail="analysis ? `${analysis.mechanics?.length || 0} mechanics, ${analysis.uiElements?.length || 0} UI elements${pageMeta?.screenshotB64 ? ' (with screenshot)' : ' (text-only)'}${stepDuration('analyzing') ? ' (' + stepDuration('analyzing') + 's)' : ''}` : ''"
+              label="Analyzing game mechanics"
+              :detail="analyzingDetail"
+              :sub-details="analysisDetails"
             />
             <ProgressStep
               :status="granularStepStatus('scenarios')"
-              label="Generating test scenarios..."
-              :detail="(currentStep === 'scenarios_done' || stepOrder(currentStep) > stepOrder('scenarios_done') ? 'Scenarios generated' : '') + (stepDuration('scenarios') ? ' (' + stepDuration('scenarios') + 's)' : '')"
+              label="Generating test scenarios"
+              :detail="scenariosDetail"
             />
             <ProgressStep
               :status="granularStepStatus('flows')"
-              label="Generating Maestro test flows..."
-              :detail="(flowList.length ? `${flowList.length} flow(s) generated` : '') + (stepDuration('flows') ? ' (' + stepDuration('flows') + 's)' : '')"
+              label="Generating Maestro test flows"
+              :detail="flowsDetail"
             />
           </div>
 
@@ -216,7 +218,7 @@
               <div v-if="pageMeta?.screenshotB64">
                 <span class="text-muted-foreground font-medium">Screenshot:</span>
                 <img
-                  :src="'data:image/png;base64,' + pageMeta.screenshotB64"
+                  :src="'data:image/jpeg;base64,' + pageMeta.screenshotB64"
                   class="mt-1 rounded-md border max-w-md"
                   alt="Game screenshot"
                 />
@@ -305,23 +307,25 @@
         <div class="mt-4 space-y-1" v-if="currentStep || Object.keys(stepTimings).length">
           <ProgressStep
             :status="granularStepStatus('scouting')"
-            label="Scouting page..."
-            :detail="stepDuration('scouting') ? stepDuration('scouting') + 's' : ''"
+            label="Scouting page"
+            :detail="stepDuration('scouting') ? `${stepDuration('scouting')}s` : ''"
+            :sub-details="scoutingDetails"
           />
           <ProgressStep
             :status="granularStepStatus('analyzing')"
-            label="Analyzing game mechanics..."
-            :detail="stepDuration('analyzing') ? stepDuration('analyzing') + 's' : ''"
+            label="Analyzing game mechanics"
+            :detail="stepDuration('analyzing') ? `${stepDuration('analyzing')}s` : ''"
+            :sub-details="analysisDetails"
           />
           <ProgressStep
             :status="granularStepStatus('scenarios')"
-            label="Generating test scenarios..."
-            :detail="stepDuration('scenarios') ? stepDuration('scenarios') + 's' : ''"
+            label="Generating test scenarios"
+            :detail="stepDuration('scenarios') ? `${stepDuration('scenarios')}s` : ''"
           />
           <ProgressStep
             :status="granularStepStatus('flows')"
-            label="Generating Maestro test flows..."
-            :detail="stepDuration('flows') ? stepDuration('flows') + 's' : ''"
+            label="Generating Maestro test flows"
+            :detail="stepDuration('flows') ? `${stepDuration('flows')}s` : ''"
           />
         </div>
 
@@ -420,6 +424,79 @@ const framework = computed(() => {
 
 const flowCount = computed(() => {
   return flowList.value?.length || 0
+})
+
+// --- Rich progress detail computeds ---
+
+const scoutingDetails = computed(() => {
+  if (!pageMeta.value) return []
+  const details = []
+  if (pageMeta.value.title) details.push({ label: 'Title', value: pageMeta.value.title })
+  details.push({ label: 'Framework', value: pageMeta.value.framework || 'unknown' })
+  details.push({ label: 'Canvas', value: pageMeta.value.canvasFound ? 'Detected' : 'Not found' })
+  details.push({ label: 'Scripts', value: `${pageMeta.value.scriptSrcs?.length || 0} found` })
+  if (pageMeta.value.jsGlobals?.length) {
+    details.push({ label: 'JS Globals', value: pageMeta.value.jsGlobals.join(', ') })
+  }
+  if (pageMeta.value.screenshotB64) {
+    const sizeKB = Math.round(pageMeta.value.screenshotB64.length * 3 / 4 / 1024)
+    details.push({ label: 'Screenshot', value: `Captured (${sizeKB} KB)` })
+  }
+  return details
+})
+
+const analyzingDetail = computed(() => {
+  const dur = stepDuration('analyzing')
+  if (analysis.value) {
+    const mode = pageMeta.value?.screenshotB64 ? 'multimodal' : 'text-only'
+    return `${mode} analysis${dur ? ` in ${dur}s` : ''}`
+  }
+  // Show the latest log message for the analyzing step
+  const lastAnalyzingLog = logs.value.filter(l => l.includes('AI') || l.includes('multimodal') || l.includes('Sending')).pop()
+  return lastAnalyzingLog || 'Waiting for AI response...'
+})
+
+const analysisDetails = computed(() => {
+  if (!analysis.value) return []
+  const details = []
+  if (analysis.value.gameInfo?.name) {
+    details.push({ label: 'Game', value: `${analysis.value.gameInfo.name}${analysis.value.gameInfo.genre ? ' (' + analysis.value.gameInfo.genre + ')' : ''}` })
+  }
+  if (analysis.value.gameInfo?.technology) {
+    details.push({ label: 'Technology', value: analysis.value.gameInfo.technology })
+  }
+  if (analysis.value.mechanics?.length) {
+    details.push({ label: 'Mechanics', value: `${analysis.value.mechanics.length} found` })
+  }
+  if (analysis.value.uiElements?.length) {
+    details.push({ label: 'UI Elements', value: `${analysis.value.uiElements.length} found` })
+  }
+  if (analysis.value.userFlows?.length) {
+    details.push({ label: 'User Flows', value: `${analysis.value.userFlows.length} identified` })
+  }
+  if (analysis.value.edgeCases?.length) {
+    details.push({ label: 'Edge Cases', value: `${analysis.value.edgeCases.length} identified` })
+  }
+  return details
+})
+
+const scenariosDetail = computed(() => {
+  const dur = stepDuration('scenarios')
+  if (stepOrder(currentStep.value) > stepOrder('scenarios_done')) {
+    return `Scenarios generated${dur ? ` in ${dur}s` : ''}`
+  }
+  if (currentStep.value === 'scenarios_done') {
+    return `Scenarios generated${dur ? ` in ${dur}s` : ''}`
+  }
+  return dur ? `Working... (${dur}s)` : ''
+})
+
+const flowsDetail = computed(() => {
+  const dur = stepDuration('flows')
+  if (flowList.value.length) {
+    return `${flowList.value.length} flow(s) generated${dur ? ` in ${dur}s` : ''}`
+  }
+  return dur ? `Working... (${dur}s)` : ''
 })
 
 function isValidUrl(str) {

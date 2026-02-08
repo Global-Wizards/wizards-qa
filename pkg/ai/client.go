@@ -155,7 +155,7 @@ func (c *ClaudeClient) AnalyzeWithImage(prompt string, imageB64 string) (string,
 						Type: "image",
 						Source: &imageSource{
 							Type:      "base64",
-							MediaType: "image/png",
+							MediaType: "image/jpeg",
 							Data:      imageB64,
 						},
 					},

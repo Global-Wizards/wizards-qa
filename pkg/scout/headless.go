@@ -170,9 +170,12 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 		}
 	}
 
-	// Screenshot capture
+	// Screenshot capture — use JPEG at quality 80 to keep base64 size
+	// manageable for the multimodal AI API (~50-150 KB vs 200-500 KB for PNG).
+	jpegQuality := 80
 	screenshotData, screenshotErr := page.Screenshot(true, &proto.PageCaptureScreenshot{
-		Format: proto.PageCaptureScreenshotFormatPng,
+		Format:  proto.PageCaptureScreenshotFormatJpeg,
+		Quality: &jpegQuality,
 	})
 	if screenshotErr == nil && len(screenshotData) > 0 {
 		meta.ScreenshotB64 = base64.StdEncoding.EncodeToString(screenshotData)

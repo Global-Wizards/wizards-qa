@@ -14,6 +14,10 @@ defineProps({
     type: String,
     default: '',
   },
+  subDetails: {
+    type: Array, // Array of { label: string, value: string }
+    default: () => [],
+  },
 })
 </script>
 
@@ -24,7 +28,7 @@ defineProps({
       <Loader2 v-else-if="status === 'active'" class="h-5 w-5 text-primary animate-spin" />
       <Circle v-else class="h-5 w-5 text-muted-foreground/40" />
     </div>
-    <div class="min-w-0">
+    <div class="min-w-0 flex-1">
       <p
         class="text-sm font-medium"
         :class="{
@@ -34,9 +38,20 @@ defineProps({
       >
         {{ label }}
       </p>
-      <p v-if="detail" class="text-xs text-muted-foreground mt-0.5 truncate">
+      <p v-if="detail" class="text-xs text-muted-foreground mt-0.5">
         {{ detail }}
       </p>
+      <div v-if="subDetails.length && (status === 'active' || status === 'complete')" class="mt-1.5 space-y-0.5">
+        <div
+          v-for="(item, i) in subDetails"
+          :key="i"
+          class="flex items-center gap-1.5 text-xs text-muted-foreground"
+        >
+          <span class="inline-block w-1 h-1 rounded-full bg-muted-foreground/40 shrink-0" />
+          <span v-if="item.label" class="text-muted-foreground/70">{{ item.label }}:</span>
+          <span>{{ item.value }}</span>
+        </div>
+      </div>
     </div>
   </div>
 </template>
