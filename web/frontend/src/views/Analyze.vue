@@ -44,7 +44,7 @@
             class="flex items-center justify-between p-3 rounded-md border hover:bg-muted/50 transition-colors"
           >
             <div class="min-w-0 cursor-pointer flex-1" @click="viewAnalysis(item)">
-              <p class="text-sm font-medium truncate">{{ item.gameName || item.gameUrl }}</p>
+              <p class="text-sm font-medium truncate" :title="item.gameUrl">{{ item.gameName || truncateUrl(item.gameUrl, 60) }}</p>
               <p class="text-xs text-muted-foreground">
                 {{ item.framework }} &middot; {{ item.flowCount }} flow(s) &middot; {{ formatDate(item.createdAt) }}
               </p>
@@ -68,7 +68,7 @@
       <Card>
         <CardHeader>
           <div class="flex items-center justify-between">
-            <CardTitle>Analyzing: {{ gameUrl }}</CardTitle>
+            <CardTitle class="truncate max-w-[calc(100%-6rem)]" :title="gameUrl">Analyzing: {{ truncateUrl(gameUrl) }}</CardTitle>
             <span v-if="elapsedSeconds > 0" class="text-sm text-muted-foreground">
               {{ formatElapsed(elapsedSeconds) }}
             </span>
@@ -502,6 +502,20 @@ const flowsDetail = computed(() => {
   }
   return dur ? `Working... (${dur}s)` : ''
 })
+
+function truncateUrl(urlStr, maxLen = 50) {
+  if (!urlStr || urlStr.length <= maxLen) return urlStr
+  try {
+    const url = new URL(urlStr)
+    const host = url.hostname.replace(/^www\./, '')
+    const path = url.pathname
+    const shortPath = path.length > 20 ? path.slice(0, 17) + '...' : path
+    const result = host + shortPath
+    return result.length > maxLen ? result.slice(0, maxLen - 3) + '...' : result
+  } catch {
+    return urlStr.slice(0, maxLen - 3) + '...'
+  }
+}
 
 function isValidUrl(str) {
   try {
