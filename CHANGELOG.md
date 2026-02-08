@@ -5,6 +5,22 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.1] - 2026-02-08
+
+### Audit Remediation — Security, Race Conditions & UX Fixes
+
+#### Fixed
+- **Path traversal in screenshot filename** (CRITICAL) — sanitize with `filepath.Base()` and reject path separators in `web/backend/analyze.go`
+- **Race condition in agent hint sender** (HIGH) — move stdin write inside mutex-protected section to prevent write-to-closed-pipe crash
+- **Rate limit set before write succeeds** (MEDIUM) — `lastHintAt` now only updated after a successful stdin write
+- **Unchecked `os.WriteFile` for screenshots** (MEDIUM) — log error in `pkg/ai/agent.go` when screenshot write fails
+- **Unchecked `os.MkdirAll` for screenshot dir** (MEDIUM) — log error in `cmd/scout.go` when directory creation fails
+- **Unbounded `liveAgentSteps` memory growth** (HIGH) — cap at 50 entries; store `hasScreenshot` flag instead of full base64 strings
+- **Auto-scroll overrides manual scrolling** (LOW) — only auto-scroll timeline and log panels when user is near the bottom
+
+#### Removed
+- Dead `saveToLocalStorage` function in `useAnalysis.js`
+
 ## [0.4.0] - 2026-02-08
 
 ### Agent Mode - Interactive Game Exploration (2026-02-08)
