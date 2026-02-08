@@ -67,13 +67,18 @@ initTheme()
 
 const app = createApp(App)
 app.use(router)
-app.mount('#app')
 
-// Load user on startup
-const { loadUser } = useAuth()
-loadUser().then(() => {
-  const { isAuthenticated } = useAuth()
-  if (!isAuthenticated.value && window.location.pathname !== '/login') {
-    router.push('/login')
-  }
+// Wait for router to resolve initial route before mounting,
+// so $route.meta is available and App.vue renders the correct branch
+router.isReady().then(() => {
+  app.mount('#app')
+
+  // Load user on startup
+  const { loadUser } = useAuth()
+  loadUser().then(() => {
+    const { isAuthenticated } = useAuth()
+    if (!isAuthenticated.value && window.location.pathname !== '/login') {
+      router.push('/login')
+    }
+  })
 })
