@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -50,10 +51,15 @@ type Message struct {
 }
 
 type Client struct {
-	hub    *Hub
-	conn   *websocket.Conn
-	send   chan []byte
-	UserID string
+	hub       *Hub
+	conn      *websocket.Conn
+	send      chan []byte
+	UserID    string
+	closeOnce sync.Once
+}
+
+func (c *Client) closeSend() {
+	c.closeOnce.Do(func() { close(c.send) })
 }
 
 type Hub struct {
@@ -87,7 +93,7 @@ func (h *Hub) Run() {
 			h.mu.Lock()
 			if _, ok := h.clients[client]; ok {
 				delete(h.clients, client)
-				close(client.send)
+				client.closeSend()
 			}
 			count := len(h.clients)
 			h.mu.Unlock()
@@ -105,7 +111,7 @@ func (h *Hub) Run() {
 			}
 			for _, client := range stale {
 				delete(h.clients, client)
-				close(client.send)
+				client.closeSend()
 			}
 			h.mu.Unlock()
 		}
@@ -129,34 +135,47 @@ func (h *Hub) Broadcast(msg Message) {
 	h.broadcast <- data
 }
 
-// ServeWs handles WebSocket upgrade requests with token-based auth.
+// ServeWs handles WebSocket upgrade and authenticates via first message.
 func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, jwtSecret string) {
-	// Validate token from query parameter
-	token := r.URL.Query().Get("token")
-	var userID string
-	if token != "" {
-		claims, err := auth.ValidateAccessToken(token, jwtSecret)
-		if err != nil {
-			http.Error(w, "invalid token", http.StatusUnauthorized)
-			return
-		}
-		userID = claims.UserID
-	} else {
-		http.Error(w, "token required", http.StatusUnauthorized)
-		return
-	}
-
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
 		return
 	}
 
+	// Wait for auth message (10s deadline)
+	conn.SetReadDeadline(time.Now().Add(10 * time.Second))
+	_, msg, err := conn.ReadMessage()
+	if err != nil {
+		conn.Close()
+		return
+	}
+
+	var authMsg struct {
+		Type  string `json:"type"`
+		Token string `json:"token"`
+	}
+	if err := json.Unmarshal(msg, &authMsg); err != nil || authMsg.Type != "auth" || authMsg.Token == "" {
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "auth required"))
+		conn.Close()
+		return
+	}
+
+	claims, err := auth.ValidateAccessToken(authMsg.Token, jwtSecret)
+	if err != nil {
+		conn.WriteMessage(websocket.CloseMessage, websocket.FormatCloseMessage(4001, "invalid token"))
+		conn.Close()
+		return
+	}
+
+	// Clear read deadline
+	conn.SetReadDeadline(time.Time{})
+
 	client := &Client{
 		hub:    hub,
 		conn:   conn,
 		send:   make(chan []byte, 256),
-		UserID: userID,
+		UserID: claims.UserID,
 	}
 
 	hub.register <- client

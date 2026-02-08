@@ -85,6 +85,15 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID string, agentMode bool) {
+	// Acquire concurrency slot
+	select {
+	case s.analysisSem <- struct{}{}:
+		defer func() { <-s.analysisSem }()
+	case <-s.serverCtx.Done():
+		s.broadcastAnalysisError(analysisID, "Server shutting down")
+		return
+	}
+
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_progress",
 		Data: AnalysisProgress{
@@ -98,7 +107,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 	runningRecord := store.AnalysisRecord{
 		ID:        analysisID,
 		GameURL:   gameURL,
-		Status:    "running",
+		Status:    store.StatusRunning,
 		Step:      "scouting",
 		CreatedAt: time.Now().Format(time.RFC3339),
 		UpdatedAt: time.Now().Format(time.RFC3339),
@@ -171,7 +180,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 					},
 				})
 				go func(id, st string) {
-					if err := s.store.UpdateAnalysisStatus(id, "running", st); err != nil {
+					if err := s.store.UpdateAnalysisStatus(id, store.StatusRunning, st); err != nil {
 						log.Printf("Warning: failed to update analysis %s step to %s: %v", id, st, err)
 					}
 				}(analysisID, step)
@@ -264,7 +273,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 		}
 	}
 
-	if err := s.store.UpdateAnalysisResult(analysisID, "completed", result, gameName, framework, flowCount); err != nil {
+	if err := s.store.UpdateAnalysisResult(analysisID, store.StatusCompleted, result, gameName, framework, flowCount); err != nil {
 		log.Printf("Warning: failed to update analysis record for %s: %v", analysisID, err)
 	}
 
@@ -280,7 +289,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 func (s *Server) broadcastAnalysisError(analysisID, errMsg string) {
 	log.Printf("Analysis %s failed: %s", analysisID, errMsg)
 
-	if err := s.store.UpdateAnalysisStatus(analysisID, "failed", ""); err != nil {
+	if err := s.store.UpdateAnalysisStatus(analysisID, store.StatusFailed, ""); err != nil {
 		log.Printf("Warning: failed to mark analysis %s as failed: %v", analysisID, err)
 	}
 

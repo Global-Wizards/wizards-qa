@@ -25,7 +25,7 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 	startTime := time.Now()
 
 	if planID != "" {
-		if err := s.store.UpdateTestPlanStatus(planID, "running", testID); err != nil {
+		if err := s.store.UpdateTestPlanStatus(planID, store.StatusRunning, testID); err != nil {
 			log.Printf("Warning: failed to update plan %s status to running: %v", planID, err)
 		}
 	}
@@ -128,17 +128,17 @@ func (s *Server) launchTestRun(planID, testID, flowDir, planName string, cleanup
 // finishTestRun saves the result and broadcasts completion.
 func (s *Server) finishTestRun(planID, testID, planName string, startTime time.Time, flows []store.FlowResult, runErr error, createdBy string) {
 	duration := time.Since(startTime)
-	status := "passed"
+	status := store.StatusPassed
 	errorOutput := ""
 
 	if runErr != nil {
-		status = "failed"
+		status = store.StatusFailed
 		errorOutput = runErr.Error()
 	}
 
 	passed := 0
 	for i, f := range flows {
-		if f.Status == "passed" {
+		if f.Status == store.StatusPassed {
 			passed++
 		}
 		if f.Duration == "" {
@@ -181,9 +181,9 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 	}
 
 	if planID != "" {
-		planStatus := "completed"
+		planStatus := store.StatusCompleted
 		if runErr != nil {
-			planStatus = "failed"
+			planStatus = store.StatusFailed
 		}
 		if err := s.store.UpdateTestPlanStatus(planID, planStatus, testID); err != nil {
 			log.Printf("Warning: failed to update plan %s status to %s: %v", planID, planStatus, err)

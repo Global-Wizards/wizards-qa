@@ -254,7 +254,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { AlertCircle, Plus, Play, Trash2 } from 'lucide-vue-next'
 import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
@@ -280,6 +280,12 @@ const loading = ref(true)
 const error = ref(null)
 const tests = ref([])
 const search = ref('')
+const debouncedSearch = ref('')
+let searchTimeout = null
+watch(search, (val) => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => { debouncedSearch.value = val }, 300)
+})
 const sortField = ref('timestamp')
 const sortAsc = ref(false)
 const sheetOpen = ref(false)
@@ -300,8 +306,8 @@ const runError = ref(null)
 const filteredTests = computed(() => {
   let result = [...tests.value]
 
-  if (search.value) {
-    const q = search.value.toLowerCase()
+  if (debouncedSearch.value) {
+    const q = debouncedSearch.value.toLowerCase()
     result = result.filter((t) => t.name.toLowerCase().includes(q))
   }
 
@@ -348,6 +354,7 @@ async function runPlan(plan) {
 }
 
 async function deletePlan(plan) {
+  if (!confirm(`Delete test plan "${plan.name}"? This cannot be undone.`)) return
   try {
     await testPlansDeleteApi.delete(plan.id)
     plans.value = plans.value.filter((p) => p.id !== plan.id)
@@ -417,5 +424,6 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (wsCleanup) wsCleanup()
+  clearTimeout(searchTimeout)
 })
 </script>

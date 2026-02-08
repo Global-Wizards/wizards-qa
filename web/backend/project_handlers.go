@@ -13,6 +13,36 @@ import (
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 )
 
+// requireProjectAccess checks that the current user is a member of the project.
+// If requiredRoles is non-empty, the user must have one of those roles.
+// Returns true if access is granted; writes an error response and returns false otherwise.
+func (s *Server) requireProjectAccess(w http.ResponseWriter, r *http.Request, projectID string, requiredRoles ...string) bool {
+	claims := auth.UserFromContext(r.Context())
+	if claims == nil {
+		respondError(w, http.StatusUnauthorized, "Authentication required")
+		return false
+	}
+	// Global admins always have access
+	if claims.Role == "admin" {
+		return true
+	}
+	role, err := s.store.GetProjectMemberRole(projectID, claims.UserID)
+	if err != nil {
+		respondError(w, http.StatusForbidden, "Not a member of this project")
+		return false
+	}
+	if len(requiredRoles) == 0 {
+		return true
+	}
+	for _, rr := range requiredRoles {
+		if role == rr {
+			return true
+		}
+	}
+	respondError(w, http.StatusForbidden, "Insufficient project permissions")
+	return false
+}
+
 // --- Project CRUD ---
 
 func (s *Server) handleListProjects(w http.ResponseWriter, r *http.Request) {
@@ -83,6 +113,9 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, id) {
+		return
+	}
 	p, err := s.store.GetProject(id)
 	if err != nil {
 		respondError(w, http.StatusNotFound, "Project not found")
@@ -93,6 +126,9 @@ func (s *Server) handleGetProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, id, "owner") {
+		return
+	}
 
 	existing, err := s.store.GetProject(id)
 	if err != nil {
@@ -140,6 +176,9 @@ func (s *Server) handleUpdateProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, id, "owner") {
+		return
+	}
 	if err := s.store.DeleteProject(id); err != nil {
 		respondError(w, http.StatusNotFound, "Project not found")
 		return
@@ -151,6 +190,9 @@ func (s *Server) handleDeleteProject(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleGetProjectStats(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, id) {
+		return
+	}
 	stats, err := s.store.GetStatsByProject(id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to get project stats")
@@ -163,6 +205,9 @@ func (s *Server) handleGetProjectStats(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleListProjectAnalyses(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, id) {
+		return
+	}
 	analyses, err := s.store.ListAnalysesByProject(id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list project analyses")
@@ -176,6 +221,9 @@ func (s *Server) handleListProjectAnalyses(w http.ResponseWriter, r *http.Reques
 
 func (s *Server) handleListProjectTestPlans(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, id) {
+		return
+	}
 	plans, err := s.store.ListTestPlansByProject(id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list project test plans")
@@ -189,6 +237,9 @@ func (s *Server) handleListProjectTestPlans(w http.ResponseWriter, r *http.Reque
 
 func (s *Server) handleListProjectTests(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, id) {
+		return
+	}
 	tests, err := s.store.ListTestResultsByProject(id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list project tests")
@@ -204,6 +255,9 @@ func (s *Server) handleListProjectTests(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleListProjectMembers(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, id) {
+		return
+	}
 	members, err := s.store.ListProjectMembers(id)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list project members")
@@ -217,6 +271,9 @@ func (s *Server) handleListProjectMembers(w http.ResponseWriter, r *http.Request
 
 func (s *Server) handleAddProjectMember(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, projectID, "owner") {
+		return
+	}
 
 	var req struct {
 		Email string `json:"email"`
@@ -264,6 +321,9 @@ func (s *Server) handleAddProjectMember(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleUpdateMemberRole(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, projectID, "owner") {
+		return
+	}
 	userID := chi.URLParam(r, "userId")
 
 	var req struct {
@@ -284,6 +344,9 @@ func (s *Server) handleUpdateMemberRole(w http.ResponseWriter, r *http.Request) 
 
 func (s *Server) handleRemoveProjectMember(w http.ResponseWriter, r *http.Request) {
 	projectID := chi.URLParam(r, "projectId")
+	if !s.requireProjectAccess(w, r, projectID, "owner") {
+		return
+	}
 	userID := chi.URLParam(r, "userId")
 
 	if err := s.store.RemoveProjectMember(projectID, userID); err != nil {

@@ -35,6 +35,11 @@ func New(db *sql.DB, flowsDir, reportsDir, configPath string) *Store {
 	}
 }
 
+// Ping checks database connectivity.
+func (s *Store) Ping() error {
+	return s.db.Ping()
+}
+
 // ValidateDirectories checks that required directories exist.
 func (s *Store) ValidateDirectories() error {
 	info, err := os.Stat(s.flowsDir)
@@ -49,7 +54,7 @@ func (s *Store) ValidateDirectories() error {
 
 // RecoverOrphanedRuns marks any "running" test plans as failed (crash recovery).
 func (s *Store) RecoverOrphanedRuns() {
-	result, err := s.db.Exec(`UPDATE test_plans SET status = 'failed' WHERE status = 'running'`)
+	result, err := s.db.Exec(`UPDATE test_plans SET status = ? WHERE status = ?`, StatusFailed, StatusRunning)
 	if err != nil {
 		log.Printf("Warning: failed to recover orphaned test plans: %v", err)
 		return
@@ -62,7 +67,7 @@ func (s *Store) RecoverOrphanedRuns() {
 // RecoverOrphanedAnalyses marks any "running" analyses as "failed" (crash recovery).
 func (s *Store) RecoverOrphanedAnalyses() {
 	now := time.Now().Format(time.RFC3339)
-	result, err := s.db.Exec(`UPDATE analyses SET status = 'failed', step = '', updated_at = ? WHERE status = 'running'`, now)
+	result, err := s.db.Exec(`UPDATE analyses SET status = ?, step = '', updated_at = ? WHERE status = ?`, StatusFailed, now, StatusRunning)
 	if err != nil {
 		log.Printf("Warning: failed to recover orphaned analyses: %v", err)
 		return
@@ -303,9 +308,9 @@ func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 	return &a, nil
 }
 
-func (s *Store) ListAnalyses() ([]AnalysisRecord, error) {
+func (s *Store) ListAnalyses(limit, offset int) ([]AnalysisRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses ORDER BY created_at DESC`,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -375,9 +380,9 @@ func (s *Store) SaveTestResult(result TestResultDetail) error {
 	return err
 }
 
-func (s *Store) ListTestResults() ([]TestResultSummary, error) {
+func (s *Store) ListTestResults(limit, offset int) ([]TestResultSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,'') FROM test_results ORDER BY timestamp DESC`,
+		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,'') FROM test_results ORDER BY timestamp DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -444,9 +449,9 @@ func (s *Store) SaveTestPlan(plan TestPlan) error {
 	return err
 }
 
-func (s *Store) ListTestPlans() ([]TestPlanSummary, error) {
+func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,'') FROM test_plans ORDER BY created_at DESC`,
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,'') FROM test_plans ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -593,7 +598,8 @@ func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
 	now := time.Now()
 	history := make([]HistoryPoint, 0, days)
 
-	rows, err := s.db.Query(`SELECT timestamp, status FROM test_results`)
+	cutoff := now.AddDate(0, 0, -days).Format(time.RFC3339)
+	rows, err := s.db.Query(`SELECT timestamp, status FROM test_results WHERE timestamp >= ?`, cutoff)
 	if err != nil {
 		// Return empty history points
 		for i := days - 1; i >= 0; i-- {
@@ -622,7 +628,7 @@ func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
 		}
 		key := t.Format("Jan 02")
 		if pt, ok := dayMap[key]; ok {
-			if status == "passed" {
+			if status == StatusPassed {
 				pt.Passed++
 			} else {
 				pt.Failed++
@@ -860,11 +866,13 @@ func (s *Store) ListProjects() ([]ProjectSummary, error) {
 	rows, err := s.db.Query(`
 		SELECT p.id, p.name, p.game_url, p.description, p.color, p.icon, p.tags, p.settings,
 		       COALESCE(p.created_by,''), p.created_at, p.updated_at,
-		       (SELECT COUNT(*) FROM analyses WHERE project_id = p.id),
-		       (SELECT COUNT(*) FROM test_plans WHERE project_id = p.id),
-		       (SELECT COUNT(*) FROM test_results WHERE project_id = p.id),
-		       (SELECT COUNT(*) FROM project_members WHERE project_id = p.id)
-		FROM projects p ORDER BY p.updated_at DESC`)
+		       COALESCE(ac.cnt, 0), COALESCE(tp.cnt, 0), COALESCE(tr.cnt, 0), COALESCE(pm.cnt, 0)
+		FROM projects p
+		LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM analyses GROUP BY project_id) ac ON ac.project_id = p.id
+		LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM test_plans GROUP BY project_id) tp ON tp.project_id = p.id
+		LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM test_results GROUP BY project_id) tr ON tr.project_id = p.id
+		LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM project_members GROUP BY project_id) pm ON pm.project_id = p.id
+		ORDER BY p.updated_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -922,6 +930,16 @@ func (s *Store) DeleteProject(id string) error {
 		return fmt.Errorf("project not found: %s", id)
 	}
 	return nil
+}
+
+// GetProjectMemberRole returns the role of a user within a project, or an error if not a member.
+func (s *Store) GetProjectMemberRole(projectID, userID string) (string, error) {
+	var role string
+	err := s.db.QueryRow(`SELECT role FROM project_members WHERE project_id = ? AND user_id = ?`, projectID, userID).Scan(&role)
+	if err != nil {
+		return "", fmt.Errorf("not a project member")
+	}
+	return role, nil
 }
 
 // --- Project Members ---

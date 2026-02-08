@@ -10,6 +10,7 @@ import ThemeToggle from '@/components/ThemeToggle.vue'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/composables/useAuth'
 import { useProject, clearLastProjectId } from '@/composables/useProject'
+import { useConnectionStatus } from '@/composables/useConnectionStatus'
 import { versionApi } from '@/lib/api'
 
 const route = useRoute()
@@ -21,6 +22,7 @@ const changelogContent = ref('')
 const changelogLoading = ref(false)
 const { user, isAdmin, logout } = useAuth()
 const { currentProject, isInProject, projects, projectsLoaded, loadProjects, clearProject } = useProject()
+const { wsConnected, wsReconnecting } = useConnectionStatus()
 
 onMounted(() => {
   if (!projectsLoaded.value) {
@@ -126,6 +128,14 @@ onMounted(async () => {
       collapsed ? 'w-16' : 'w-60'
     )"
   >
+    <!-- Connection Status Banner -->
+    <div v-if="wsReconnecting" class="bg-yellow-500/15 text-yellow-600 dark:text-yellow-400 text-[10px] text-center py-1 px-2 border-b border-yellow-500/30">
+      {{ collapsed ? '...' : 'Reconnecting...' }}
+    </div>
+    <div v-else-if="!wsConnected" class="bg-red-500/15 text-red-600 dark:text-red-400 text-[10px] text-center py-1 px-2 border-b border-red-500/30">
+      {{ collapsed ? '!' : 'Disconnected' }}
+    </div>
+
     <!-- Project Switcher -->
     <div class="flex items-center h-14 px-2 border-b border-border/50">
       <DropdownMenu>
@@ -272,7 +282,7 @@ onMounted(async () => {
           <p class="text-xs font-medium truncate">{{ user.displayName }}</p>
           <p class="text-[10px] text-muted-foreground">{{ user.role }}</p>
         </div>
-        <Button v-if="!collapsed" variant="ghost" size="icon" class="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground" @click="logout" title="Logout">
+        <Button v-if="!collapsed" variant="ghost" size="icon" class="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground" @click="logout" title="Logout" aria-label="Logout">
           <LogOut class="h-3.5 w-3.5" />
         </Button>
       </div>
@@ -281,7 +291,7 @@ onMounted(async () => {
 
       <div :class="cn('flex items-center', collapsed ? 'flex-col gap-1' : 'justify-between')">
         <ThemeToggle />
-        <Button variant="ghost" size="icon" class="h-9 w-9 text-muted-foreground hover:text-foreground" @click="collapsed = !collapsed">
+        <Button variant="ghost" size="icon" class="h-9 w-9 text-muted-foreground hover:text-foreground" @click="collapsed = !collapsed" :aria-label="collapsed ? 'Expand sidebar' : 'Collapse sidebar'">
           <PanelLeftClose v-if="!collapsed" class="h-4 w-4" />
           <PanelLeft v-else class="h-4 w-4" />
         </Button>

@@ -99,10 +99,6 @@ const successRateColor = computed(() => {
   return 'text-muted-foreground'
 })
 
-function openTest(test) {
-  router.push('/tests')
-}
-
 onMounted(() => {
   loadStats()
   loadProjects()

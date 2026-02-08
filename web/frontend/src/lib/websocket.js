@@ -12,6 +12,7 @@ export class WebSocketManager {
     this.maxDelay = 30000
     this.shouldReconnect = true
     this.connected = false
+    this.reconnecting = false
     this._reconnectTimeout = null
   }
 
@@ -20,19 +21,11 @@ export class WebSocketManager {
     return `${protocol}//${window.location.host}/ws`
   }
 
-  _buildUrl() {
-    const token = getAccessToken()
-    if (token) {
-      return `${this.baseUrl}?token=${encodeURIComponent(token)}`
-    }
-    return this.baseUrl
-  }
-
   connect() {
     if (this.ws?.readyState === WebSocket.OPEN) return
 
     try {
-      this.ws = new WebSocket(this._buildUrl())
+      this.ws = new WebSocket(this.baseUrl)
     } catch (err) {
       console.error('WebSocket connection failed:', err)
       this._scheduleReconnect()
@@ -40,7 +33,13 @@ export class WebSocketManager {
     }
 
     this.ws.onopen = () => {
+      // Authenticate via first message (not URL query param)
+      const token = getAccessToken()
+      if (token) {
+        this.ws.send(JSON.stringify({ type: 'auth', token }))
+      }
       this.connected = true
+      this.reconnecting = false
       this.reconnectAttempts = 0
       this._emit('connected', {})
     }
@@ -69,12 +68,17 @@ export class WebSocketManager {
 
   _scheduleReconnect() {
     if (this.shouldReconnect && this.reconnectAttempts < this.maxReconnectAttempts) {
+      this.reconnecting = true
+      this._emit('reconnecting', { attempt: this.reconnectAttempts + 1 })
       const delay = Math.min(
         this.reconnectDelay * Math.pow(2, this.reconnectAttempts),
         this.maxDelay,
       )
       this.reconnectAttempts++
       this._reconnectTimeout = setTimeout(() => this.connect(), delay)
+    } else if (this.reconnectAttempts >= this.maxReconnectAttempts) {
+      this.reconnecting = false
+      this._emit('connection_lost', {})
     }
   }
 

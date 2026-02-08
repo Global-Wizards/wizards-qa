@@ -731,6 +731,7 @@ function reAnalyze(item) {
 }
 
 async function deleteAnalysis(item) {
+  if (!confirm(`Delete analysis "${item.gameName || item.id}"? This cannot be undone.`)) return
   try {
     await analysesApi.delete(item.id)
     recentAnalyses.value = recentAnalyses.value.filter((a) => a.id !== item.id)

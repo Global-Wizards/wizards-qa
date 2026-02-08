@@ -83,6 +83,8 @@ export function useAnalysis() {
   }
 
   function setupListeners() {
+    // Clean up any previous listeners to prevent accumulation
+    stopListening()
     const ws = getWebSocket()
     ws.connect()
 

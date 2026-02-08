@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -28,13 +30,14 @@ import (
 var Version = "dev"
 
 type Server struct {
-	router    *chi.Mux
-	port      string
-	store     *store.Store
-	wsHub     *ws.Hub
-	jwtSecret string
-	serverCtx context.Context
-	cancelCtx context.CancelFunc
+	router       *chi.Mux
+	port         string
+	store        *store.Store
+	wsHub        *ws.Hub
+	jwtSecret    string
+	serverCtx    context.Context
+	cancelCtx    context.CancelFunc
+	analysisSem  chan struct{} // limits concurrent analyses
 }
 
 func NewServer(port string) *Server {
@@ -87,13 +90,14 @@ func NewServer(port string) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Server{
-		router:    chi.NewRouter(),
-		port:      port,
-		store:     st,
-		wsHub:     hub,
-		jwtSecret: jwtSecret,
-		serverCtx: ctx,
-		cancelCtx: cancel,
+		router:      chi.NewRouter(),
+		port:        port,
+		store:       st,
+		wsHub:       hub,
+		jwtSecret:   jwtSecret,
+		serverCtx:   ctx,
+		cancelCtx:   cancel,
+		analysisSem: make(chan struct{}, 3), // max 3 concurrent analyses
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -113,17 +117,28 @@ func (s *Server) setupMiddleware() {
 	s.router.Use(func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			start := time.Now()
-			next.ServeHTTP(w, r)
-			log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start))
+			sw := &statusWriter{ResponseWriter: w, status: 200}
+			next.ServeHTTP(sw, r)
+			userID := "-"
+			if claims := auth.UserFromContext(r.Context()); claims != nil {
+				userID = claims.UserID
+			}
+			log.Printf("%s %s %d %s user=%s", r.Method, r.URL.Path, sw.status, time.Since(start), userID)
 		})
 	})
 }
 
 func (s *Server) setupRoutes() {
+	// Rate limiter for auth endpoints (10 requests per minute per IP)
+	authLimiter := newRateLimiter(10, time.Minute)
+
 	// Public routes (no auth)
-	s.router.Post("/api/auth/register", s.handleRegister)
-	s.router.Post("/api/auth/login", s.handleLogin)
-	s.router.Post("/api/auth/refresh", s.handleRefresh)
+	s.router.Group(func(r chi.Router) {
+		r.Use(authLimiter.Middleware)
+		r.Post("/api/auth/register", s.handleRegister)
+		r.Post("/api/auth/login", s.handleLogin)
+		r.Post("/api/auth/refresh", s.handleRefresh)
+	})
 	s.router.Get("/api/health", s.handleHealth)
 	s.router.Get("/api/version", s.handleVersion)
 	s.router.Get("/api/changelog", s.handleChangelog)
@@ -188,6 +203,37 @@ func (s *Server) setupRoutes() {
 // --- Handlers ---
 
 func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
+	// Deep health check if ?deep=true
+	if r.URL.Query().Get("deep") == "true" {
+		checks := map[string]string{}
+		overall := "ok"
+
+		// DB check
+		if err := s.store.Ping(); err != nil {
+			checks["database"] = "error: " + err.Error()
+			overall = "degraded"
+		} else {
+			checks["database"] = "ok"
+		}
+
+		// CLI check
+		cliPath := envOrDefault("WIZARDS_QA_CLI_PATH", "wizards-qa")
+		if _, err := os.Stat(cliPath); err != nil {
+			checks["cli"] = "missing"
+			overall = "degraded"
+		} else {
+			checks["cli"] = "ok"
+		}
+
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"status":  overall,
+			"version": Version,
+			"time":    time.Now().Format(time.RFC3339),
+			"checks":  checks,
+		})
+		return
+	}
+
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"status":  "ok",
 		"version": Version,
@@ -222,14 +268,17 @@ func (s *Server) handleChangelog(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListTests(w http.ResponseWriter, r *http.Request) {
-	tests, err := s.store.ListTestResults()
+	limit, offset := parsePagination(r, 50)
+	tests, err := s.store.ListTestResults(limit, offset)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list tests")
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"tests": nonNil(tests),
-		"total": len(tests),
+		"tests":  nonNil(tests),
+		"total":  len(tests),
+		"limit":  limit,
+		"offset": offset,
 	})
 }
 
@@ -268,7 +317,7 @@ func (s *Server) handleRunTest(w http.ResponseWriter, r *http.Request) {
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"testId":  testID,
-		"status":  "running",
+		"status":  store.StatusRunning,
 		"message": "Test execution started",
 	})
 }
@@ -356,14 +405,17 @@ func (s *Server) handleListTemplates(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleListTestPlans(w http.ResponseWriter, r *http.Request) {
-	plans, err := s.store.ListTestPlans()
+	limit, offset := parsePagination(r, 50)
+	plans, err := s.store.ListTestPlans(limit, offset)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list test plans")
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"plans": nonNil(plans),
-		"total": len(plans),
+		"plans":  nonNil(plans),
+		"total":  len(plans),
+		"limit":  limit,
+		"offset": offset,
 	})
 }
 
@@ -378,9 +430,19 @@ func (s *Server) handleCreateTestPlan(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "Plan name is required")
 		return
 	}
+	if len(plan.Name) > 200 {
+		respondError(w, http.StatusBadRequest, "Plan name must be 200 characters or less")
+		return
+	}
+	if plan.GameURL != "" {
+		if _, err := url.ParseRequestURI(plan.GameURL); err != nil {
+			respondError(w, http.StatusBadRequest, "Invalid game URL")
+			return
+		}
+	}
 
 	plan.ID = fmt.Sprintf("plan-%d", time.Now().UnixNano())
-	plan.Status = "draft"
+	plan.Status = store.StatusDraft
 	plan.CreatedAt = time.Now().Format(time.RFC3339)
 	if plan.Variables == nil {
 		plan.Variables = make(map[string]string)
@@ -434,13 +496,14 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"testId":  testID,
 		"planId":  plan.ID,
-		"status":  "running",
+		"status":  store.StatusRunning,
 		"message": "Test execution started",
 	})
 }
 
 func (s *Server) handleListAnalyses(w http.ResponseWriter, r *http.Request) {
-	analyses, err := s.store.ListAnalyses()
+	limit, offset := parsePagination(r, 50)
+	analyses, err := s.store.ListAnalyses(limit, offset)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to list analyses")
 		return
@@ -448,6 +511,8 @@ func (s *Server) handleListAnalyses(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"analyses": nonNil(analyses),
 		"total":    len(analyses),
+		"limit":    limit,
+		"offset":   offset,
 	})
 }
 
@@ -618,6 +683,17 @@ func (s *Server) NewHTTPServer() *http.Server {
 
 // --- Helpers ---
 
+// statusWriter wraps http.ResponseWriter to capture the status code.
+type statusWriter struct {
+	http.ResponseWriter
+	status int
+}
+
+func (sw *statusWriter) WriteHeader(code int) {
+	sw.status = code
+	sw.ResponseWriter.WriteHeader(code)
+}
+
 func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
@@ -626,6 +702,23 @@ func respondJSON(w http.ResponseWriter, status int, data interface{}) {
 
 func respondError(w http.ResponseWriter, status int, message string) {
 	respondJSON(w, status, map[string]string{"error": message})
+}
+
+// parsePagination extracts limit and offset from query params with defaults.
+func parsePagination(r *http.Request, defaultLimit int) (limit, offset int) {
+	limit = defaultLimit
+	offset = 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 && n <= 200 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	return
 }
 
 func envOrDefault(key, fallback string) string {
