@@ -25,7 +25,14 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w" -trimpath -o /wizards-qa ./cmd
 # Stage 3: Runtime
 FROM alpine:3.19
 RUN apk add --no-cache ca-certificates chromium nss freetype harfbuzz \
+    openjdk17-jre-headless curl bash unzip \
     && addgroup -S appgroup && adduser -S appuser -G appgroup
+
+# Install Maestro CLI to /opt/maestro (accessible by appuser)
+ENV MAESTRO_DIR=/opt/maestro
+RUN curl -fsSL "https://get.maestro.mobile.dev" | bash \
+    && chmod -R a+rX /opt/maestro
+ENV PATH="/opt/maestro/bin:$PATH"
 ENV CHROME_BIN=/usr/bin/chromium-browser
 WORKDIR /app
 COPY --from=backend-build /dashboard-server ./dashboard-server

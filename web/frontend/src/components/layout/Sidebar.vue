@@ -7,6 +7,7 @@ import { Separator } from '@/components/ui/separator'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/composables/useAuth'
+import { versionApi } from '@/lib/api'
 
 const route = useRoute()
 const collapsed = ref(false)
@@ -33,8 +34,7 @@ const userInitial = computed(() => {
 
 onMounted(async () => {
   try {
-    const res = await fetch('/api/version')
-    const data = await res.json()
+    const data = await versionApi.get()
     version.value = data.version || ''
   } catch {
     // non-critical

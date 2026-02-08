@@ -569,21 +569,27 @@ func flowToYAML(flow *MaestroFlow) string {
 	var sb strings.Builder
 
 	// Write metadata
+	hasMetadata := false
 	if flow.URL != "" {
 		sb.WriteString(fmt.Sprintf("url: %s\n", flow.URL))
+		hasMetadata = true
 	}
 	if flow.AppId != "" {
 		sb.WriteString(fmt.Sprintf("appId: %s\n", flow.AppId))
+		hasMetadata = true
 	}
 	if len(flow.Tags) > 0 {
 		sb.WriteString("tags:\n")
 		for _, tag := range flow.Tags {
 			sb.WriteString(fmt.Sprintf("  - %s\n", tag))
 		}
+		hasMetadata = true
 	}
 
-	// Separator
-	sb.WriteString("---\n")
+	// Separator — only include when there's metadata (parser splits on \n---\n)
+	if hasMetadata {
+		sb.WriteString("---\n")
+	}
 
 	// Write commands
 	for _, cmd := range flow.Commands {
@@ -603,13 +609,24 @@ func commandToYAML(cmd map[string]interface{}, indent int) string {
 		case string:
 			if key == "comment" {
 				sb.WriteString(fmt.Sprintf("%s# %s\n", prefix, v))
+			} else if v == "" {
+				// Simple command with no value (e.g. "launchApp")
+				sb.WriteString(fmt.Sprintf("%s- %s\n", prefix, key))
+			} else if strings.ContainsAny(v, ",:%{}[]") {
+				// Quote values containing YAML-special characters
+				sb.WriteString(fmt.Sprintf("%s- %s: \"%s\"\n", prefix, key, v))
 			} else {
 				sb.WriteString(fmt.Sprintf("%s- %s: %s\n", prefix, key, v))
 			}
 		case map[string]interface{}:
 			sb.WriteString(fmt.Sprintf("%s- %s:\n", prefix, key))
 			for subKey, subValue := range v {
-				sb.WriteString(fmt.Sprintf("%s    %s: %v\n", prefix, subKey, subValue))
+				subStr := fmt.Sprintf("%v", subValue)
+				if strings.ContainsAny(subStr, ",:%{}[]") {
+					sb.WriteString(fmt.Sprintf("%s    %s: \"%s\"\n", prefix, subKey, subStr))
+				} else {
+					sb.WriteString(fmt.Sprintf("%s    %s: %v\n", prefix, subKey, subValue))
+				}
 			}
 		default:
 			sb.WriteString(fmt.Sprintf("%s- %s: %v\n", prefix, key, v))

@@ -9,8 +9,11 @@ const LS_KEY = 'wizards-qa-running-analysis'
 const STEP_TO_STATUS = {
   scouting: 'scouting',
   scouted: 'scouting',
+  scouted_detail: 'scouting',
+  fallback: 'scouting',
   analyzing: 'analyzing',
   analyzed: 'analyzing',
+  analyzed_detail: 'analyzing',
   scenarios: 'analyzing',
   scenarios_done: 'analyzing',
   flows: 'generating',
@@ -29,6 +32,7 @@ export function useAnalysis() {
   const logs = ref([])
   const startTime = ref(null)
   const elapsedSeconds = ref(0)
+  const stepTimings = ref({}) // { scouting: {start, end}, analyzing: {start, end}, ... }
 
   let cleanups = []
   let elapsedTimer = null
@@ -94,8 +98,16 @@ export function useAnalysis() {
         analysis.value = progressData.analysis
       }
 
-      // Track granular step
+      // Track granular step and timings
       if (progress.step) {
+        const now = Date.now()
+        // End previous step
+        if (currentStep.value && stepTimings.value[currentStep.value]) {
+          stepTimings.value[currentStep.value].end = now
+        }
+        // Start new step
+        stepTimings.value = { ...stepTimings.value, [progress.step]: { start: now, end: null } }
+
         currentStep.value = progress.step
         const coarseStatus = STEP_TO_STATUS[progress.step]
         if (coarseStatus) {
@@ -106,6 +118,12 @@ export function useAnalysis() {
 
     const offCompleted = ws.on('analysis_completed', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
+
+      // End the last step's timing
+      const now = Date.now()
+      if (currentStep.value && stepTimings.value[currentStep.value]) {
+        stepTimings.value = { ...stepTimings.value, [currentStep.value]: { ...stepTimings.value[currentStep.value], end: now } }
+      }
 
       const result = data.result || {}
       pageMeta.value = result.pageMeta || null
@@ -120,9 +138,14 @@ export function useAnalysis() {
     const offFailed = ws.on('analysis_failed', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
 
+      // End the last step's timing
+      const now = Date.now()
+      if (currentStep.value && stepTimings.value[currentStep.value]) {
+        stepTimings.value = { ...stepTimings.value, [currentStep.value]: { ...stepTimings.value[currentStep.value], end: now } }
+      }
+
       error.value = data.error || 'Analysis failed'
       status.value = 'error'
-      currentStep.value = ''
       stopElapsedTimer()
       clearLocalStorage()
     })
@@ -139,6 +162,7 @@ export function useAnalysis() {
     flows.value = []
     error.value = null
     logs.value = []
+    stepTimings.value = {}
 
     startElapsedTimer()
     setupListeners()
@@ -243,6 +267,7 @@ export function useAnalysis() {
     logs.value = []
     elapsedSeconds.value = 0
     startTime.value = null
+    stepTimings.value = {}
   }
 
   function stopListening() {
@@ -265,6 +290,7 @@ export function useAnalysis() {
     error,
     logs,
     elapsedSeconds,
+    stepTimings,
     formatElapsed,
     start,
     reset,

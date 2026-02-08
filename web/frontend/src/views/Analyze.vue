@@ -79,22 +79,22 @@
             <ProgressStep
               :status="granularStepStatus('scouting')"
               label="Scouting page..."
-              :detail="pageMeta ? `${pageMeta.framework} | Canvas: ${pageMeta.canvasFound} | ${pageMeta.title || 'No title'}` : ''"
+              :detail="pageMeta ? `${pageMeta.framework} | Canvas: ${pageMeta.canvasFound}${pageMeta.jsGlobals?.length ? ' | ' + pageMeta.jsGlobals.join(', ') : ''}${pageMeta.screenshotB64 ? ' | Screenshot' : ''}${stepDuration('scouting') ? ' (' + stepDuration('scouting') + 's)' : ''}` : ''"
             />
             <ProgressStep
               :status="granularStepStatus('analyzing')"
               label="Analyzing game mechanics..."
-              :detail="analysis ? `${analysis.mechanics?.length || 0} mechanics, ${analysis.uiElements?.length || 0} UI elements` : ''"
+              :detail="analysis ? `${analysis.mechanics?.length || 0} mechanics, ${analysis.uiElements?.length || 0} UI elements${pageMeta?.screenshotB64 ? ' (with screenshot)' : ' (text-only)'}${stepDuration('analyzing') ? ' (' + stepDuration('analyzing') + 's)' : ''}` : ''"
             />
             <ProgressStep
               :status="granularStepStatus('scenarios')"
               label="Generating test scenarios..."
-              :detail="currentStep === 'scenarios_done' || stepOrder(currentStep) > stepOrder('scenarios_done') ? 'Scenarios generated' : ''"
+              :detail="(currentStep === 'scenarios_done' || stepOrder(currentStep) > stepOrder('scenarios_done') ? 'Scenarios generated' : '') + (stepDuration('scenarios') ? ' (' + stepDuration('scenarios') + 's)' : '')"
             />
             <ProgressStep
               :status="granularStepStatus('flows')"
               label="Generating Maestro test flows..."
-              :detail="flowList.length ? `${flowList.length} flow(s) generated` : ''"
+              :detail="(flowList.length ? `${flowList.length} flow(s) generated` : '') + (stepDuration('flows') ? ' (' + stepDuration('flows') + 's)' : '')"
             />
           </div>
 
@@ -208,6 +208,66 @@
             </div>
           </details>
 
+          <!-- Debug Info -->
+          <details class="group">
+            <summary class="cursor-pointer text-sm font-medium">Debug Info</summary>
+            <div class="mt-2 space-y-3 text-sm">
+              <!-- Screenshot -->
+              <div v-if="pageMeta?.screenshotB64">
+                <span class="text-muted-foreground font-medium">Screenshot:</span>
+                <img
+                  :src="'data:image/png;base64,' + pageMeta.screenshotB64"
+                  class="mt-1 rounded-md border max-w-md"
+                  alt="Game screenshot"
+                />
+              </div>
+
+              <!-- JS Globals -->
+              <div v-if="pageMeta?.jsGlobals?.length">
+                <span class="text-muted-foreground font-medium">JS Globals:</span>
+                <div class="mt-1 flex flex-wrap gap-1">
+                  <Badge v-for="g in pageMeta.jsGlobals" :key="g" variant="secondary" class="text-xs">{{ g }}</Badge>
+                </div>
+              </div>
+
+              <!-- URL Hints -->
+              <div v-if="gameUrl">
+                <span class="text-muted-foreground font-medium">URL Hints:</span>
+                <div class="mt-1 space-y-0.5">
+                  <div v-for="(value, key) in parseUrlHints(gameUrl)" :key="key" class="text-xs font-mono">
+                    <span class="text-muted-foreground">{{ key }}:</span> {{ value }}
+                  </div>
+                </div>
+              </div>
+
+              <!-- Step Timings -->
+              <div v-if="formatStepTimingSummary()">
+                <span class="text-muted-foreground font-medium">Step Timings:</span>
+                <p class="text-xs font-mono mt-1">{{ formatStepTimingSummary() }}</p>
+              </div>
+
+              <!-- Body Snippet -->
+              <div v-if="pageMeta?.bodySnippet">
+                <span class="text-muted-foreground font-medium">Body Snippet:</span>
+                <pre class="mt-1 max-h-32 overflow-auto rounded-md bg-muted p-2 text-xs">{{ pageMeta.bodySnippet.slice(0, 500) }}</pre>
+              </div>
+
+              <!-- Raw AI Response (shown when JSON parsing failed) -->
+              <div v-if="analysis?.rawResponse">
+                <span class="text-muted-foreground font-medium">Raw AI Response:</span>
+                <pre class="mt-1 max-h-48 overflow-auto rounded-md bg-muted p-2 text-xs">{{ analysis.rawResponse }}</pre>
+              </div>
+
+              <!-- Script Sources (full list) -->
+              <div v-if="pageMeta?.scriptSrcs?.length">
+                <span class="text-muted-foreground font-medium">Script Sources ({{ pageMeta.scriptSrcs.length }}):</span>
+                <ul class="mt-1 ml-4 list-disc text-xs text-muted-foreground">
+                  <li v-for="src in pageMeta.scriptSrcs" :key="src">{{ src }}</li>
+                </ul>
+              </div>
+            </div>
+          </details>
+
           <Separator />
 
           <!-- Actions -->
@@ -240,7 +300,42 @@
           <AlertTitle>Analysis Failed</AlertTitle>
           <AlertDescription>{{ analysisError }}</AlertDescription>
         </Alert>
-        <div class="mt-4">
+
+        <!-- Show progress steps so user sees where it failed -->
+        <div class="mt-4 space-y-1" v-if="currentStep || Object.keys(stepTimings).length">
+          <ProgressStep
+            :status="granularStepStatus('scouting')"
+            label="Scouting page..."
+            :detail="stepDuration('scouting') ? stepDuration('scouting') + 's' : ''"
+          />
+          <ProgressStep
+            :status="granularStepStatus('analyzing')"
+            label="Analyzing game mechanics..."
+            :detail="stepDuration('analyzing') ? stepDuration('analyzing') + 's' : ''"
+          />
+          <ProgressStep
+            :status="granularStepStatus('scenarios')"
+            label="Generating test scenarios..."
+            :detail="stepDuration('scenarios') ? stepDuration('scenarios') + 's' : ''"
+          />
+          <ProgressStep
+            :status="granularStepStatus('flows')"
+            label="Generating Maestro test flows..."
+            :detail="stepDuration('flows') ? stepDuration('flows') + 's' : ''"
+          />
+        </div>
+
+        <!-- Show collected logs -->
+        <div v-if="logs.length" class="mt-4 max-h-40 overflow-y-auto rounded-md bg-muted p-3">
+          <p v-for="(line, i) in logs" :key="i" class="text-xs font-mono text-muted-foreground">{{ line }}</p>
+        </div>
+
+        <!-- Elapsed time at failure -->
+        <p v-if="elapsedSeconds > 0" class="mt-2 text-xs text-muted-foreground">
+          Failed after {{ formatElapsed(elapsedSeconds) }}
+        </p>
+
+        <div class="mt-4 flex gap-2">
           <Button variant="outline" @click="handleReset">Try Again</Button>
         </div>
       </CardContent>
@@ -308,6 +403,7 @@ const {
   error: analysisError,
   logs,
   elapsedSeconds,
+  stepTimings,
   formatElapsed,
   start,
   reset,
@@ -368,6 +464,41 @@ function granularStepStatus(groupStart) {
   if (current < 0 || current < groupStartIdx) return 'pending'
   if (current > groupEndIdx) return 'complete'
   return 'active'
+}
+
+function stepDuration(stepName) {
+  const timing = stepTimings.value[stepName]
+  if (!timing || !timing.start) return null
+  const end = timing.end || Date.now()
+  return ((end - timing.start) / 1000).toFixed(1)
+}
+
+function formatStepTimingSummary() {
+  const labels = { scouting: 'Scouting', analyzing: 'Analyzing', scenarios: 'Scenarios', flows: 'Flows' }
+  return Object.entries(labels)
+    .map(([key, label]) => {
+      const d = stepDuration(key)
+      return d ? `${label}: ${d}s` : null
+    })
+    .filter(Boolean)
+    .join(' | ')
+}
+
+function parseUrlHints(urlStr) {
+  try {
+    const url = new URL(urlStr)
+    const hints = {}
+    hints.domain = url.hostname
+    const interestingParams = ['game_type', 'mode', 'game_id', 'operator_id', 'gameType', 'gameid']
+    for (const [key, value] of url.searchParams) {
+      if (interestingParams.includes(key) || value) {
+        hints[key] = value
+      }
+    }
+    return hints
+  } catch {
+    return {}
+  }
 }
 
 async function handleAnalyze() {

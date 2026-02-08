@@ -115,6 +115,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy string) {
 	defer cancel()
 
 	args := []string{"scout", "--game", gameURL, "--json", "--save-flows", "--output", tmpDir, "--headless", "--timeout", "60"}
+	log.Printf("Analysis %s: executing %s %s", analysisID, cliPath, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, cliPath, args...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
 
@@ -162,6 +163,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy string) {
 				go s.store.UpdateAnalysisStatus(analysisID, "running", step)
 			} else {
 				stderrLines = append(stderrLines, line)
+				log.Printf("Analysis %s stderr: %s", analysisID, line)
 			}
 		}
 	}()

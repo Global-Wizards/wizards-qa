@@ -331,12 +331,19 @@ func (s *Store) DeleteAnalysis(id string) error {
 	if n, _ := result.RowsAffected(); n == 0 {
 		return fmt.Errorf("analysis not found: %s", id)
 	}
+	// Clean up generated flow files
+	generatedDir := filepath.Join(s.flowsDir, "generated", id)
+	if err := os.RemoveAll(generatedDir); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to clean up generated flows for %s: %v", id, err)
+	}
 	return nil
 }
 
 func (s *Store) CountAnalyses() int {
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM analyses").Scan(&count)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM analyses").Scan(&count); err != nil {
+		log.Printf("Warning: failed to count analyses: %v", err)
+	}
 	return count
 }
 
@@ -399,7 +406,9 @@ func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
 		return nil, fmt.Errorf("test result not found: %s", id)
 	}
 	if flowsJSON.Valid && flowsJSON.String != "" {
-		json.Unmarshal([]byte(flowsJSON.String), &r.Flows)
+		if err := json.Unmarshal([]byte(flowsJSON.String), &r.Flows); err != nil {
+			log.Printf("Warning: failed to unmarshal flows JSON for test %s: %v", id, err)
+		}
 	}
 	return &r, nil
 }
@@ -453,7 +462,9 @@ func (s *Store) ListTestPlans() ([]TestPlanSummary, error) {
 		}
 		if flowNamesJSON.Valid && flowNamesJSON.String != "" {
 			var names []string
-			json.Unmarshal([]byte(flowNamesJSON.String), &names)
+			if err := json.Unmarshal([]byte(flowNamesJSON.String), &names); err != nil {
+				log.Printf("Warning: failed to unmarshal flow names for plan %s: %v", p.ID, err)
+			}
 			p.FlowCount = len(names)
 		}
 		summaries = append(summaries, p)
@@ -472,10 +483,14 @@ func (s *Store) GetTestPlan(id string) (*TestPlan, error) {
 		return nil, fmt.Errorf("test plan not found: %s", id)
 	}
 	if flowNamesJSON.Valid && flowNamesJSON.String != "" {
-		json.Unmarshal([]byte(flowNamesJSON.String), &p.FlowNames)
+		if err := json.Unmarshal([]byte(flowNamesJSON.String), &p.FlowNames); err != nil {
+			log.Printf("Warning: failed to unmarshal flow names for plan %s: %v", id, err)
+		}
 	}
 	if variablesJSON.Valid && variablesJSON.String != "" {
-		json.Unmarshal([]byte(variablesJSON.String), &p.Variables)
+		if err := json.Unmarshal([]byte(variablesJSON.String), &p.Variables); err != nil {
+			log.Printf("Warning: failed to unmarshal variables for plan %s: %v", id, err)
+		}
 	}
 	return &p, nil
 }

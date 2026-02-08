@@ -115,6 +115,19 @@ Example:
 				fmt.Fprintf(os.Stderr, "PROGRESS:scouting:Scouting page %s\n", gameURL)
 				detail := fmt.Sprintf("%s | Canvas: %v | Scripts: %d", pageMeta.Framework, pageMeta.CanvasFound, len(pageMeta.ScriptSrcs))
 				fmt.Fprintf(os.Stderr, "PROGRESS:scouted:%s\n", detail)
+
+				// Emit detailed scouting info as JSON
+				scoutDetail := map[string]interface{}{
+					"framework":          pageMeta.Framework,
+					"canvasFound":        pageMeta.CanvasFound,
+					"jsGlobals":          pageMeta.JSGlobals,
+					"screenshotCaptured": pageMeta.ScreenshotB64 != "",
+					"scriptCount":        len(pageMeta.ScriptSrcs),
+					"title":              pageMeta.Title,
+				}
+				if detailJSON, err := json.Marshal(scoutDetail); err == nil {
+					fmt.Fprintf(os.Stderr, "PROGRESS:scouted_detail:%s\n", string(detailJSON))
+				}
 			}
 
 			if !jsonOutput {
@@ -132,6 +145,19 @@ Example:
 			_, result, flows, err := analyzer.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, onProgress)
 			if err != nil {
 				return fmt.Errorf("analysis failed: %w", err)
+			}
+
+			// Emit detailed analysis info for --json mode
+			if jsonOutput {
+				analysisDetail := map[string]interface{}{
+					"mechanicsCount":  len(result.Mechanics),
+					"uiElementsCount": len(result.UIElements),
+					"userFlowsCount":  len(result.UserFlows),
+					"edgeCasesCount":  len(result.EdgeCases),
+				}
+				if detailJSON, err := json.Marshal(analysisDetail); err == nil {
+					fmt.Fprintf(os.Stderr, "PROGRESS:analyzed_detail:%s\n", string(detailJSON))
+				}
 			}
 
 			if !jsonOutput {

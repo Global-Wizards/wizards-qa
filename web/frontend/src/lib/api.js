@@ -160,4 +160,8 @@ export const testPlansDeleteApi = {
   delete: (id) => api.delete(`/test-plans/${id}`).then((r) => r.data),
 }
 
+export const versionApi = {
+  get: () => api.get('/version').then((r) => r.data),
+}
+
 export default api
