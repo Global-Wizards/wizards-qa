@@ -1,10 +1,12 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/ai"
@@ -195,6 +197,37 @@ Example:
 					MaxSteps:     agentSteps,
 					StepTimeout:  30 * time.Second,
 					TotalTimeout: 5 * time.Minute,
+				}
+
+				// When launched by the backend (--json + --agent), read user hints from stdin
+				if jsonOutput {
+					userMsgs := make(chan string, 10)
+					agentCfg.UserMessages = userMsgs
+
+					// Create screenshot sub-dir for live streaming
+					screenshotDir := filepath.Join(output, "agent-screenshots")
+					if err := os.MkdirAll(screenshotDir, 0755); err != nil {
+						fmt.Fprintf(os.Stderr, "Warning: failed to create screenshot dir: %v\n", err)
+					}
+					agentCfg.ScreenshotDir = screenshotDir
+
+					go func() {
+						scanner := bufio.NewScanner(os.Stdin)
+						for scanner.Scan() {
+							line := scanner.Text()
+							var msg struct {
+								Type    string `json:"type"`
+								Message string `json:"message"`
+							}
+							if err := json.Unmarshal([]byte(line), &msg); err == nil && msg.Type == "user_hint" && msg.Message != "" {
+								select {
+								case userMsgs <- msg.Message:
+								default:
+									// Channel full, drop hint
+								}
+							}
+						}
+					}()
 				}
 
 				_, result, flows, agentStepsResult, err = analyzer.AnalyzeFromURLWithAgent(

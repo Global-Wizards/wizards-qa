@@ -3,6 +3,7 @@ import { analyzeApi, analysesApi } from '@/lib/api'
 import { getWebSocket } from '@/lib/websocket'
 
 const MAX_LOGS = 500
+const MAX_LIVE_STEPS = 50
 const LS_KEY = 'wizards-qa-running-analysis'
 
 // Map granular step names to coarse status for backward compat
@@ -25,6 +26,10 @@ const STEP_TO_STATUS = {
   agent_action: 'analyzing',
   agent_done: 'analyzing',
   agent_synthesize: 'analyzing',
+  agent_reasoning: 'analyzing',
+  agent_step_detail: 'analyzing',
+  agent_screenshot: 'analyzing',
+  user_hint: 'analyzing',
 }
 
 export function useAnalysis() {
@@ -41,6 +46,17 @@ export function useAnalysis() {
   const startTime = ref(null)
   const elapsedSeconds = ref(0)
   const stepTimings = ref({}) // { scouting: {start, end}, analyzing: {start, end}, ... }
+
+  // Live agent exploration state
+  const liveAgentSteps = ref([])
+  const latestScreenshot = ref(null)
+  const agentReasoning = ref('')
+  const userHints = ref([])
+  const hintCooldown = ref(false)
+  const agentStepCurrent = ref(0)
+  const agentStepTotal = ref(0)
+
+  let hintCooldownTimer = null
 
   let cleanups = []
   let elapsedTimer = null
@@ -68,13 +84,17 @@ export function useAnalysis() {
     return `${m}m ${s}s`
   }
 
-  function saveToLocalStorage() {
-    if (analysisId.value) {
-      localStorage.setItem(LS_KEY, JSON.stringify({
-        analysisId: analysisId.value,
-        gameUrl: '', // will be set by caller
-        startedAt: startTime.value || Date.now(),
-      }))
+  async function sendHint(message) {
+    if (!analysisId.value || hintCooldown.value || !message?.trim()) return
+    try {
+      await analyzeApi.sendHint(analysisId.value, message.trim())
+      userHints.value = [...userHints.value, { message: message.trim(), sentAt: Date.now() }]
+      hintCooldown.value = true
+      if (hintCooldownTimer) clearTimeout(hintCooldownTimer)
+      hintCooldownTimer = setTimeout(() => { hintCooldown.value = false }, 5000)
+    } catch {
+      // 410/404 = analysis ended, just disable
+      hintCooldown.value = false
     }
   }
 
@@ -108,6 +128,15 @@ export function useAnalysis() {
         analysis.value = progressData.analysis
       }
 
+      // Parse agent step counter (format: "Step X/Y: ...")
+      if (progress.step === 'agent_step' && progress.message) {
+        const match = progress.message.match(/^Step (\d+)\/(\d+)/)
+        if (match) {
+          agentStepCurrent.value = parseInt(match[1], 10)
+          agentStepTotal.value = parseInt(match[2], 10)
+        }
+      }
+
       // Track granular step and timings
       if (progress.step) {
         const now = Date.now()
@@ -124,6 +153,52 @@ export function useAnalysis() {
           status.value = coarseStatus
         }
       }
+    })
+
+    // Live agent event listeners
+    const offStepDetail = ws.on('agent_step_detail', (data) => {
+      if (analysisId.value && data.analysisId !== analysisId.value) return
+      const newStep = {
+        stepNumber: data.stepNumber,
+        toolName: data.toolName,
+        input: data.input,
+        result: data.result,
+        error: data.error,
+        durationMs: data.durationMs,
+        type: 'tool',
+        timestamp: Date.now(),
+      }
+      liveAgentSteps.value = [...liveAgentSteps.value.slice(-(MAX_LIVE_STEPS - 1)), newStep]
+    })
+
+    const offAgentReasoning = ws.on('agent_reasoning', (data) => {
+      if (analysisId.value && data.analysisId !== analysisId.value) return
+      agentReasoning.value = data.text
+    })
+
+    const offAgentScreenshot = ws.on('agent_screenshot', (data) => {
+      if (analysisId.value && data.analysisId !== analysisId.value) return
+      latestScreenshot.value = data.imageData
+      // Mark the most recent live step as having a screenshot (don't store full base64)
+      if (liveAgentSteps.value.length > 0) {
+        const last = liveAgentSteps.value[liveAgentSteps.value.length - 1]
+        if (!last.hasScreenshot) {
+          const updated = [...liveAgentSteps.value]
+          updated[updated.length - 1] = { ...last, hasScreenshot: true }
+          liveAgentSteps.value = updated
+        }
+      }
+    })
+
+    const offUserHint = ws.on('agent_user_hint', (data) => {
+      if (analysisId.value && data.analysisId !== analysisId.value) return
+      // Add hint to live timeline
+      const hintEntry = {
+        type: 'hint',
+        message: data.message,
+        timestamp: Date.now(),
+      }
+      liveAgentSteps.value = [...liveAgentSteps.value.slice(-(MAX_LIVE_STEPS - 1)), hintEntry]
     })
 
     const offCompleted = ws.on('analysis_completed', (data) => {
@@ -143,6 +218,10 @@ export function useAnalysis() {
       agentMode.value = result.mode === 'agent'
       status.value = 'complete'
       currentStep.value = 'complete'
+      // Clear live state — final agentSteps in result replaces them
+      liveAgentSteps.value = []
+      latestScreenshot.value = null
+      agentReasoning.value = ''
       stopElapsedTimer()
       clearLocalStorage()
     })
@@ -162,7 +241,7 @@ export function useAnalysis() {
       clearLocalStorage()
     })
 
-    cleanups = [offProgress, offCompleted, offFailed]
+    cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offCompleted, offFailed]
   }
 
   async function start(gameUrl, projectId, useAgentMode = false) {
@@ -177,6 +256,13 @@ export function useAnalysis() {
     error.value = null
     logs.value = []
     stepTimings.value = {}
+    liveAgentSteps.value = []
+    latestScreenshot.value = null
+    agentReasoning.value = ''
+    userHints.value = []
+    hintCooldown.value = false
+    agentStepCurrent.value = 0
+    agentStepTotal.value = 0
 
     startElapsedTimer()
     setupListeners()
@@ -190,6 +276,7 @@ export function useAnalysis() {
         analysisId: response.analysisId,
         gameUrl,
         startedAt: startTime.value || Date.now(),
+        agentMode: useAgentMode,
       }))
     } catch (err) {
       error.value = err.message || 'Failed to start analysis'
@@ -228,6 +315,12 @@ export function useAnalysis() {
         analysisId.value = parsed.analysisId
         status.value = STEP_TO_STATUS[statusData.step] || 'analyzing'
         currentStep.value = statusData.step || ''
+
+        // Restore agent mode from persisted state or infer from step name
+        const agentStepNames = ['agent_start', 'agent_step', 'agent_action', 'agent_done', 'agent_synthesize', 'agent_reasoning', 'agent_step_detail', 'agent_screenshot']
+        if (parsed.agentMode || agentStepNames.includes(statusData.step)) {
+          agentMode.value = true
+        }
 
         // Resume elapsed timer from original start
         startTime.value = parsed.startedAt || Date.now()
@@ -286,6 +379,17 @@ export function useAnalysis() {
     elapsedSeconds.value = 0
     startTime.value = null
     stepTimings.value = {}
+    liveAgentSteps.value = []
+    latestScreenshot.value = null
+    agentReasoning.value = ''
+    userHints.value = []
+    hintCooldown.value = false
+    agentStepCurrent.value = 0
+    agentStepTotal.value = 0
+    if (hintCooldownTimer) {
+      clearTimeout(hintCooldownTimer)
+      hintCooldownTimer = null
+    }
   }
 
   function stopListening() {
@@ -296,6 +400,7 @@ export function useAnalysis() {
   onUnmounted(() => {
     stopListening()
     stopElapsedTimer()
+    if (hintCooldownTimer) clearTimeout(hintCooldownTimer)
   })
 
   return {
@@ -316,5 +421,14 @@ export function useAnalysis() {
     reset,
     tryRecover,
     stopListening,
+    // Live agent exploration
+    liveAgentSteps,
+    latestScreenshot,
+    agentReasoning,
+    userHints,
+    hintCooldown,
+    agentStepCurrent,
+    agentStepTotal,
+    sendHint,
   }
 }

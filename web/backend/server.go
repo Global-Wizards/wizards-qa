@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -14,6 +15,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -29,15 +31,24 @@ import (
 // Defaults to "dev" for local development; see VERSION file for the release version.
 var Version = "dev"
 
+// activeAnalysis tracks a running analysis subprocess for user→agent messaging.
+type activeAnalysis struct {
+	stdin       io.WriteCloser
+	tmpDir      string
+	lastHintAt  time.Time
+}
+
 type Server struct {
-	router       *chi.Mux
-	port         string
-	store        *store.Store
-	wsHub        *ws.Hub
-	jwtSecret    string
-	serverCtx    context.Context
-	cancelCtx    context.CancelFunc
-	analysisSem  chan struct{} // limits concurrent analyses
+	router          *chi.Mux
+	port            string
+	store           *store.Store
+	wsHub           *ws.Hub
+	jwtSecret       string
+	serverCtx       context.Context
+	cancelCtx       context.CancelFunc
+	analysisSem     chan struct{} // limits concurrent analyses
+	activeAnalyses  map[string]*activeAnalysis
+	activeAnalysesMu sync.Mutex
 }
 
 func NewServer(port string) *Server {
@@ -90,14 +101,15 @@ func NewServer(port string) *Server {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	s := &Server{
-		router:      chi.NewRouter(),
-		port:        port,
-		store:       st,
-		wsHub:       hub,
-		jwtSecret:   jwtSecret,
-		serverCtx:   ctx,
-		cancelCtx:   cancel,
-		analysisSem: make(chan struct{}, 3), // max 3 concurrent analyses
+		router:         chi.NewRouter(),
+		port:           port,
+		store:          st,
+		wsHub:          hub,
+		jwtSecret:      jwtSecret,
+		serverCtx:      ctx,
+		cancelCtx:      cancel,
+		analysisSem:    make(chan struct{}, 3), // max 3 concurrent analyses
+		activeAnalyses: make(map[string]*activeAnalysis),
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -170,6 +182,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/analyses/{id}/status", s.handleGetAnalysisStatus)
 		r.Delete("/api/analyses/{id}", s.handleDeleteAnalysis)
 		r.Get("/api/analyses/{id}/export", s.handleExportAnalysis)
+		r.Post("/api/analyses/{id}/message", s.handleSendAgentMessage)
 
 		// Project routes
 		r.Get("/api/projects", s.handleListProjects)

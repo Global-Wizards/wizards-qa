@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,8 +12,11 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/go-chi/chi/v5"
 
 	"github.com/Global-Wizards/wizards-qa/web/backend/auth"
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
@@ -150,10 +154,27 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 		return
 	}
 
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		s.broadcastAnalysisError(analysisID, fmt.Sprintf("stdin pipe: %v", err))
+		return
+	}
+
 	if err := cmd.Start(); err != nil {
 		s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to start CLI: %v", err))
 		return
 	}
+
+	// Register active analysis for user→agent messaging
+	s.activeAnalysesMu.Lock()
+	s.activeAnalyses[analysisID] = &activeAnalysis{stdin: stdin, tmpDir: tmpDir}
+	s.activeAnalysesMu.Unlock()
+	defer func() {
+		s.activeAnalysesMu.Lock()
+		delete(s.activeAnalyses, analysisID)
+		s.activeAnalysesMu.Unlock()
+		stdin.Close()
+	}()
 
 	// Stream stderr for PROGRESS: lines and collect non-progress lines for error reporting
 	var stderrLines []string
@@ -161,6 +182,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 	go func() {
 		defer close(stderrDone)
 		stderrScanner := bufio.NewScanner(stderr)
+		stderrScanner.Buffer(make([]byte, 256*1024), 256*1024)
 		for stderrScanner.Scan() {
 			line := stderrScanner.Text()
 			if strings.HasPrefix(line, "PROGRESS:") {
@@ -171,6 +193,59 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 				if len(parts) > 1 {
 					message = strings.TrimSpace(parts[1])
 				}
+
+				// Handle rich agent events with dedicated WS message types
+				switch step {
+				case "agent_step_detail":
+					var detailData map[string]interface{}
+					if err := json.Unmarshal([]byte(message), &detailData); err == nil {
+						detailData["analysisId"] = analysisID
+						s.wsHub.Broadcast(ws.Message{
+							Type: "agent_step_detail",
+							Data: detailData,
+						})
+					}
+				case "agent_reasoning":
+					s.wsHub.Broadcast(ws.Message{
+						Type: "agent_reasoning",
+						Data: map[string]string{
+							"analysisId": analysisID,
+							"text":       message,
+						},
+					})
+				case "agent_screenshot":
+					// Read screenshot file from tmpDir and broadcast as base64
+					filename := filepath.Base(message) // strip directory components
+					if filename == "." || filename == "/" || strings.ContainsAny(filename, `/\`) {
+						break
+					}
+					s.activeAnalysesMu.Lock()
+					aa := s.activeAnalyses[analysisID]
+					s.activeAnalysesMu.Unlock()
+					if aa != nil {
+						screenshotPath := filepath.Join(aa.tmpDir, "agent-screenshots", filename)
+						if imgData, readErr := os.ReadFile(screenshotPath); readErr == nil {
+							s.wsHub.Broadcast(ws.Message{
+								Type: "agent_screenshot",
+								Data: map[string]string{
+									"analysisId": analysisID,
+									"imageData":  base64.StdEncoding.EncodeToString(imgData),
+									"filename":   filename,
+								},
+							})
+						}
+					}
+				case "user_hint":
+					s.wsHub.Broadcast(ws.Message{
+						Type: "agent_user_hint",
+						Data: map[string]string{
+							"analysisId": analysisID,
+							"message":    message,
+						},
+					})
+				}
+
+				// Always broadcast as analysis_progress too (for backward compat)
 				s.wsHub.Broadcast(ws.Message{
 					Type: "analysis_progress",
 					Data: AnalysisProgress{
@@ -284,6 +359,56 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 			"result":     result,
 		},
 	})
+}
+
+func (s *Server) handleSendAgentMessage(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	var req struct {
+		Message string `json:"message"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Message == "" {
+		respondError(w, http.StatusBadRequest, "message is required")
+		return
+	}
+
+	// Limit message length
+	if len(req.Message) > 500 {
+		req.Message = req.Message[:500]
+	}
+
+	s.activeAnalysesMu.Lock()
+	aa, ok := s.activeAnalyses[id]
+	if !ok {
+		s.activeAnalysesMu.Unlock()
+		respondError(w, http.StatusGone, "Analysis is not running")
+		return
+	}
+
+	// Rate limit: 5s cooldown per analysis
+	if time.Since(aa.lastHintAt) < 5*time.Second {
+		s.activeAnalysesMu.Unlock()
+		respondError(w, http.StatusTooManyRequests, "Please wait before sending another hint")
+		return
+	}
+
+	// Write JSON line to stdin pipe while still holding the lock
+	// to prevent a write-to-closed-pipe race if the analysis ends concurrently.
+	hintLine := map[string]string{"type": "user_hint", "message": req.Message}
+	hintJSON, _ := json.Marshal(hintLine)
+	hintJSON = append(hintJSON, '\n')
+	_, writeErr := aa.stdin.Write(hintJSON)
+	if writeErr == nil {
+		aa.lastHintAt = time.Now()
+	}
+	s.activeAnalysesMu.Unlock()
+
+	if writeErr != nil {
+		respondError(w, http.StatusGone, "Analysis has ended")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 }
 
 func (s *Server) broadcastAnalysisError(analysisID, errMsg string) {

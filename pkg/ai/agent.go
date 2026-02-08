@@ -2,8 +2,11 @@ package ai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,6 +45,16 @@ func (a *Analyzer) AgentExplore(
 		return nil, nil, fmt.Errorf("initial screenshot failed: %w", ssErr)
 	}
 
+	// Capture any early console errors from page load
+	var consoleSection string
+	if consoleLogs, logErr := browserPage.GetConsoleLogs(); logErr == nil && len(consoleLogs) > 0 {
+		// Include up to 30 lines of initial console output
+		if len(consoleLogs) > 30 {
+			consoleLogs = consoleLogs[len(consoleLogs)-30:]
+		}
+		consoleSection = fmt.Sprintf("\n\nBrowser console output during page load:\n%s", strings.Join(consoleLogs, "\n"))
+	}
+
 	// Build initial user message with page metadata + screenshot
 	pageMetaJSON := buildPageMetaJSON(pageMeta)
 	initialContent := []interface{}{
@@ -60,11 +73,11 @@ func (a *Analyzer) AgentExplore(
 Game URL: %s
 
 Page metadata (auto-detected):
-%s
+%s%s
 
 Above is a screenshot of the initial page state. Begin your exploration by interacting with the game.
 Remember to take screenshots after interactions to observe results.
-When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, string(pageMetaJSON)),
+When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, string(pageMetaJSON), consoleSection),
 		},
 	}
 
@@ -92,9 +105,20 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		default:
 		}
 
-		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
+		// Non-blocking read of user hints
+		if cfg.UserMessages != nil {
+			select {
+			case hint := <-cfg.UserMessages:
+				progress("user_hint", hint)
+				messages = append(messages, AgentMessage{
+					Role:    "user",
+					Content: fmt.Sprintf("[USER HINT]: %s\nPlease incorporate this guidance into your next action.", hint),
+				})
+			default:
+			}
+		}
 
-		stepStart := time.Now()
+		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
 
 		resp, err := agent.CallWithTools(AgentSystemPrompt, messages, tools)
 		if err != nil {
@@ -103,6 +127,13 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 		// Append assistant response to messages
 		messages = append(messages, AgentMessage{Role: "assistant", Content: resp.Content})
+
+		// Emit AI reasoning text for live streaming
+		for _, block := range resp.Content {
+			if block.Type == "text" && block.Text != "" {
+				progress("agent_reasoning", block.Text)
+			}
+		}
 
 		// Check for EXPLORATION_COMPLETE in text blocks
 		explorationComplete := false
@@ -196,8 +227,36 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				}
 			}
 
-			stepRecord.DurationMs = int(time.Since(stepStart).Milliseconds())
+			stepRecord.DurationMs = int(time.Since(toolStart).Milliseconds())
 			steps = append(steps, stepRecord)
+
+			// Write screenshot to tmpDir for live streaming
+			if cfg.ScreenshotDir != "" && screenshotB64 != "" {
+				filename := fmt.Sprintf("step-%d-%s.jpg", step, block.Name)
+				if raw, decErr := base64.StdEncoding.DecodeString(screenshotB64); decErr == nil {
+					if err := os.WriteFile(filepath.Join(cfg.ScreenshotDir, filename), raw, 0644); err != nil {
+						progress("agent_step", fmt.Sprintf("Warning: failed to write screenshot %s: %v", filename, err))
+					}
+					progress("agent_screenshot", filename)
+				}
+			}
+
+			// Emit structured step detail for live streaming
+			errStr := ""
+			if execErr != nil {
+				errStr = execErr.Error()
+			}
+			detail := map[string]interface{}{
+				"stepNumber": step,
+				"toolName":   block.Name,
+				"input":      string(block.Input),
+				"result":     truncate(textResult, 300),
+				"error":      errStr,
+				"durationMs": stepRecord.DurationMs,
+			}
+			if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
+				progress("agent_step_detail", string(detailJSON))
+			}
 		}
 
 		// Append tool results as a user message
@@ -410,6 +469,12 @@ func formatToolAction(toolName string, inputJSON json.RawMessage) string {
 		return fmt.Sprintf("wait %dms", p.Milliseconds)
 	case "get_page_info":
 		return "get page info"
+	case "console_logs":
+		return "get console logs"
+	case "navigate":
+		var p struct{ URL string }
+		json.Unmarshal(inputJSON, &p)
+		return fmt.Sprintf("navigate to %s", truncate(p.URL, 60))
 	default:
 		return toolName
 	}

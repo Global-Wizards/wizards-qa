@@ -118,6 +118,29 @@ func BrowserTools() []ToolDefinition {
 				"required":   []string{},
 			},
 		},
+		{
+			Name:        "console_logs",
+			Description: "Get recent browser console messages (errors, warnings, logs). Use this to diagnose loading failures, JS errors, and game initialization problems.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+				"required":   []string{},
+			},
+		},
+		{
+			Name:        "navigate",
+			Description: "Navigate to a URL or reload the current page. Use this to retry loading a game that failed to initialize, or to navigate to a different URL.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"url": map[string]interface{}{
+						"type":        "string",
+						"description": "The URL to navigate to. Use the current game URL to reload.",
+					},
+				},
+				"required": []string{"url"},
+			},
+		},
 	}
 }
 
@@ -256,6 +279,40 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 			sb.WriteString(fmt.Sprintf("Visible Text:\n%s", visibleText))
 		}
 		return sb.String(), "", nil
+
+	case "console_logs":
+		logs, logErr := e.Page.GetConsoleLogs()
+		if logErr != nil {
+			return "", "", fmt.Errorf("console_logs: %w", logErr)
+		}
+		if len(logs) == 0 {
+			return "No console messages captured.", "", nil
+		}
+		// Return last 50 lines max
+		if len(logs) > 50 {
+			logs = logs[len(logs)-50:]
+		}
+		return strings.Join(logs, "\n"), "", nil
+
+	case "navigate":
+		var params struct {
+			URL string `json:"url"`
+		}
+		if err := json.Unmarshal(inputJSON, &params); err != nil {
+			return "", "", fmt.Errorf("navigate: invalid params: %w", err)
+		}
+		if params.URL == "" {
+			return "", "", fmt.Errorf("navigate: url is required")
+		}
+		if err := e.Page.Navigate(params.URL); err != nil {
+			return "", "", fmt.Errorf("navigate: %w", err)
+		}
+		// Take a screenshot after navigation to show the result
+		b64, ssErr := e.Page.CaptureScreenshot()
+		if ssErr != nil {
+			return fmt.Sprintf("Navigated to %s (screenshot failed).", params.URL), "", nil
+		}
+		return fmt.Sprintf("Navigated to %s.", params.URL), b64, nil
 
 	default:
 		return "", "", fmt.Errorf("unknown tool: %s", toolName)

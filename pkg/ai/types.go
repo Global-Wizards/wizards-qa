@@ -126,6 +126,8 @@ type BrowserPage interface {
 	EvalJS(expr string) (string, error)
 	WaitVisible(selector string, timeout time.Duration) error
 	GetPageInfo() (title, url, visibleText string, err error)
+	GetConsoleLogs() ([]string, error)
+	Navigate(url string) error
 }
 
 // AgentStep records a single step in the agent exploration loop.
@@ -141,9 +143,11 @@ type AgentStep struct {
 
 // AgentConfig controls the agent exploration loop.
 type AgentConfig struct {
-	MaxSteps     int
-	StepTimeout  time.Duration
-	TotalTimeout time.Duration
+	MaxSteps      int
+	StepTimeout   time.Duration
+	TotalTimeout  time.Duration
+	UserMessages  <-chan string // Optional channel for user hints injected during exploration
+	ScreenshotDir string       // Optional directory to write screenshots for live streaming
 }
 
 // DefaultAgentConfig returns sensible defaults for agent exploration.
@@ -160,21 +164,36 @@ const AgentSystemPrompt = `You are an expert QA engineer exploring a web-based g
 
 YOUR GOAL: Thoroughly explore the game to understand its mechanics, UI elements, state transitions, and interactive features. You will use this information to generate comprehensive QA test scenarios.
 
+INITIAL LOAD CHECK (do this first):
+1. Examine the initial screenshot for loading screens, error dialogs, or blank pages.
+2. Use console_logs to check for JavaScript errors or warnings.
+3. If the page shows a loading spinner, error message, or the game hasn't rendered:
+   a. Check console_logs for errors (e.g., failed asset loads, JS exceptions).
+   b. Wait a few seconds and take another screenshot.
+   c. If still broken after 2 attempts, use navigate to reload the game URL.
+   d. Do NOT spend more than 3 steps diagnosing a broken loading screen — reload and move on.
+
 EXPLORATION STRATEGY:
-1. Start by examining the initial page state via the screenshot.
-2. Identify clickable elements, buttons, and interactive regions.
-3. Interact with the game systematically: click buttons, try different areas of the canvas, scroll to reveal hidden content.
-4. After each interaction, take a screenshot to observe the result.
-5. Try to trigger different game states: loading, playing, paused, game over, etc.
+1. Once the game is loaded, identify clickable elements, buttons, and interactive regions.
+2. Actively interact with the game: click buttons, spin reels, place bets, type text — don't just observe.
+3. After each interaction, take a screenshot to observe the result.
+4. Try to trigger different game states: loading, playing, paused, game over, bonus rounds, etc.
+5. For canvas games, try clicking different regions (center, corners, common button positions like bottom-center for spin).
 6. Note any animations, transitions, error states, or popups you encounter.
+
+LOADING FAILURE RECOVERY:
+- Signs of loading failure: blank canvas, "loading" text stuck for multiple screenshots, error dialogs (even hidden ones), console errors about failed network requests.
+- If you see an error dialog, try clicking its OK/Close button or dismissing it.
+- If the game is stuck loading, use navigate with the game URL to reload.
+- After reloading, wait 3-5 seconds then take a screenshot to check the new state.
 
 RULES:
 1. Take a screenshot after each significant interaction to observe the result.
 2. Use get_page_info to understand the page structure when screenshots are ambiguous.
-3. Be systematic: don't click the same thing twice unless testing repeated interactions.
-4. For canvas games, try clicking different regions (center, corners, common button positions).
+3. Use console_logs when something seems wrong — errors often explain broken states.
+4. Be systematic: don't click the same thing twice unless testing repeated interactions.
 5. When you have thoroughly explored the game (usually 10-20 steps), output EXPLORATION_COMPLETE on its own line to signal you are done.
-6. Focus on discovering testable behaviors, not just clicking randomly.
+6. Focus on discovering testable behaviors through active interaction, not passive observation.
 
 COORDINATE SYSTEM: The viewport is 1920x1080. Use absolute pixel coordinates for click and type_text tools.`
 

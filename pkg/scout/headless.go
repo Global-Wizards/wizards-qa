@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-rod/rod"
@@ -15,7 +16,9 @@ import (
 
 // RodBrowserPage wraps a *rod.Page to implement the ai.BrowserPage interface.
 type RodBrowserPage struct {
-	page *rod.Page
+	page        *rod.Page
+	consoleLogs []string
+	mu          sync.Mutex
 }
 
 // NewRodBrowserPage creates a new RodBrowserPage wrapping the given rod page.
@@ -104,6 +107,28 @@ func (r *RodBrowserPage) GetPageInfo() (title, pageURL, visibleText string, err 
 	return title, pageURL, visibleText, nil
 }
 
+// GetConsoleLogs returns captured console log messages and clears the buffer.
+func (r *RodBrowserPage) GetConsoleLogs() ([]string, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	logs := make([]string, len(r.consoleLogs))
+	copy(logs, r.consoleLogs)
+	r.consoleLogs = r.consoleLogs[:0]
+	return logs, nil
+}
+
+// Navigate navigates the page to the given URL and waits for load + idle.
+func (r *RodBrowserPage) Navigate(url string) error {
+	if err := r.page.Navigate(url); err != nil {
+		return fmt.Errorf("navigate to %s: %w", url, err)
+	}
+	if err := r.page.WaitLoad(); err != nil {
+		return fmt.Errorf("wait load after navigate: %w", err)
+	}
+	r.page.WaitIdle(5 * time.Second)
+	return nil
+}
+
 // ScoutURLHeadlessKeepAlive is like ScoutURLHeadless but returns a live page and cleanup function
 // instead of closing the browser. This is used for agent mode where the browser stays open.
 func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg HeadlessConfig) (*PageMeta, *RodBrowserPage, func(), error) {
@@ -158,6 +183,25 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 
 	page.MustSetViewport(width, height, 1, false)
 
+	browserPage := &RodBrowserPage{page: page}
+
+	// Collect console logs for agent visibility (mirrors ScoutURLHeadless pattern)
+	go page.EachEvent(func(e *proto.RuntimeConsoleAPICalled) {
+		var parts []string
+		for _, arg := range e.Args {
+			str := arg.Value.Str()
+			if str != "" {
+				parts = append(parts, str)
+			}
+		}
+		if len(parts) > 0 {
+			line := fmt.Sprintf("[%s] %s", e.Type, strings.Join(parts, " "))
+			browserPage.mu.Lock()
+			browserPage.consoleLogs = append(browserPage.consoleLogs, line)
+			browserPage.mu.Unlock()
+		}
+	})()
+
 	// Navigate to the URL
 	if err := page.Context(ctx).Navigate(gameURL); err != nil {
 		cleanup()
@@ -171,13 +215,32 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 
 	page.Context(ctx).WaitIdle(5 * time.Second)
 
-	// Wait up to 5s for canvas to appear
+	// Wait up to 20s for canvas + game framework readiness
 	canvasFound := false
-	for i := 0; i < 10; i++ {
-		hasCanvas, evalErr := page.Eval(`() => document.querySelector('canvas') !== null`)
-		if evalErr == nil && hasCanvas.Value.Bool() {
-			canvasFound = true
-			break
+	for i := 0; i < 40; i++ {
+		ready, evalErr := page.Eval(`() => {
+			const canvas = document.querySelector('canvas');
+			if (!canvas) return 'no_canvas';
+			if (canvas.width === 0 || canvas.height === 0) return 'zero_size';
+			// Check for common error indicators
+			const errorDialog = document.querySelector('[role="dialog"], .error, .error-dialog, .error-overlay');
+			if (errorDialog && errorDialog.textContent.toLowerCase().includes('error')) return 'error_visible';
+			// Check game framework readiness
+			if (window.Phaser && window.game) return 'ready';
+			if (window.PIXI && window.PIXI.Application) return 'ready';
+			if (canvas.width > 0 && canvas.height > 0) return 'canvas_ok';
+			return 'waiting';
+		}`)
+		if evalErr == nil {
+			state := ready.Value.Str()
+			if state == "ready" || state == "canvas_ok" || state == "error_visible" {
+				canvasFound = true
+				break
+			}
+			if state == "no_canvas" && i > 20 {
+				// Give up after 10s if no canvas at all
+				break
+			}
 		}
 		time.Sleep(500 * time.Millisecond)
 	}
@@ -242,7 +305,6 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		meta.Screenshots = append(meta.Screenshots, shot)
 	}
 
-	browserPage := NewRodBrowserPage(page)
 	return meta, browserPage, cleanup, nil
 }
 

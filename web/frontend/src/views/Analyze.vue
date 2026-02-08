@@ -89,8 +89,95 @@
               :detail="stepDuration('scouting') ? `Completed in ${stepDuration('scouting')}s` : 'Fetching page and extracting metadata...'"
               :sub-details="scoutingDetails"
             />
+            <!-- Agent Live Exploration Panel -->
+            <template v-if="agentMode && (agentExplorationStatus === 'active' || liveAgentSteps.length > 0)">
+              <div class="rounded-lg border bg-card p-4 my-2">
+                <!-- Header -->
+                <div class="flex items-center justify-between mb-3">
+                  <div class="flex items-center gap-2">
+                    <Loader2 v-if="agentExplorationStatus === 'active'" class="h-4 w-4 text-primary animate-spin" />
+                    <CheckCircle v-else class="h-4 w-4 text-green-500" />
+                    <span class="text-sm font-medium">Agent Exploring Game</span>
+                  </div>
+                  <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span v-if="agentStepCurrent">Step {{ agentStepCurrent }}/{{ agentStepTotal }}</span>
+                    <span v-if="elapsedSeconds > 0">{{ formatElapsed(elapsedSeconds) }}</span>
+                  </div>
+                </div>
+
+                <!-- Screenshot + Reasoning Row -->
+                <div class="flex gap-4 mb-3" v-if="latestScreenshot || agentReasoning">
+                  <img
+                    v-if="latestScreenshot"
+                    :src="'data:image/jpeg;base64,' + latestScreenshot"
+                    class="w-[300px] h-auto rounded border cursor-pointer shrink-0 object-contain"
+                    alt="Live screenshot"
+                    @click="expandLiveScreenshot"
+                  />
+                  <div v-if="agentReasoning" class="flex-1 min-w-0">
+                    <p class="text-xs text-muted-foreground mb-1 font-medium">Latest thinking:</p>
+                    <div class="max-h-40 overflow-y-auto text-xs text-muted-foreground leading-relaxed">
+                      {{ agentReasoning.length > 500 ? agentReasoning.slice(-500) + '...' : agentReasoning }}
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Step Timeline -->
+                <div v-if="liveAgentSteps.length" ref="liveTimelineRef" class="max-h-48 overflow-y-auto space-y-1 mb-3 rounded-md bg-muted/50 p-2">
+                  <div
+                    v-for="(entry, i) in liveAgentSteps"
+                    :key="i"
+                    :class="[
+                      'flex items-start gap-2 p-1.5 rounded text-xs',
+                      entry.type === 'hint' ? 'bg-blue-50 dark:bg-blue-950/30' : ''
+                    ]"
+                  >
+                    <template v-if="entry.type === 'hint'">
+                      <MessageCircle class="h-3.5 w-3.5 text-blue-500 shrink-0 mt-0.5" />
+                      <span class="text-blue-600 dark:text-blue-400">You: {{ entry.message }}</span>
+                    </template>
+                    <template v-else>
+                      <Badge variant="outline" class="shrink-0 text-[10px] px-1 py-0">{{ entry.stepNumber }}</Badge>
+                      <div class="min-w-0 flex-1">
+                        <span class="font-medium">{{ entry.toolName }}</span>
+                        <span class="text-muted-foreground ml-1">{{ entry.durationMs }}ms</span>
+                        <p class="text-muted-foreground truncate" :title="entry.result">{{ entry.result }}</p>
+                        <p v-if="entry.error" class="text-destructive">{{ entry.error }}</p>
+                      </div>
+                      <Badge
+                        v-if="entry.hasScreenshot"
+                        variant="secondary"
+                        class="shrink-0 text-[10px] px-1 py-0 cursor-pointer"
+                        @click="expandLiveScreenshot"
+                      >screenshot</Badge>
+                    </template>
+                  </div>
+                </div>
+
+                <!-- Hint Input Bar -->
+                <div v-if="agentExplorationStatus === 'active'" class="flex gap-2">
+                  <Input
+                    v-model="hintInput"
+                    placeholder="Send a hint to the agent..."
+                    :disabled="hintCooldown"
+                    class="flex-1 text-sm"
+                    @keyup.enter="handleSendHint"
+                  />
+                  <Button
+                    size="sm"
+                    :disabled="!hintInput.trim() || hintCooldown"
+                    @click="handleSendHint"
+                  >
+                    <Send class="h-3.5 w-3.5 mr-1" />
+                    {{ hintSent ? 'Sent!' : hintCooldown ? 'Wait...' : 'Send' }}
+                  </Button>
+                </div>
+                <p v-else class="text-xs text-muted-foreground">Exploration complete ({{ liveAgentSteps.filter(s => s.type === 'tool').length }} steps)</p>
+              </div>
+            </template>
+            <!-- Fallback: simple ProgressStep when no live data yet -->
             <ProgressStep
-              v-if="agentMode"
+              v-else-if="agentMode"
               :status="agentExplorationStatus"
               label="Agent exploring game"
               :detail="agentExplorationDetail"
@@ -441,7 +528,7 @@ import { truncateUrl, isValidUrl } from '@/lib/utils'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -493,7 +580,32 @@ const {
   start,
   reset,
   tryRecover,
+  // Live agent exploration
+  liveAgentSteps,
+  latestScreenshot,
+  agentReasoning,
+  hintCooldown,
+  agentStepCurrent,
+  agentStepTotal,
+  sendHint,
 } = useAnalysis()
+
+// Hint input state
+const hintInput = ref('')
+const hintSent = ref(false)
+let hintSentTimeout = null
+
+async function handleSendHint() {
+  if (!hintInput.value.trim()) return
+  await sendHint(hintInput.value)
+  hintInput.value = ''
+  hintSent.value = true
+  if (hintSentTimeout) clearTimeout(hintSentTimeout)
+  hintSentTimeout = setTimeout(() => { hintSent.value = false }, 2000)
+}
+
+// Auto-scroll live timeline
+const liveTimelineRef = ref(null)
 
 const gameName = computed(() => {
   return analysis.value?.gameInfo?.name || pageMeta.value?.title || 'Unknown Game'
@@ -601,6 +713,18 @@ const agentExplorationDetail = computed(() => {
 function expandAgentScreenshot(step) {
   agentScreenshotStep.value = step
   agentScreenshotOpen.value = true
+}
+
+function expandLiveScreenshot() {
+  if (latestScreenshot.value) {
+    agentScreenshotStep.value = {
+      screenshotB64: latestScreenshot.value,
+      stepNumber: agentStepCurrent.value || '?',
+      toolName: 'Live Screenshot',
+      result: 'Current game state',
+    }
+    agentScreenshotOpen.value = true
+  }
 }
 
 // Ordered step names for granular progress
@@ -823,13 +947,29 @@ async function loadRecentAnalyses() {
 
 onUnmounted(() => {
   if (copyTimeoutId != null) clearTimeout(copyTimeoutId)
+  if (hintSentTimeout != null) clearTimeout(hintSentTimeout)
 })
 
-// Auto-scroll log area when new logs arrive
+// Auto-scroll log area when new logs arrive (only if near bottom)
 watch(logs, () => {
   nextTick(() => {
-    if (logContainer.value) {
-      logContainer.value.scrollTop = logContainer.value.scrollHeight
+    const el = logContainer.value
+    if (!el) return
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+    if (isNearBottom) {
+      el.scrollTop = el.scrollHeight
+    }
+  })
+})
+
+// Auto-scroll live agent timeline when new steps arrive (only if near bottom)
+watch(liveAgentSteps, () => {
+  nextTick(() => {
+    const el = liveTimelineRef.value
+    if (!el) return
+    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
+    if (isNearBottom) {
+      el.scrollTop = el.scrollHeight
     }
   })
 })
