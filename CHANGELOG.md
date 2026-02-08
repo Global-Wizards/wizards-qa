@@ -5,6 +5,42 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-02-08
+
+### Agent Mode - Interactive Game Exploration (2026-02-08)
+
+#### Added
+- **Optional Agent Mode** - AI actively explores games through browser interactions
+  - Agentic loop of 10-20 steps: Claude uses browser tools (click, scroll, type, screenshot, eval JS) to explore the game
+  - Synthesis call produces structured analysis grounded in actual observations
+  - Last 5 agent screenshots passed to flow generation for coordinate-grounded Maestro flows
+  - `--agent` CLI flag and `--agent-steps` (default 20) to control exploration depth
+- **Tool Use API Support** - `CallWithTools` method on `ClaudeClient` for Claude tool use protocol
+  - `ToolDefinition`, `AgentMessage`, `ResponseContentBlock`, `ToolUseResponse`, `ToolResultBlock` types
+  - `ToolUseAgent` interface in `pkg/ai/base.go`
+- **BrowserPage Interface** - Decouples AI package from go-rod
+  - `BrowserPage` interface in `pkg/ai/types.go` with 7 methods (CaptureScreenshot, Click, TypeText, Scroll, EvalJS, WaitVisible, GetPageInfo)
+  - `RodBrowserPage` adapter in `pkg/scout/headless.go` implementing the interface
+  - `ScoutURLHeadlessKeepAlive` returns a live browser page + cleanup function for agent mode
+- **7 Browser Tools** - `pkg/ai/agent_tools.go`
+  - `screenshot`, `click`, `type_text`, `scroll`, `evaluate_js`, `wait`, `get_page_info`
+  - `BrowserToolExecutor` maps tool names to `BrowserPage` method calls
+- **Agent Exploration Loop** - `pkg/ai/agent.go`
+  - `AgentExplore` runs the agentic loop with progress events
+  - `AnalyzeFromURLWithAgent` integrates agent exploration with existing flow generation
+- **Frontend Agent Mode Toggle**
+  - "Agent Mode" checkbox on the Analyze page
+  - Agent exploration progress step with real-time step updates
+  - Agent results section showing step-by-step actions with clickable screenshot thumbnails
+  - Full-screen screenshot dialog for agent step screenshots
+- **Backend Agent Mode** - `agentMode` field in analysis request, passes `--agent` to CLI
+
+#### Design Decisions
+- Agent mode is fully optional — the 2-call pipeline remains the default and is untouched
+- `BrowserPage` interface in `pkg/ai` keeps the AI package decoupled from go-rod
+- Synthesis is a separate final call (no tools) to ensure clean JSON output
+- Agent steps and mode are included in JSON output and persisted through the full stack
+
 ## [0.3.0] - 2026-02-08
 
 ### Phase 3 Complete - Projects & Organization (2026-02-08)

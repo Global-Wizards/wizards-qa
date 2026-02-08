@@ -23,7 +23,7 @@ import (
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
 
-const Version = "0.3.0"
+const Version = "0.4.0"
 
 type Server struct {
 	router    *chi.Mux
