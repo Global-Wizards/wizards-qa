@@ -129,7 +129,7 @@ async function handleSave() {
   try {
     if (isEdit.value) {
       await projectsApi.update(route.params.projectId, { ...form })
-      router.push(`/projects/${route.params.projectId}/settings`)
+      router.push(`/projects/${route.params.projectId}`)
     } else {
       const created = await projectsApi.create({ ...form })
       router.push(`/projects/${created.id}`)

@@ -18,6 +18,8 @@ type APICallerOnce interface {
 // ImageAnalyzer is an optional interface for AI clients that support multimodal (image+text) analysis.
 type ImageAnalyzer interface {
 	AnalyzeWithImage(prompt string, imageB64 string) (string, error)
+	// AnalyzeWithImages sends a multimodal request with multiple images and an optional system prompt.
+	AnalyzeWithImages(systemPrompt string, prompt string, imagesB64 []string) (string, error)
 }
 
 // BaseClient contains shared fields and methods for AI provider clients.

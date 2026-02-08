@@ -29,10 +29,19 @@ appId: com.example.game
 - assertVisible: "Level 1"
 - takeScreenshot: "game-start"
 - runScript: "scripts/check-game-state.js" # Custom JS for deep state inspection
+- evalScript: |
+    ${window.game.scene.scenes[0].player.hp > 0} # Inline JS state check
+- assertWithAI:
+    assertion: "The player character is standing next to the treasure chest."
 ```
 
+## Advanced Features for Game QA
+- **`assertWithAI`**: This is the "Game Changer." Since games are often visually complex with zero DOM accessibility, `assertWithAI` allows us to describe the intended visual state. Maestro takes a screenshot and uses an LLM to verify if the description matches the visual (e.g., "The boss health bar is at 50%").
+- **`tapOn: { x: 100, y: 200 }`**: Direct coordinate tapping is essential for interacting with specific regions of the Phaser canvas when text-based selection fails.
+- **`extractTextWithAI`**: Useful for reading non-DOM text (bitmaps, custom fonts) inside the game world for verification.
+
 ## Recommendation
-Maestro is excellent for high-level "flow" testing (menus, transitions, loading). For deep in-game logic, we must combine it with a custom Phaser plugin that exposes game state to the testing environment.
+Maestro is excellent for high-level "flow" testing (menus, transitions, loading). For deep in-game logic, we should leverage **`assertWithAI`** for visual validation and **`evalScript`** to query the Phaser 4 engine state directly. This hybrid approach removes the need for expensive "DOM Proxying" in many cases.
 
 ---
 *Source: Sage 🔮 (Research Cycle 17)*

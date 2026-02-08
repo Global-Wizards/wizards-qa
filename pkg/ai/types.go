@@ -10,6 +10,30 @@ type AnalysisResult struct {
 	RawResponse string       `json:"rawResponse,omitempty"`
 }
 
+// ComprehensiveAnalysisResult combines game analysis with test scenarios in a
+// single AI response. This avoids the lossy context degradation that occurs
+// when analysis and scenario generation are separate calls.
+type ComprehensiveAnalysisResult struct {
+	GameInfo   GameInfo       `json:"gameInfo"`
+	Mechanics  []Mechanic     `json:"mechanics"`
+	UIElements []UIElement    `json:"uiElements"`
+	UserFlows  []UserFlow     `json:"userFlows"`
+	EdgeCases  []EdgeCase     `json:"edgeCases"`
+	Scenarios  []TestScenario `json:"scenarios"`
+}
+
+// ToAnalysisResult converts a ComprehensiveAnalysisResult to the legacy AnalysisResult
+// for backward compatibility with callers that expect the old type.
+func (c *ComprehensiveAnalysisResult) ToAnalysisResult() *AnalysisResult {
+	return &AnalysisResult{
+		GameInfo:   c.GameInfo,
+		Mechanics:  c.Mechanics,
+		UIElements: c.UIElements,
+		UserFlows:  c.UserFlows,
+		EdgeCases:  c.EdgeCases,
+	}
+}
+
 // GameInfo represents basic game information
 type GameInfo struct {
 	Name        string   `json:"name"`
@@ -90,8 +114,20 @@ type PromptTemplate struct {
 	Variables   []string
 }
 
+// AnalysisSystemPrompt is the system prompt used for all analysis AI calls.
+// It establishes the AI's role and enforces grounding constraints.
+const AnalysisSystemPrompt = `You are an expert QA engineer specializing in automated testing of web-based games.
+
+CRITICAL RULES:
+1. ONLY report what you can actually see in the provided screenshots or infer from the page metadata. Do NOT invent or hallucinate game mechanics, UI elements, or features that are not evidenced by the screenshots or metadata.
+2. For canvas-based games, all game interactions use coordinate-based taps. HTML overlay elements (buttons, dialogs) use text-based selectors.
+3. When multiple screenshots are provided, they show the game in different states (e.g., loading, after clicking canvas, after clicking a button). Use ALL screenshots to understand the game's state transitions.
+4. Be specific about coordinates. Reference UI element positions using percentage-based coordinates (e.g., "50%,80%") based on what you see in the screenshots.
+5. Always respond with valid JSON only — no markdown, no code fences, no explanatory text outside the JSON.`
+
 // Common prompt templates
 var (
+	// GameAnalysisPrompt is the legacy prompt for spec-based analysis (kept for backward compat).
 	GameAnalysisPrompt = PromptTemplate{
 		Name:        "game-analysis",
 		Description: "Analyze a game from specification and URL",
@@ -149,9 +185,153 @@ Provide your analysis in the following JSON format:
 		Variables: []string{"spec", "url"},
 	}
 
+	// ComprehensiveAnalysisPrompt combines analysis + scenario generation into a single call.
+	// This replaces the old URLAnalysisPrompt + ScenarioGenerationPrompt two-call pipeline.
+	ComprehensiveAnalysisPrompt = PromptTemplate{
+		Name:        "comprehensive-analysis",
+		Description: "Analyze a game and generate test scenarios in one call",
+		Template: `Analyze this web-based game for automated QA testing. You are provided with screenshots of the game in different states and page metadata.
+
+Game URL: {{url}}
+URL Hints: {{urlHints}}
+
+Page metadata (auto-detected):
+{{pageMeta}}
+
+{{screenshotSection}}
+
+ANALYSIS INSTRUCTIONS:
+1. URL parameters often reveal critical game info (e.g., game_type=SLOTS, mode=demo). Use the domain and path to infer the game studio/platform.
+2. If page metadata is minimal (just a JS loader), this is a JS-rendered SPA. Focus on what the screenshots and URL parameters tell you.
+3. For canvas-based games (Phaser, PIXI, etc.): game interactions are coordinate-based taps on the canvas. HTML overlays use text selectors.
+4. Describe ONLY mechanics, UI elements, and flows that are evidenced by the screenshots or metadata. Do not guess.
+5. For UI elements, provide percentage-based coordinates from the screenshots (e.g., "50%,80%").
+
+SCENARIO GENERATION INSTRUCTIONS:
+6. Generate 3-6 test scenarios covering: happy path (main user flow), edge cases (boundary conditions), and failure scenarios (timeouts, disconnects).
+7. Each scenario must have concrete, actionable steps with specific coordinates or selectors from the screenshots.
+8. Include at least one happy-path scenario that exercises the core game loop end-to-end.
+
+Respond with a single JSON object matching this exact format:
+{
+  "gameInfo": {
+    "name": "...",
+    "description": "...",
+    "genre": "...",
+    "technology": "...",
+    "features": ["..."]
+  },
+  "mechanics": [
+    {
+      "name": "...",
+      "description": "...",
+      "actions": ["click", "drag", etc.],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "uiElements": [
+    {
+      "name": "...",
+      "type": "button|canvas|input",
+      "selector": "text or percentage coordinate",
+      "location": {"x": "50%", "y": "80%"}
+    }
+  ],
+  "userFlows": [
+    {
+      "name": "...",
+      "description": "...",
+      "steps": ["step 1", "step 2"],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "edgeCases": [
+    {
+      "name": "...",
+      "description": "...",
+      "scenario": "...",
+      "expected": "..."
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "...",
+      "description": "...",
+      "type": "happy-path|edge-case|failure",
+      "steps": [
+        {
+          "action": "launch|click|input|wait|assert",
+          "target": "description of target",
+          "value": "",
+          "expected": "what should happen",
+          "coordinates": {"x": "50%", "y": "80%"}
+        }
+      ],
+      "priority": "high|medium|low",
+      "tags": ["smoke", "regression"]
+    }
+  ]
+}`,
+		Variables: []string{"url", "pageMeta", "urlHints", "screenshotSection"},
+	}
+
+	// FlowGenerationPrompt generates Maestro YAML flows from structured analysis+scenario JSON.
+	// This version receives the full JSON analysis (not lossy text) and screenshots.
+	FlowGenerationPrompt = PromptTemplate{
+		Name:        "flow-generation",
+		Description: "Generate Maestro flows from structured analysis JSON",
+		Template: `Convert the following game analysis and test scenarios into Maestro test flows.
+
+Game URL: {{url}}
+Framework: {{framework}}
+
+Full analysis (JSON):
+{{analysisJSON}}
+
+{{screenshotSection}}
+
+Generate Maestro flows as a JSON array. Each flow should be a complete, runnable test.
+
+Maestro command reference:
+- openBrowser: {url: "..."} — navigate to the game URL
+- waitFor: {visible: "text", timeout: 5000} — wait for element
+- tapOn: "text" — tap on visible text element
+- tapOn: {point: "50%,80%"} — tap at percentage coordinates on screen
+- inputText: "..." — type text into focused field
+- assertVisible: "text" — assert text is visible
+- screenshot: "name" — capture screenshot
+
+IMPORTANT RULES:
+- For canvas games ({{framework}}), use coordinate-based tapOn with percentage points
+- Always start with openBrowser and a waitFor to ensure the game loads
+- Add screenshot commands after key interactions to capture state
+- Use percentage-based coordinates that match what you see in the screenshots
+- Generate 2-5 flows covering the most important scenarios
+
+Respond with a JSON array of flows:
+[
+  {
+    "name": "Flow name",
+    "tags": ["smoke", "happy-path"],
+    "commands": [
+      {"openBrowser": {"url": "{{url}}"}},
+      {"waitFor": {"visible": "text", "timeout": 5000}},
+      {"tapOn": {"point": "50%,50%"}},
+      {"screenshot": "after-tap"},
+      {"assertVisible": "expected text"}
+    ]
+  }
+]`,
+		Variables: []string{"url", "framework", "analysisJSON", "screenshotSection"},
+	}
+
+	// ScenarioGenerationPrompt is kept for backward compatibility but is no longer
+	// used in the primary pipeline (scenarios are now part of ComprehensiveAnalysisPrompt).
 	ScenarioGenerationPrompt = PromptTemplate{
 		Name:        "scenario-generation",
-		Description: "Generate test scenarios from game analysis",
+		Description: "Generate test scenarios from game analysis (legacy)",
 		Template: `Based on this game analysis, generate comprehensive test scenarios.
 
 Analysis:
@@ -184,34 +364,11 @@ Respond with JSON array of scenarios:
 		Variables: []string{"analysis"},
 	}
 
-	FlowGenerationPrompt = PromptTemplate{
-		Name:        "flow-generation",
-		Description: "Generate Maestro YAML flows from scenarios",
-		Template: `Convert these test scenarios into Maestro YAML flows.
-
-Scenarios:
-{{scenarios}}
-
-Generate Maestro flows using these commands:
-- launchApp
-- tapOn: "text" or tapOn: {point: "x,y"}
-- inputText: "..."
-- assertVisible: "..."
-- waitFor: {visible: true, timeout: ms}
-- captureScreenshot: "filename.png"
-
-Important for Phaser 4 games:
-- Use coordinate-based clicking for canvas: tapOn: {point: "50%,50%"}
-- Wait for game to load before interactions
-- Use assertVisible for HTML overlays, not canvas content
-
-Respond with valid Maestro YAML for each flow.`,
-		Variables: []string{"scenarios"},
-	}
-
+	// URLAnalysisPrompt is kept for backward compatibility but is replaced by
+	// ComprehensiveAnalysisPrompt in the primary pipeline.
 	URLAnalysisPrompt = PromptTemplate{
 		Name:        "url-analysis",
-		Description: "Analyze a game from URL with auto-detected page metadata",
+		Description: "Analyze a game from URL with auto-detected page metadata (legacy)",
 		Template: `You are an expert QA engineer analyzing a web-based game for automated testing.
 
 Game URL: {{url}}
@@ -224,9 +381,9 @@ Page metadata (auto-detected):
 
 IMPORTANT INSTRUCTIONS:
 1. The URL parameters often reveal critical game info. For example:
-   - game_type=LOTTERY → This is a lottery/scratch card game
-   - game_type=SLOTS → This is a slot machine game
-   - mode=demo → Running in demo/free-play mode
+   - game_type=LOTTERY -> This is a lottery/scratch card game
+   - game_type=SLOTS -> This is a slot machine game
+   - mode=demo -> Running in demo/free-play mode
    - Use the domain and path to infer the game studio/platform
 
 2. If the page metadata shows minimal content (e.g., just a JS loader),
@@ -236,21 +393,8 @@ IMPORTANT INSTRUCTIONS:
 3. For canvas-based games (Phaser, PIXI, etc.):
    - All game interactions are coordinate-based taps on the canvas
    - HTML overlays (buttons, dialogs) use text-based selectors
-   - Common patterns: "Play" button, "Spin" button, bet controls,
-     balance display, settings gear icon
 
-4. Generate REALISTIC mechanics based on the game type. For a LOTTERY game:
-   - Scratch/reveal mechanics, number selection, draw animations
-   - Bet amount controls, auto-play, balance display
-   - Win/loss states, prize tiers, bonus features
-
-5. For a SLOTS game:
-   - Spin mechanic, reel animations, payline display
-   - Bet controls, auto-spin, turbo mode
-   - Free spins, bonus rounds, scatter/wild symbols
-
-6. If the framework is "phaser" or uses HTML5 canvas, focus on coordinate-based interactions.
-   If the framework is "unity", note that WebGL interactions may need special handling.
+4. Describe ONLY what you can see in the screenshots or infer from the metadata.
 
 Respond with structured JSON matching this format:
 {

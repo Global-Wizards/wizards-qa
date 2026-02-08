@@ -40,6 +40,7 @@ COPY --from=cli-build /wizards-qa ./wizards-qa
 COPY --from=frontend-build /app/frontend/dist ./web/frontend/dist/
 COPY flows/ ./flows/
 COPY data/ ./data/
+COPY CHANGELOG.md ./CHANGELOG.md
 RUN mkdir -p ./reports && chown -R appuser:appgroup /app
 ENV WIZARDS_QA_CLI_PATH=/app/wizards-qa
 USER appuser

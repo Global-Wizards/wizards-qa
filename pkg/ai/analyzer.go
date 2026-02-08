@@ -109,22 +109,22 @@ func (a *Analyzer) AnalyzeFromURLWithMeta(ctx context.Context, gameURL string, p
 	return a.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, nil)
 }
 
-// AnalyzeFromURLWithMetaProgress is like AnalyzeFromURLWithMeta but reports granular progress via onProgress.
-func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
-	ctx context.Context, gameURL string, pageMeta *scout.PageMeta,
-	onProgress ProgressFunc,
-) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
-	progress := func(step, message string) {
-		if onProgress != nil {
-			onProgress(step, message)
-		}
+// collectScreenshots gathers all available screenshots from PageMeta.
+// Returns the list of base64-encoded images (may be empty).
+func collectScreenshots(pageMeta *scout.PageMeta) []string {
+	if len(pageMeta.Screenshots) > 0 {
+		return pageMeta.Screenshots
 	}
+	// Fall back to single legacy screenshot
+	if pageMeta.ScreenshotB64 != "" {
+		return []string{pageMeta.ScreenshotB64}
+	}
+	return nil
+}
 
-	// Step 2: Build prompt with page metadata and URL hints.
-	// IMPORTANT: Strip ScreenshotB64 from the text prompt — when a screenshot
-	// exists, it's sent separately via the multimodal image API. Including the
-	// raw base64 string in the text prompt would blow past the token limit
-	// (a 1920x1080 PNG screenshot encodes to ~500KB of base64 ≈ 375k tokens).
+// buildPageMetaJSON creates a JSON representation of PageMeta for inclusion
+// in text prompts, stripping out the large screenshot fields.
+func buildPageMetaJSON(pageMeta *scout.PageMeta) []byte {
 	type pageMetaForPrompt struct {
 		Title       string            `json:"title"`
 		Description string            `json:"description"`
@@ -147,51 +147,90 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 		Links:       pageMeta.Links,
 		JSGlobals:   pageMeta.JSGlobals,
 	}
-	pageMetaJSON, _ := json.MarshalIndent(promptMeta, "", "  ")
+	data, _ := json.MarshalIndent(promptMeta, "", "  ")
+	return data
+}
+
+// AnalyzeFromURLWithMetaProgress is the main analysis pipeline.
+//
+// Pipeline (2 AI calls max):
+//  1. Comprehensive analysis + scenarios (single multimodal call with all screenshots)
+//  2. Flow generation (multimodal call with screenshots + full structured JSON from step 1)
+func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
+	ctx context.Context, gameURL string, pageMeta *scout.PageMeta,
+	onProgress ProgressFunc,
+) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
+	progress := func(step, message string) {
+		if onProgress != nil {
+			onProgress(step, message)
+		}
+	}
+
+	// Collect all screenshots for multimodal calls
+	screenshots := collectScreenshots(pageMeta)
+	pageMetaJSON := buildPageMetaJSON(pageMeta)
 
 	urlHints := parseURLHints(gameURL)
 	urlHintsJSON, _ := json.Marshal(urlHints)
 
 	screenshotSection := ""
-	if pageMeta.ScreenshotB64 != "" {
+	switch len(screenshots) {
+	case 0:
+		// no screenshots
+	case 1:
 		screenshotSection = "A screenshot of the game is attached. Describe what you see and use it to identify UI elements, buttons, game state, and interactive regions."
+	default:
+		screenshotSection = fmt.Sprintf("%d screenshots of the game are attached, showing different states (initial load, after interactions). Examine ALL screenshots to understand the game's UI, state transitions, and interactive elements.", len(screenshots))
 	}
 
-	prompt := fillTemplate(URLAnalysisPrompt.Template, map[string]string{
+	// --- AI Call #1: Comprehensive analysis + scenarios ---
+	prompt := fillTemplate(ComprehensiveAnalysisPrompt.Template, map[string]string{
 		"url":               gameURL,
 		"pageMeta":          string(pageMetaJSON),
-		"framework":         pageMeta.Framework,
 		"urlHints":          string(urlHintsJSON),
 		"screenshotSection": screenshotSection,
 	})
 
-	// Estimate prompt size for progress reporting (~4 chars per token)
+	// Progress reporting
 	promptTokenEstimate := len(prompt) / 4
-	screenshotKB := len(pageMeta.ScreenshotB64) * 3 / 4 / 1024 // base64 → raw bytes → KB
 	mode := "text-only"
-	if pageMeta.ScreenshotB64 != "" {
-		mode = fmt.Sprintf("multimodal (screenshot: %d KB)", screenshotKB)
+	if len(screenshots) > 0 {
+		totalKB := 0
+		for _, s := range screenshots {
+			totalKB += len(s) * 3 / 4 / 1024
+		}
+		mode = fmt.Sprintf("multimodal (%d screenshots, ~%d KB)", len(screenshots), totalKB)
 	}
 	progress("analyzing", fmt.Sprintf("Sending to AI (%s, ~%dk prompt tokens)...", mode, promptTokenEstimate/1000))
 
-	// Step 3: Call AI for analysis — use multimodal when screenshot is available
+	var comprehensiveResult *ComprehensiveAnalysisResult
 	var result *AnalysisResult
-	if pageMeta.ScreenshotB64 != "" {
+	var scenarios []TestScenario
+
+	// Try multimodal with AnalyzeWithImages (preferred path — uses system prompt + all screenshots)
+	if len(screenshots) > 0 {
 		if imgAnalyzer, ok := a.Client.(ImageAnalyzer); ok {
-			response, imgErr := imgAnalyzer.AnalyzeWithImage(prompt, pageMeta.ScreenshotB64)
+			response, imgErr := imgAnalyzer.AnalyzeWithImages(AnalysisSystemPrompt, prompt, screenshots)
 			if imgErr != nil {
 				return pageMeta, nil, nil, fmt.Errorf("AI multimodal analysis failed: %w", imgErr)
 			}
-			var parsed AnalysisResult
-			if jsonErr := json.Unmarshal([]byte(response), &parsed); jsonErr != nil {
-				parsed = AnalysisResult{RawResponse: response}
+			parsed, parseErr := parseComprehensiveJSON(response)
+			if parseErr == nil {
+				comprehensiveResult = parsed
+			} else {
+				// Try parsing as legacy AnalysisResult (AI may not include scenarios)
+				var legacyResult AnalysisResult
+				if jsonErr := json.Unmarshal([]byte(stripCodeFences(response)), &legacyResult); jsonErr == nil && len(legacyResult.Mechanics) > 0 {
+					result = &legacyResult
+				} else {
+					result = &AnalysisResult{RawResponse: response}
+				}
 			}
-			result = &parsed
 		}
 	}
 
 	// Fallback to text-only if multimodal was not used or not available
-	if result == nil {
+	if comprehensiveResult == nil && result == nil {
 		progress("analyzing", "Sending to AI (text-only fallback)...")
 		var err error
 		result, err = a.Client.Analyze(prompt, map[string]interface{}{
@@ -203,73 +242,99 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 		}
 	}
 
-	// Retry with more aggressive prompt if analysis found no mechanics and we have a screenshot
-	if len(result.Mechanics) == 0 && pageMeta.ScreenshotB64 != "" {
+	// Extract result and scenarios from comprehensive response
+	if comprehensiveResult != nil {
+		result = comprehensiveResult.ToAnalysisResult()
+		scenarios = comprehensiveResult.Scenarios
+	}
+
+	// Retry with more aggressive prompt if analysis found no mechanics and we have screenshots
+	if len(result.Mechanics) == 0 && len(screenshots) > 0 {
 		progress("analyzing", "No mechanics found — retrying with focused screenshot analysis...")
 		if imgAnalyzer, ok := a.Client.(ImageAnalyzer); ok {
-			retryPrompt := fmt.Sprintf(`The previous analysis found no game mechanics. Look at the screenshot more carefully.
+			retryPrompt := fmt.Sprintf(`The previous analysis found no game mechanics. Look at the screenshots more carefully.
 
 Game URL: %s
 URL Hints: %s
 
 This is likely a %s game. Even if the page source is minimal (SPA/JS-rendered),
-you MUST infer mechanics from the game type, URL parameters, and what you see in the screenshot.
+you MUST identify mechanics from the game type, URL parameters, and what you see in the screenshots.
 
 Generate at least 3 mechanics, 3 UI elements, and 2 user flows.
 
-Respond with structured JSON matching the AnalysisResult format (gameInfo, mechanics, uiElements, userFlows, edgeCases).`,
+Respond with structured JSON matching the ComprehensiveAnalysisResult format (gameInfo, mechanics, uiElements, userFlows, edgeCases, scenarios).`,
 				gameURL, string(urlHintsJSON), urlHints["gameType"])
 
-			retryResp, retryErr := imgAnalyzer.AnalyzeWithImage(retryPrompt, pageMeta.ScreenshotB64)
+			retryResp, retryErr := imgAnalyzer.AnalyzeWithImages(AnalysisSystemPrompt, retryPrompt, screenshots)
 			if retryErr == nil {
-				var retryResult AnalysisResult
-				if jsonErr := json.Unmarshal([]byte(retryResp), &retryResult); jsonErr == nil && len(retryResult.Mechanics) > 0 {
-					result = &retryResult
+				if parsed, parseErr := parseComprehensiveJSON(retryResp); parseErr == nil && len(parsed.Mechanics) > 0 {
+					comprehensiveResult = parsed
+					result = parsed.ToAnalysisResult()
+					scenarios = parsed.Scenarios
 				}
 			}
 		}
 	}
 
-	// Report rich analysis results
+	// Report analysis results
 	analysisDetail := fmt.Sprintf("Found %d mechanics, %d UI elements, %d user flows, %d edge cases",
 		len(result.Mechanics), len(result.UIElements), len(result.UserFlows), len(result.EdgeCases))
 	if result.GameInfo.Name != "" {
 		analysisDetail = fmt.Sprintf("%s — %s (%s)", result.GameInfo.Name, result.GameInfo.Genre, analysisDetail)
 	}
 	progress("analyzed", analysisDetail)
-	progress("scenarios", "Generating test scenarios from analysis...")
 
-	// Step 4: Generate scenarios
-	scenarios, err := a.GenerateScenarios(result)
-	if err != nil {
-		return pageMeta, result, nil, fmt.Errorf("scenario generation failed: %w", err)
-	}
-
-	// Summarize scenario types for progress
-	scenarioTypes := map[string]int{}
-	for _, s := range scenarios {
-		scenarioTypes[s.Type]++
-	}
-	typeSummary := ""
-	for t, c := range scenarioTypes {
-		if typeSummary != "" {
-			typeSummary += ", "
+	// If comprehensive call produced scenarios, report them
+	if len(scenarios) > 0 {
+		scenarioTypes := map[string]int{}
+		for _, s := range scenarios {
+			scenarioTypes[s.Type]++
 		}
-		typeSummary += fmt.Sprintf("%d %s", c, t)
+		typeSummary := ""
+		for t, c := range scenarioTypes {
+			if typeSummary != "" {
+				typeSummary += ", "
+			}
+			typeSummary += fmt.Sprintf("%d %s", c, t)
+		}
+		if typeSummary == "" {
+			typeSummary = fmt.Sprintf("%d total", len(scenarios))
+		}
+		progress("scenarios_done", fmt.Sprintf("Generated %d scenarios (%s) — included in analysis call", len(scenarios), typeSummary))
+	} else {
+		// Fallback: generate scenarios in a separate call (legacy path)
+		progress("scenarios", "Generating test scenarios from analysis...")
+		var err error
+		scenarios, err = a.GenerateScenarios(result)
+		if err != nil {
+			return pageMeta, result, nil, fmt.Errorf("scenario generation failed: %w", err)
+		}
+		scenarioTypes := map[string]int{}
+		for _, s := range scenarios {
+			scenarioTypes[s.Type]++
+		}
+		typeSummary := ""
+		for t, c := range scenarioTypes {
+			if typeSummary != "" {
+				typeSummary += ", "
+			}
+			typeSummary += fmt.Sprintf("%d %s", c, t)
+		}
+		if typeSummary == "" {
+			typeSummary = fmt.Sprintf("%d total", len(scenarios))
+		}
+		progress("scenarios_done", fmt.Sprintf("Generated %d scenarios (%s)", len(scenarios), typeSummary))
 	}
-	if typeSummary == "" {
-		typeSummary = fmt.Sprintf("%d total", len(scenarios))
-	}
-	progress("scenarios_done", fmt.Sprintf("Generated %d scenarios (%s)", len(scenarios), typeSummary))
-	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro YAML flows...", len(scenarios)))
 
-	// Step 5: Generate flows
-	flows, err := a.GenerateFlows(scenarios)
+	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
+
+	// --- AI Call #2: Flow generation (multimodal with screenshots + full structured JSON) ---
+	flows, err := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, screenshots)
 	if err != nil {
 		return pageMeta, result, nil, fmt.Errorf("flow generation failed: %w", err)
 	}
 
-	// Step 6: Set URL on each flow
+	// Set URL on each flow
 	for _, flow := range flows {
 		flow.URL = gameURL
 	}
@@ -284,7 +349,125 @@ Respond with structured JSON matching the AnalysisResult format (gameInfo, mecha
 	return pageMeta, result, flows, nil
 }
 
-// GenerateScenarios generates test scenarios from game analysis
+// generateFlowsStructured generates Maestro flows using structured JSON input and multimodal screenshots.
+// This replaces the old GenerateFlows which used lossy text conversion and YAML output.
+func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *AnalysisResult, scenarios []TestScenario, screenshots []string) ([]*MaestroFlow, error) {
+	// Build the full analysis JSON to pass to the flow generation prompt
+	analysisForFlow := struct {
+		GameInfo   GameInfo       `json:"gameInfo"`
+		Mechanics  []Mechanic     `json:"mechanics"`
+		UIElements []UIElement    `json:"uiElements"`
+		UserFlows  []UserFlow     `json:"userFlows"`
+		EdgeCases  []EdgeCase     `json:"edgeCases"`
+		Scenarios  []TestScenario `json:"scenarios"`
+	}{
+		GameInfo:   result.GameInfo,
+		Mechanics:  result.Mechanics,
+		UIElements: result.UIElements,
+		UserFlows:  result.UserFlows,
+		EdgeCases:  result.EdgeCases,
+		Scenarios:  scenarios,
+	}
+	analysisJSON, _ := json.MarshalIndent(analysisForFlow, "", "  ")
+
+	screenshotSection := ""
+	switch len(screenshots) {
+	case 0:
+		// no screenshots
+	case 1:
+		screenshotSection = "A screenshot of the game is attached. Use it to ground coordinate-based interactions in what you actually see."
+	default:
+		screenshotSection = fmt.Sprintf("%d screenshots of the game are attached showing different states. Use them to ground coordinate-based interactions in what you actually see.", len(screenshots))
+	}
+
+	prompt := fillTemplate(FlowGenerationPrompt.Template, map[string]string{
+		"url":               gameURL,
+		"framework":         framework,
+		"analysisJSON":      string(analysisJSON),
+		"screenshotSection": screenshotSection,
+	})
+
+	var response string
+
+	// Prefer multimodal with screenshots for flow generation too
+	if len(screenshots) > 0 {
+		if imgAnalyzer, ok := a.Client.(ImageAnalyzer); ok {
+			var err error
+			response, err = imgAnalyzer.AnalyzeWithImages(AnalysisSystemPrompt, prompt, screenshots)
+			if err != nil {
+				return nil, fmt.Errorf("AI multimodal flow generation failed: %w", err)
+			}
+		}
+	}
+
+	// Fallback to text-only
+	if response == "" {
+		var err error
+		response, err = a.Client.Generate(prompt, map[string]interface{}{
+			"analysisJSON": string(analysisJSON),
+		})
+		if err != nil {
+			return nil, fmt.Errorf("flow generation failed: %w", err)
+		}
+	}
+
+	// Try parsing as structured JSON first (preferred)
+	flows := parseFlowsJSON(response)
+	if len(flows) > 0 {
+		return flows, nil
+	}
+
+	// Fallback to YAML parsing for backward compatibility
+	yamlFlows := a.parseFlowsFromResponse(response, scenarios)
+	return yamlFlows, nil
+}
+
+// parseFlowsJSON attempts to parse the AI response as a JSON array of MaestroFlow.
+func parseFlowsJSON(response string) []*MaestroFlow {
+	cleaned := stripCodeFences(response)
+
+	// Try direct unmarshal as array
+	var flows []*MaestroFlow
+	if err := json.Unmarshal([]byte(cleaned), &flows); err == nil && len(flows) > 0 {
+		return flows
+	}
+
+	// Fallback: extract JSON array between first [ and last ]
+	start := strings.Index(cleaned, "[")
+	end := strings.LastIndex(cleaned, "]")
+	if start >= 0 && end > start {
+		if err := json.Unmarshal([]byte(cleaned[start:end+1]), &flows); err == nil && len(flows) > 0 {
+			return flows
+		}
+	}
+
+	return nil
+}
+
+// parseComprehensiveJSON attempts to parse the AI response as a ComprehensiveAnalysisResult.
+func parseComprehensiveJSON(response string) (*ComprehensiveAnalysisResult, error) {
+	cleaned := stripCodeFences(response)
+
+	// Try direct unmarshal
+	var result ComprehensiveAnalysisResult
+	if err := json.Unmarshal([]byte(cleaned), &result); err == nil && len(result.Mechanics) > 0 {
+		return &result, nil
+	}
+
+	// Fallback: extract JSON object between first { and last }
+	start := strings.Index(cleaned, "{")
+	end := strings.LastIndex(cleaned, "}")
+	if start >= 0 && end > start {
+		if err := json.Unmarshal([]byte(cleaned[start:end+1]), &result); err == nil && len(result.Mechanics) > 0 {
+			return &result, nil
+		}
+	}
+
+	return nil, fmt.Errorf("could not parse comprehensive analysis from response")
+}
+
+// GenerateScenarios generates test scenarios from game analysis (legacy path).
+// The primary pipeline now generates scenarios as part of the comprehensive analysis call.
 func (a *Analyzer) GenerateScenarios(analysis *AnalysisResult) ([]TestScenario, error) {
 	// Convert analysis to string for context
 	analysisStr := a.analysisToString(analysis)
@@ -325,13 +508,14 @@ func (a *Analyzer) GenerateScenarios(analysis *AnalysisResult) ([]TestScenario, 
 	return scenarios, nil
 }
 
-// GenerateFlows generates Maestro flows from test scenarios
+// GenerateFlows generates Maestro flows from test scenarios (legacy path).
+// The primary pipeline now uses generateFlowsStructured.
 func (a *Analyzer) GenerateFlows(scenarios []TestScenario) ([]*MaestroFlow, error) {
 	// Convert scenarios to string
 	scenariosStr := a.scenariosToString(scenarios)
 
-	// Build prompt
-	prompt := fillTemplate(FlowGenerationPrompt.Template, map[string]string{
+	// Build prompt using legacy template format
+	prompt := fillTemplate(ScenarioGenerationPrompt.Template, map[string]string{
 		"scenarios": scenariosStr,
 	})
 
@@ -393,7 +577,7 @@ func (a *Analyzer) analysisToString(analysis *AnalysisResult) string {
 	return sb.String()
 }
 
-// scenariosToString converts scenarios to readable string
+// scenariosToString converts scenarios to readable string (used by legacy GenerateFlows path)
 func (a *Analyzer) scenariosToString(scenarios []TestScenario) string {
 	var sb strings.Builder
 
@@ -401,7 +585,7 @@ func (a *Analyzer) scenariosToString(scenarios []TestScenario) string {
 		sb.WriteString(fmt.Sprintf("%d. %s (%s)\n", i+1, scenario.Name, scenario.Type))
 		sb.WriteString(fmt.Sprintf("   Description: %s\n", scenario.Description))
 		sb.WriteString(fmt.Sprintf("   Priority: %s\n", scenario.Priority))
-		
+
 		if len(scenario.Steps) > 0 {
 			sb.WriteString("   Steps:\n")
 			for j, step := range scenario.Steps {
@@ -418,7 +602,7 @@ func (a *Analyzer) scenariosToString(scenarios []TestScenario) string {
 	return sb.String()
 }
 
-// parseFlowsFromResponse extracts Maestro flows from AI response
+// parseFlowsFromResponse extracts Maestro flows from AI response (YAML fallback path)
 func (a *Analyzer) parseFlowsFromResponse(response string, scenarios []TestScenario) []*MaestroFlow {
 	cleaned := stripCodeFences(response)
 	docs := splitYAMLDocuments(cleaned)
@@ -587,7 +771,7 @@ func convertCommandList(items []interface{}) []map[string]interface{} {
 		case map[string]interface{}:
 			commands = append(commands, v)
 		case string:
-			// Simple string command like "launchApp" → {"launchApp": ""}
+			// Simple string command like "launchApp" -> {"launchApp": ""}
 			commands = append(commands, map[string]interface{}{v: ""})
 		}
 	}
@@ -696,4 +880,3 @@ func commandToYAML(cmd map[string]interface{}, indent int) string {
 
 	return sb.String()
 }
-

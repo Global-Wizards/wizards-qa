@@ -23,7 +23,7 @@ import (
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
 
-const Version = "0.2.0"
+const Version = "0.3.0"
 
 type Server struct {
 	router    *chi.Mux
@@ -118,6 +118,7 @@ func (s *Server) setupRoutes() {
 	s.router.Post("/api/auth/refresh", s.handleRefresh)
 	s.router.Get("/api/health", s.handleHealth)
 	s.router.Get("/api/version", s.handleVersion)
+	s.router.Get("/api/changelog", s.handleChangelog)
 
 	// Protected routes (require auth)
 	s.router.Group(func(r chi.Router) {
@@ -190,6 +191,25 @@ func (s *Server) handleVersion(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, map[string]interface{}{
 		"version": Version,
 		"name":    "Wizards QA",
+	})
+}
+
+func (s *Server) handleChangelog(w http.ResponseWriter, r *http.Request) {
+	// Try common locations for the changelog file
+	candidates := []string{"CHANGELOG.md", "../CHANGELOG.md", "../../CHANGELOG.md"}
+	for _, path := range candidates {
+		data, err := os.ReadFile(path)
+		if err == nil {
+			respondJSON(w, http.StatusOK, map[string]interface{}{
+				"content": string(data),
+				"version": Version,
+			})
+			return
+		}
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"content": "# Changelog\n\nNo changelog available.",
+		"version": Version,
 	})
 }
 

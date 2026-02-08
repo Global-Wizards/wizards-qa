@@ -30,6 +30,7 @@
             </Button>
           </div>
           <p v-if="addError" class="text-sm text-destructive mt-2">{{ addError }}</p>
+          <p v-if="removeError" class="text-sm text-destructive mt-2">{{ removeError }}</p>
         </CardContent>
       </Card>
 
@@ -103,6 +104,7 @@ const newEmail = ref('')
 const newRole = ref('member')
 const adding = ref(false)
 const addError = ref(null)
+const removeError = ref(null)
 
 const projectId = () => route.params.projectId
 
@@ -136,11 +138,12 @@ async function addMember() {
 }
 
 async function removeMember(member) {
+  removeError.value = null
   try {
     await projectsApi.members.remove(projectId(), member.userId)
     members.value = members.value.filter((m) => m.id !== member.id)
   } catch (err) {
-    console.error('Failed to remove member:', err)
+    removeError.value = 'Failed to remove member: ' + err.message
   }
 }
 

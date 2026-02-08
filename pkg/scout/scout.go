@@ -24,6 +24,10 @@ type PageMeta struct {
 	Error         string            `json:"error,omitempty"`
 	ScreenshotB64 string            `json:"screenshotB64,omitempty"`
 	JSGlobals     []string          `json:"jsGlobals,omitempty"`
+	// Screenshots holds base64-encoded JPEG screenshots of multiple game states
+	// (initial load, after canvas click, after button click). The first entry
+	// is the same as ScreenshotB64 for backward compatibility.
+	Screenshots []string `json:"screenshots,omitempty"`
 }
 
 // HeadlessConfig configures headless browser scouting.

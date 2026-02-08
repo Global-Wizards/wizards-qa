@@ -5,6 +5,32 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-02-08
+
+### Phase 3 Complete - Projects & Organization (2026-02-08)
+
+#### Added
+- **Projects as Top-Level Entity** - Group analyses, test plans, and test results by game
+  - Full CRUD for projects with rich fields (name, URL, description, color, tags)
+  - Nested routing (`/projects/:id/...`) with project-scoped sidebar
+  - Project dashboard with scoped stats, recent tests, and quick actions
+  - Team member management (add by email, roles: owner/admin/member)
+  - Project settings with danger zone (delete)
+- **Auto-Migration** - Existing data automatically grouped into projects by `game_url`
+- **Project-Aware Views** - Analyze, Tests, and New Test Plan views adapt to project context
+  - Game URL auto-filled from project settings
+  - API calls scoped to project when inside one
+- **Dashboard Integration** - "Your Projects" section on global dashboard
+- **Backend**
+  - `projects` and `project_members` database tables with indexes
+  - 14 new API endpoints for project CRUD, stats, scoped entities, and members
+  - Idempotent database migrations for `project_id` columns
+  - Project ID propagation through analysis and test execution flows
+- **Frontend**
+  - `useProject` composable for singleton project state
+  - 6 new views: ProjectList, ProjectForm, ProjectLayout, ProjectDashboard, ProjectSettings, ProjectMembers
+  - Dual-mode sidebar (global navigation vs project-scoped navigation)
+
 ## [Unreleased]
 
 ### Phase 2 Complete - AI Integration (2026-02-07)

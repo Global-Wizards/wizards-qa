@@ -31,6 +31,7 @@ type claudeRequest struct {
 	Model       string    `json:"model"`
 	MaxTokens   int       `json:"max_tokens"`
 	Temperature float64   `json:"temperature,omitempty"`
+	System      string    `json:"system,omitempty"`
 	Messages    []message `json:"messages"`
 }
 
@@ -65,6 +66,7 @@ type claudeMultimodalRequest struct {
 	Model       string              `json:"model"`
 	MaxTokens   int                 `json:"max_tokens"`
 	Temperature float64             `json:"temperature,omitempty"`
+	System      string              `json:"system,omitempty"`
 	Messages    []multimodalMessage `json:"messages"`
 }
 
@@ -103,6 +105,82 @@ func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
 	reqBody, err := json.Marshal(req)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
+	if err != nil {
+		return "", fmt.Errorf("failed to create request: %w", err)
+	}
+
+	httpReq.Header.Set("Content-Type", "application/json")
+	httpReq.Header.Set("x-api-key", c.APIKey)
+	httpReq.Header.Set("anthropic-version", "2023-06-01")
+
+	resp, err := c.HTTPClient.Do(httpReq)
+	if err != nil {
+		return "", fmt.Errorf("HTTP request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read response: %w", err)
+	}
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("API returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	var claudeResp claudeResponse
+	if err := json.Unmarshal(body, &claudeResp); err != nil {
+		return "", fmt.Errorf("failed to parse response: %w", err)
+	}
+
+	if len(claudeResp.Content) == 0 {
+		return "", fmt.Errorf("empty response from API")
+	}
+
+	return claudeResp.Content[0].Text, nil
+}
+
+// AnalyzeWithImages sends a multimodal request with multiple images and an optional system prompt.
+func (c *ClaudeClient) AnalyzeWithImages(systemPrompt string, prompt string, imagesB64 []string) (string, error) {
+	var content []contentBlock
+
+	// Add all images first
+	for _, imgB64 := range imagesB64 {
+		content = append(content, contentBlock{
+			Type: "image",
+			Source: &imageSource{
+				Type:      "base64",
+				MediaType: "image/jpeg",
+				Data:      imgB64,
+			},
+		})
+	}
+
+	// Add text prompt
+	content = append(content, contentBlock{
+		Type: "text",
+		Text: prompt,
+	})
+
+	req := claudeMultimodalRequest{
+		Model:       c.Model,
+		MaxTokens:   c.MaxTokens,
+		Temperature: c.Temperature,
+		System:      systemPrompt,
+		Messages: []multimodalMessage{
+			{
+				Role:    "user",
+				Content: content,
+			},
+		},
+	}
+
+	reqBody, err := json.Marshal(req)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal multimodal request: %w", err)
 	}
 
 	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))

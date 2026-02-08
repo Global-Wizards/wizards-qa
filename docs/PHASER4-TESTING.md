@@ -17,17 +17,22 @@ Phaser 4 represents a significant architectural shift towards more modular, mode
 
 ### 3. End-to-End (E2E) Testing (Gameplay)
 - **Scope:** Player movement, collision detection, UI interaction.
-- **Tools:** Maestro CLI / Playwright.
-- **Approach:** Use a "headless" browser to run the game and simulate inputs.
+- **Tools:** Maestro CLI / Playwright / Gemini Vision.
+- **Approach:** Use a "headless" browser to run the game and simulate inputs. Leverage AI Vision to "see" game state when the engine isn't easily queryable.
 
 ## The Canvas Challenge
 In Phaser, everything happens inside a single `<canvas>` element. Standard UI testers cannot click "the red button" because they only see the canvas.
 
-### Strategy: The "Debug Bridge"
-To make the game "testable" by AI/Maestro:
+### Strategy 1: The "Debug Bridge" (Engine Query)
 1. **Expose Game Objects:** Create a global `__WIZARDS_QA__` object that tracks active game entities and their bounding boxes.
-2. **DOM Proxying:** Create invisible HTML elements that mirror the position and labels of game objects. Maestro can then "tap" on these proxy elements.
-3. **Screenshot Comparison:** Use visual regression testing to detect graphical glitches.
+2. **Maestro `evalScript`**: Query the bridge: `output.playerPos = evalScript("window.__WIZARDS_QA__.getPlayerPosition()")`.
+
+### Strategy 2: AI Vision (The "Maestro" Way)
+1. **`assertWithAI`**: Instead of querying memory, ask the AI: "Is the player sprite overlapping the spike trap?"
+2. **`extractTextWithAI`**: Read high scores or character names directly from the canvas pixels.
+
+### Strategy 3: Coordinate-Based Interaction
+Mapping game world coordinates to screen space for Maestro's `tapOn: { x, y }` command. Phaser 4's modular camera system makes this transformation straightforward for the automation layer.
 
 ## Common Game Patterns to Test
 - **The "Infinite Loop":** Ensuring assets don't leak memory on scene restart.

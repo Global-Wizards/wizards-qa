@@ -170,17 +170,75 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 		}
 	}
 
-	// Screenshot capture — use JPEG at quality 80 to keep base64 size
-	// manageable for the multimodal AI API (~50-150 KB vs 200-500 KB for PNG).
+	// --- Multi-screenshot capture ---
+	// Capture screenshots of multiple game states to give the AI visibility
+	// beyond just the loading screen. Use JPEG at quality 80 to keep base64
+	// size manageable for the multimodal AI API (~50-150 KB per shot).
 	jpegQuality := 80
-	screenshotData, screenshotErr := page.Screenshot(true, &proto.PageCaptureScreenshot{
-		Format:  proto.PageCaptureScreenshotFormatJpeg,
-		Quality: &jpegQuality,
-	})
-	if screenshotErr == nil && len(screenshotData) > 0 {
-		meta.ScreenshotB64 = base64.StdEncoding.EncodeToString(screenshotData)
+	captureScreenshot := func() string {
+		data, err := page.Screenshot(true, &proto.PageCaptureScreenshot{
+			Format:  proto.PageCaptureScreenshotFormatJpeg,
+			Quality: &jpegQuality,
+		})
+		if err != nil || len(data) == 0 {
+			return ""
+		}
+		return base64.StdEncoding.EncodeToString(data)
+	}
+
+	// Screenshot 1: Initial load state
+	if shot := captureScreenshot(); shot != "" {
+		meta.ScreenshotB64 = shot
+		meta.Screenshots = append(meta.Screenshots, shot)
 		if cfg.ScreenshotPath != "" {
-			os.WriteFile(cfg.ScreenshotPath, screenshotData, 0644)
+			if raw, err := base64.StdEncoding.DecodeString(shot); err == nil {
+				os.WriteFile(cfg.ScreenshotPath, raw, 0644)
+			}
+		}
+	}
+
+	// Screenshot 2: Click center of canvas to start the game
+	if canvasFound {
+		_, clickErr := page.Eval(fmt.Sprintf(`() => {
+			const c = document.querySelector('canvas');
+			if (c) {
+				const rect = c.getBoundingClientRect();
+				const evt = new MouseEvent('click', {
+					clientX: rect.left + rect.width / 2,
+					clientY: rect.top + rect.height / 2,
+					bubbles: true
+				});
+				c.dispatchEvent(evt);
+			}
+		}`))
+		if clickErr == nil {
+			time.Sleep(2 * time.Second)
+			if shot := captureScreenshot(); shot != "" {
+				meta.Screenshots = append(meta.Screenshots, shot)
+			}
+		}
+	}
+
+	// Screenshot 3: Look for and click common game buttons (Play, Start, Spin, OK)
+	clickedButton, _ := page.Eval(`() => {
+		const labels = ['play', 'start', 'spin', 'ok', 'continue', 'begin', 'tap to start', 'click to start'];
+		// Try HTML buttons/links first
+		const elements = document.querySelectorAll('button, a, [role="button"], .btn');
+		for (const el of elements) {
+			const text = (el.textContent || el.innerText || '').trim().toLowerCase();
+			for (const label of labels) {
+				if (text === label || text.includes(label)) {
+					el.click();
+					return true;
+				}
+			}
+		}
+		return false;
+	}`)
+	if clickedButton != nil && clickedButton.Value.Bool() {
+		time.Sleep(2 * time.Second)
+		if shot := captureScreenshot(); shot != "" {
+			meta.Screenshots = append(meta.Screenshots, shot)
 		}
 	}
 
