@@ -10,6 +10,7 @@ screenshots/
 .env
 .env.*
 *.md
+!CHANGELOG.md
 .gitignore
 .dockerignore
 fly.toml
