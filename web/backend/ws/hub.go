@@ -9,6 +9,8 @@ import (
 	"sync"
 
 	"github.com/gorilla/websocket"
+
+	"github.com/Global-Wizards/wizards-qa/web/backend/auth"
 )
 
 var upgrader = websocket.Upgrader{
@@ -22,7 +24,7 @@ func checkOrigin(r *http.Request) bool {
 
 	origin := r.Header.Get("Origin")
 	if origin == "" {
-		return true // same-origin requests
+		return true
 	}
 
 	allowed := os.Getenv("ALLOWED_ORIGIN")
@@ -30,7 +32,6 @@ func checkOrigin(r *http.Request) bool {
 		return true
 	}
 
-	// Allow localhost in development, and the deployed fly.dev domain
 	if strings.HasPrefix(origin, "http://localhost:") ||
 		strings.HasPrefix(origin, "http://127.0.0.1:") {
 		return true
@@ -49,9 +50,10 @@ type Message struct {
 }
 
 type Client struct {
-	hub  *Hub
-	conn *websocket.Conn
-	send chan []byte
+	hub    *Hub
+	conn   *websocket.Conn
+	send   chan []byte
+	UserID string
 }
 
 type Hub struct {
@@ -92,7 +94,7 @@ func (h *Hub) Run() {
 			log.Printf("WebSocket client disconnected (%d total)", count)
 
 		case message := <-h.broadcast:
-			h.mu.Lock() // Use full Lock since we may delete
+			h.mu.Lock()
 			var stale []*Client
 			for client := range h.clients {
 				select {
@@ -127,8 +129,23 @@ func (h *Hub) Broadcast(msg Message) {
 	h.broadcast <- data
 }
 
-// ServeWs handles WebSocket upgrade requests.
-func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
+// ServeWs handles WebSocket upgrade requests with token-based auth.
+func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request, jwtSecret string) {
+	// Validate token from query parameter
+	token := r.URL.Query().Get("token")
+	var userID string
+	if token != "" {
+		claims, err := auth.ValidateAccessToken(token, jwtSecret)
+		if err != nil {
+			http.Error(w, "invalid token", http.StatusUnauthorized)
+			return
+		}
+		userID = claims.UserID
+	} else {
+		http.Error(w, "token required", http.StatusUnauthorized)
+		return
+	}
+
 	conn, err := upgrader.Upgrade(w, r, nil)
 	if err != nil {
 		log.Printf("WebSocket upgrade error: %v", err)
@@ -136,9 +153,10 @@ func ServeWs(hub *Hub, w http.ResponseWriter, r *http.Request) {
 	}
 
 	client := &Client{
-		hub:  hub,
-		conn: conn,
-		send: make(chan []byte, 256),
+		hub:    hub,
+		conn:   conn,
+		send:   make(chan []byte, 256),
+		UserID: userID,
 	}
 
 	hub.register <- client

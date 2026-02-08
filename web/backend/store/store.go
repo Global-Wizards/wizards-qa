@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -8,7 +9,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
-	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -20,66 +20,60 @@ var (
 )
 
 type Store struct {
+	db         *sql.DB
 	flowsDir   string
 	reportsDir string
-	dataDir    string
 	configPath string
-	mu         sync.RWMutex
 }
 
-func New(flowsDir, reportsDir, dataDir, configPath string) *Store {
+func New(db *sql.DB, flowsDir, reportsDir, configPath string) *Store {
 	return &Store{
+		db:         db,
 		flowsDir:   flowsDir,
 		reportsDir: reportsDir,
-		dataDir:    dataDir,
 		configPath: configPath,
 	}
 }
 
-// ValidateDirectories checks that required directories exist and data dir is writable.
+// ValidateDirectories checks that required directories exist.
 func (s *Store) ValidateDirectories() error {
-	for label, dir := range map[string]string{"flows": s.flowsDir, "data": s.dataDir} {
-		info, err := os.Stat(dir)
-		if err != nil {
-			return fmt.Errorf("%s directory not found: %s: %w", label, dir, err)
-		}
-		if !info.IsDir() {
-			return fmt.Errorf("%s path is not a directory: %s", label, dir)
-		}
+	info, err := os.Stat(s.flowsDir)
+	if err != nil {
+		return fmt.Errorf("flows directory not found: %s: %w", s.flowsDir, err)
 	}
-	// Verify data dir is writable
-	testFile := filepath.Join(s.dataDir, ".write_test")
-	if err := os.WriteFile(testFile, []byte("ok"), 0644); err != nil {
-		return fmt.Errorf("data directory not writable: %w", err)
+	if !info.IsDir() {
+		return fmt.Errorf("flows path is not a directory: %s", s.flowsDir)
 	}
-	os.Remove(testFile)
 	return nil
 }
 
 // RecoverOrphanedRuns marks any "running" test plans as failed (crash recovery).
 func (s *Store) RecoverOrphanedRuns() {
-	plans, err := s.readTestPlans()
+	result, err := s.db.Exec(`UPDATE test_plans SET status = 'failed' WHERE status = 'running'`)
 	if err != nil {
+		log.Printf("Warning: failed to recover orphaned test plans: %v", err)
 		return
 	}
-	dirty := false
-	for i, p := range plans {
-		if p.Status == "running" {
-			plans[i].Status = "failed"
-			dirty = true
-			log.Printf("Recovered orphaned running plan: %s (%s)", p.Name, p.ID)
-		}
+	if n, _ := result.RowsAffected(); n > 0 {
+		log.Printf("Recovered %d orphaned running test plans", n)
 	}
-	if dirty {
-		s.mu.Lock()
-		_ = s.writeTestPlans(plans)
-		s.mu.Unlock()
+}
+
+// RecoverOrphanedAnalyses marks any "running" analyses as "failed" (crash recovery).
+func (s *Store) RecoverOrphanedAnalyses() {
+	now := time.Now().Format(time.RFC3339)
+	result, err := s.db.Exec(`UPDATE analyses SET status = 'failed', step = '', updated_at = ? WHERE status = 'running'`, now)
+	if err != nil {
+		log.Printf("Warning: failed to recover orphaned analyses: %v", err)
+		return
+	}
+	if n, _ := result.RowsAffected(); n > 0 {
+		log.Printf("Recovered %d orphaned running analyses", n)
 	}
 }
 
 // --- DRY helpers ---
 
-// detectFormat returns the report format for a given filename extension.
 func detectFormat(filename string) string {
 	switch strings.ToLower(filepath.Ext(filename)) {
 	case ".md", ".markdown":
@@ -97,13 +91,11 @@ func detectFormat(filename string) string {
 	}
 }
 
-// isYAMLFile checks if a file has a .yaml or .yml extension.
 func isYAMLFile(path string) bool {
 	ext := strings.ToLower(filepath.Ext(path))
 	return ext == ".yaml" || ext == ".yml"
 }
 
-// flowMeta extracts name, category, and relative path from a flow file path.
 func (s *Store) flowMeta(path string, info os.FileInfo) (name, category, relPath string) {
 	ext := strings.ToLower(filepath.Ext(path))
 	name = strings.TrimSuffix(info.Name(), ext)
@@ -119,17 +111,14 @@ func (s *Store) flowMeta(path string, info os.FileInfo) (name, category, relPath
 	return
 }
 
-// isSafeName validates that a name contains only safe characters.
 func isSafeName(name string) bool {
 	return safeNameRegex.MatchString(name)
 }
 
 // --- Flows ---
 
-// ListFlows walks the flows directory for .yaml files.
 func (s *Store) ListFlows() ([]FlowInfo, error) {
 	var flows []FlowInfo
-
 	err := filepath.Walk(s.flowsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !isYAMLFile(path) {
 			return nil
@@ -138,25 +127,20 @@ func (s *Store) ListFlows() ([]FlowInfo, error) {
 		flows = append(flows, FlowInfo{Name: name, Category: category, Path: relPath})
 		return nil
 	})
-
 	return flows, err
 }
 
-// GetFlow reads a specific flow file by name.
 func (s *Store) GetFlow(name string) (*FlowDetail, error) {
 	if !isSafeName(name) {
 		return nil, fmt.Errorf("invalid flow name: %s", name)
 	}
-
 	flows, err := s.ListFlows()
 	if err != nil {
 		return nil, err
 	}
-
 	for _, f := range flows {
 		if f.Name == name {
 			fullPath := filepath.Join(filepath.Dir(s.flowsDir), f.Path)
-			// Verify resolved path stays within flows directory
 			absPath, err := filepath.Abs(fullPath)
 			if err != nil {
 				return nil, fmt.Errorf("resolving path: %w", err)
@@ -165,7 +149,6 @@ func (s *Store) GetFlow(name string) (*FlowDetail, error) {
 			if !strings.HasPrefix(absPath, absBase) {
 				return nil, fmt.Errorf("path traversal detected")
 			}
-
 			content, err := os.ReadFile(absPath)
 			if err != nil {
 				return nil, fmt.Errorf("reading flow file: %w", err)
@@ -178,16 +161,13 @@ func (s *Store) GetFlow(name string) (*FlowDetail, error) {
 			}, nil
 		}
 	}
-
 	return nil, fmt.Errorf("flow not found: %s", name)
 }
 
 // --- Reports ---
 
-// ListReports scans the reports directory.
 func (s *Store) ListReports() ([]ReportInfo, error) {
 	var reports []ReportInfo
-
 	entries, err := os.ReadDir(s.reportsDir)
 	if err != nil {
 		if os.IsNotExist(err) {
@@ -195,17 +175,14 @@ func (s *Store) ListReports() ([]ReportInfo, error) {
 		}
 		return nil, err
 	}
-
 	for _, entry := range entries {
 		if entry.IsDir() {
 			continue
 		}
-
 		info, err := entry.Info()
 		if err != nil {
 			continue
 		}
-
 		ext := strings.ToLower(filepath.Ext(entry.Name()))
 		reports = append(reports, ReportInfo{
 			ID:        entry.Name(),
@@ -215,24 +192,19 @@ func (s *Store) ListReports() ([]ReportInfo, error) {
 			Size:      formatSize(info.Size()),
 		})
 	}
-
 	return reports, nil
 }
 
-// GetReport reads a report file with path traversal protection.
 func (s *Store) GetReport(id string) (*ReportDetail, error) {
-	// Prevent path traversal: use only the base filename
 	id = filepath.Base(id)
 	if id == "." || id == ".." || id == "" {
 		return nil, fmt.Errorf("invalid report ID")
 	}
-
 	path := filepath.Join(s.reportsDir, id)
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("reading report: %w", err)
 	}
-
 	ext := strings.ToLower(filepath.Ext(id))
 	return &ReportDetail{
 		ID:      id,
@@ -242,142 +214,419 @@ func (s *Store) GetReport(id string) (*ReportDetail, error) {
 	}, nil
 }
 
-// --- Test Results ---
+// --- Analyses (SQLite) ---
 
-// ListTestResults reads from the data/test-results.json file.
-func (s *Store) ListTestResults() ([]TestResultSummary, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (s *Store) SaveAnalysis(record AnalysisRecord) error {
+	var resultJSON *string
+	if record.Result != nil {
+		b, err := json.Marshal(record.Result)
+		if err == nil {
+			str := string(b)
+			resultJSON = &str
+		}
+	}
+	now := time.Now().Format(time.RFC3339)
+	if record.CreatedAt == "" {
+		record.CreatedAt = now
+	}
+	if record.UpdatedAt == "" {
+		record.UpdatedAt = now
+	}
+	var createdBy *string
+	if record.CreatedBy != "" {
+		createdBy = &record.CreatedBy
+	}
 
-	results, err := s.readTestResults()
+	_, err := s.db.Exec(
+		`INSERT INTO analyses (id, game_url, status, step, framework, game_name, flow_count, result, created_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		record.ID, record.GameURL, record.Status, record.Step, record.Framework,
+		record.GameName, record.FlowCount, resultJSON, createdBy, record.CreatedAt, record.UpdatedAt,
+	)
+	return err
+}
+
+func (s *Store) UpdateAnalysisStatus(id, status, step string) error {
+	now := time.Now().Format(time.RFC3339)
+	result, err := s.db.Exec(
+		`UPDATE analyses SET status = ?, step = ?, updated_at = ? WHERE id = ?`,
+		status, step, now, id,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("analysis not found: %s", id)
+	}
+	return nil
+}
+
+func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, gameName, framework string, flowCount int) error {
+	now := time.Now().Format(time.RFC3339)
+	var resultJSON *string
+	if result != nil {
+		b, err := json.Marshal(result)
+		if err == nil {
+			str := string(b)
+			resultJSON = &str
+		}
+	}
+	res, err := s.db.Exec(
+		`UPDATE analyses SET status = ?, step = '', result = ?, game_name = ?, framework = ?, flow_count = ?, updated_at = ? WHERE id = ?`,
+		status, resultJSON, gameName, framework, flowCount, now, id,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return fmt.Errorf("analysis not found: %s", id)
+	}
+	return nil
+}
+
+func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
+	row := s.db.QueryRow(
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), created_at, updated_at FROM analyses WHERE id = ?`, id,
+	)
+	var a AnalysisRecord
+	var resultJSON sql.NullString
+	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("analysis not found: %s", id)
+	}
+	if resultJSON.Valid && resultJSON.String != "" {
+		var parsed interface{}
+		if err := json.Unmarshal([]byte(resultJSON.String), &parsed); err == nil {
+			a.Result = parsed
+		}
+	}
+	return &a, nil
+}
+
+func (s *Store) ListAnalyses() ([]AnalysisRecord, error) {
+	rows, err := s.db.Query(
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), created_at, updated_at FROM analyses ORDER BY created_at DESC`,
+	)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
+
+	var analyses []AnalysisRecord
+	for rows.Next() {
+		var a AnalysisRecord
+		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt); err != nil {
+			continue
+		}
+		analyses = append(analyses, a)
+	}
+	return analyses, rows.Err()
+}
+
+func (s *Store) DeleteAnalysis(id string) error {
+	result, err := s.db.Exec(`DELETE FROM analyses WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("analysis not found: %s", id)
+	}
+	return nil
+}
+
+func (s *Store) CountAnalyses() int {
+	var count int
+	s.db.QueryRow("SELECT COUNT(*) FROM analyses").Scan(&count)
+	return count
+}
+
+// --- Test Results (SQLite) ---
+
+func (s *Store) SaveTestResult(result TestResultDetail) error {
+	var flowsJSON *string
+	if result.Flows != nil {
+		b, err := json.Marshal(result.Flows)
+		if err == nil {
+			str := string(b)
+			flowsJSON = &str
+		}
+	}
+	ts := result.Timestamp
+	if ts == "" {
+		ts = time.Now().Format(time.RFC3339)
+	}
+	var createdBy *string
+	if result.CreatedBy != "" {
+		createdBy = &result.CreatedBy
+	}
+
+	_, err := s.db.Exec(
+		`INSERT INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, ts,
+	)
+	return err
+}
+
+func (s *Store) ListTestResults() ([]TestResultSummary, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, status, timestamp, duration, success_rate FROM test_results ORDER BY timestamp DESC`,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
 
 	var summaries []TestResultSummary
-	for _, r := range results {
-		summaries = append(summaries, TestResultSummary{
-			ID:          r.ID,
-			Name:        r.Name,
-			Status:      r.Status,
-			Timestamp:   r.Timestamp,
-			Duration:    r.Duration,
-			SuccessRate: r.SuccessRate,
-		})
+	for rows.Next() {
+		var r TestResultSummary
+		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate); err != nil {
+			continue
+		}
+		summaries = append(summaries, r)
 	}
-
-	return summaries, nil
+	return summaries, rows.Err()
 }
 
-// GetTestResult finds a test by ID.
 func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	row := s.db.QueryRow(
+		`SELECT id, name, status, timestamp, duration, success_rate, flows, error_output, COALESCE(created_by,'') FROM test_results WHERE id = ?`, id,
+	)
+	var r TestResultDetail
+	var flowsJSON sql.NullString
+	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &flowsJSON, &r.ErrorOutput, &r.CreatedBy)
+	if err != nil {
+		return nil, fmt.Errorf("test result not found: %s", id)
+	}
+	if flowsJSON.Valid && flowsJSON.String != "" {
+		json.Unmarshal([]byte(flowsJSON.String), &r.Flows)
+	}
+	return &r, nil
+}
 
-	results, err := s.readTestResults()
+// --- Test Plans (SQLite) ---
+
+func (s *Store) SaveTestPlan(plan TestPlan) error {
+	var flowNamesJSON *string
+	if plan.FlowNames != nil {
+		b, _ := json.Marshal(plan.FlowNames)
+		str := string(b)
+		flowNamesJSON = &str
+	}
+	var variablesJSON *string
+	if plan.Variables != nil {
+		b, _ := json.Marshal(plan.Variables)
+		str := string(b)
+		variablesJSON = &str
+	}
+	if plan.CreatedAt == "" {
+		plan.CreatedAt = time.Now().Format(time.RFC3339)
+	}
+	var createdBy *string
+	if plan.CreatedBy != "" {
+		createdBy = &plan.CreatedBy
+	}
+
+	_, err := s.db.Exec(
+		`INSERT OR REPLACE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_by, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		plan.ID, plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Status, plan.LastRunID, createdBy, plan.CreatedAt,
+	)
+	return err
+}
+
+func (s *Store) ListTestPlans() ([]TestPlanSummary, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, status, flow_names, created_at, last_run_id FROM test_plans ORDER BY created_at DESC`,
+	)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	for _, r := range results {
-		if r.ID == id {
-			return &r, nil
+	var summaries []TestPlanSummary
+	for rows.Next() {
+		var p TestPlanSummary
+		var flowNamesJSON sql.NullString
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID); err != nil {
+			continue
 		}
+		if flowNamesJSON.Valid && flowNamesJSON.String != "" {
+			var names []string
+			json.Unmarshal([]byte(flowNamesJSON.String), &names)
+			p.FlowCount = len(names)
+		}
+		summaries = append(summaries, p)
 	}
-
-	return nil, fmt.Errorf("test result not found: %s", id)
+	return summaries, rows.Err()
 }
 
-// SaveTestResult appends a new result.
-func (s *Store) SaveTestResult(result TestResultDetail) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	results, _ := s.readTestResults()
-	results = append(results, result)
-
-	return s.writeTestResults(results)
-}
-
-// --- Stats ---
-
-// GetStats aggregates statistics from test results.
-func (s *Store) GetStats() (*Stats, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	results, err := s.readTestResults()
+func (s *Store) GetTestPlan(id string) (*TestPlan, error) {
+	row := s.db.QueryRow(
+		`SELECT id, name, description, game_url, flow_names, variables, status, last_run_id, COALESCE(created_by,''), created_at FROM test_plans WHERE id = ?`, id,
+	)
+	var p TestPlan
+	var flowNamesJSON, variablesJSON sql.NullString
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.GameURL, &flowNamesJSON, &variablesJSON, &p.Status, &p.LastRunID, &p.CreatedBy, &p.CreatedAt)
 	if err != nil {
-		return &Stats{
-			RecentTests: []TestResultSummary{},
-			History:     []HistoryPoint{},
-		}, nil
+		return nil, fmt.Errorf("test plan not found: %s", id)
 	}
-
-	total := len(results)
-	passed := 0
-	failed := 0
-	var totalRate float64
-
-	for _, r := range results {
-		if r.Status == "passed" {
-			passed++
-		} else {
-			failed++
-		}
-		totalRate += r.SuccessRate
+	if flowNamesJSON.Valid && flowNamesJSON.String != "" {
+		json.Unmarshal([]byte(flowNamesJSON.String), &p.FlowNames)
 	}
-
-	avgRate := 0.0
-	if total > 0 {
-		avgRate = totalRate / float64(total)
+	if variablesJSON.Valid && variablesJSON.String != "" {
+		json.Unmarshal([]byte(variablesJSON.String), &p.Variables)
 	}
+	return &p, nil
+}
+
+func (s *Store) UpdateTestPlanStatus(id, status, lastRunID string) error {
+	query := `UPDATE test_plans SET status = ?`
+	args := []interface{}{status}
+	if lastRunID != "" {
+		query += `, last_run_id = ?`
+		args = append(args, lastRunID)
+	}
+	query += ` WHERE id = ?`
+	args = append(args, id)
+
+	result, err := s.db.Exec(query, args...)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("test plan not found: %s", id)
+	}
+	return nil
+}
+
+func (s *Store) DeleteTestPlan(id string) error {
+	result, err := s.db.Exec(`DELETE FROM test_plans WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("test plan not found: %s", id)
+	}
+	return nil
+}
+
+// --- Stats (SQLite aggregations) ---
+
+func (s *Store) GetStats() (*Stats, error) {
+	var totalTests, passedTests, failedTests int
+	var avgRate float64
+
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_results`).Scan(&totalTests)
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE status = 'passed'`).Scan(&passedTests)
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE status = 'failed'`).Scan(&failedTests)
+	s.db.QueryRow(`SELECT COALESCE(AVG(success_rate), 0) FROM test_results`).Scan(&avgRate)
 
 	// Recent tests (last 10)
-	var recent []TestResultSummary
-	start := 0
-	if len(results) > 10 {
-		start = len(results) - 10
-	}
-	for i := len(results) - 1; i >= start; i-- {
-		r := results[i]
-		recent = append(recent, TestResultSummary{
-			ID:          r.ID,
-			Name:        r.Name,
-			Status:      r.Status,
-			Timestamp:   r.Timestamp,
-			Duration:    r.Duration,
-			SuccessRate: r.SuccessRate,
-		})
-	}
+	recent := s.recentTests(10)
 
-	history := s.buildHistory(results, 14)
+	// Build history from test results
+	history := s.buildHistoryFromDB(14)
 
-	// Count related entities (read without extra lock since we already hold RLock)
-	analyses, _ := s.readAnalyses()
-	plans, _ := s.readTestPlans()
+	var totalAnalyses, totalPlans int
+	s.db.QueryRow(`SELECT COUNT(*) FROM analyses`).Scan(&totalAnalyses)
+	s.db.QueryRow(`SELECT COUNT(*) FROM test_plans`).Scan(&totalPlans)
+
 	flowCount := 0
 	if flows, err := s.ListFlows(); err == nil {
 		flowCount = len(flows)
 	}
 
 	return &Stats{
-		TotalTests:     total,
-		PassedTests:    passed,
-		FailedTests:    failed,
+		TotalTests:     totalTests,
+		PassedTests:    passedTests,
+		FailedTests:    failedTests,
 		AvgDuration:    "42s",
 		AvgSuccessRate: float64(int(avgRate*10)) / 10,
-		TotalAnalyses:  len(analyses),
+		TotalAnalyses:  totalAnalyses,
 		TotalFlows:     flowCount,
-		TotalPlans:     len(plans),
+		TotalPlans:     totalPlans,
 		RecentTests:    recent,
 		History:        history,
 	}, nil
 }
 
+func (s *Store) recentTests(limit int) []TestResultSummary {
+	rows, err := s.db.Query(
+		`SELECT id, name, status, timestamp, duration, success_rate FROM test_results ORDER BY timestamp DESC LIMIT ?`, limit,
+	)
+	if err != nil {
+		return []TestResultSummary{}
+	}
+	defer rows.Close()
+
+	var results []TestResultSummary
+	for rows.Next() {
+		var r TestResultSummary
+		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate); err != nil {
+			continue
+		}
+		results = append(results, r)
+	}
+	if results == nil {
+		return []TestResultSummary{}
+	}
+	return results
+}
+
+func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
+	now := time.Now()
+	history := make([]HistoryPoint, 0, days)
+
+	rows, err := s.db.Query(`SELECT timestamp, status FROM test_results`)
+	if err != nil {
+		// Return empty history points
+		for i := days - 1; i >= 0; i-- {
+			d := now.AddDate(0, 0, -i)
+			history = append(history, HistoryPoint{Date: d.Format("Jan 02")})
+		}
+		return history
+	}
+	defer rows.Close()
+
+	dayMap := make(map[string]*HistoryPoint)
+	for i := 0; i < days; i++ {
+		d := now.AddDate(0, 0, -i)
+		key := d.Format("Jan 02")
+		dayMap[key] = &HistoryPoint{Date: key}
+	}
+
+	for rows.Next() {
+		var ts, status string
+		if err := rows.Scan(&ts, &status); err != nil {
+			continue
+		}
+		t, err := time.Parse(time.RFC3339, ts)
+		if err != nil {
+			continue
+		}
+		key := t.Format("Jan 02")
+		if pt, ok := dayMap[key]; ok {
+			if status == "passed" {
+				pt.Passed++
+			} else {
+				pt.Failed++
+			}
+		}
+	}
+
+	for i := days - 1; i >= 0; i-- {
+		d := now.AddDate(0, 0, -i)
+		key := d.Format("Jan 02")
+		if pt, ok := dayMap[key]; ok {
+			history = append(history, *pt)
+		}
+	}
+	return history
+}
+
 // --- Config ---
 
-// GetConfig reads the wizards-qa config file and redacts API keys.
 func (s *Store) GetConfig() (*ConfigData, error) {
 	data, err := os.ReadFile(s.configPath)
 	if err != nil {
@@ -425,23 +674,18 @@ func (s *Store) GetConfig() (*ConfigData, error) {
 
 // --- Templates ---
 
-// ListTemplates walks the flows directory and extracts {{VARIABLE}} patterns.
 func (s *Store) ListTemplates() ([]TemplateInfo, error) {
 	var templates []TemplateInfo
-
 	err := filepath.Walk(s.flowsDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !isYAMLFile(path) {
 			return nil
 		}
-
 		name, category, relPath := s.flowMeta(path, info)
-
 		content, err := os.ReadFile(path)
 		if err != nil {
 			log.Printf("Warning: could not read template %s: %v", path, err)
 			return nil
 		}
-
 		matches := varPattern.FindAllStringSubmatch(string(content), -1)
 		seen := make(map[string]bool)
 		var variables []string
@@ -451,7 +695,6 @@ func (s *Store) ListTemplates() ([]TemplateInfo, error) {
 				variables = append(variables, m[1])
 			}
 		}
-
 		templates = append(templates, TemplateInfo{
 			Name:      name,
 			Category:  category,
@@ -460,23 +703,18 @@ func (s *Store) ListTemplates() ([]TemplateInfo, error) {
 		})
 		return nil
 	})
-
 	return templates, err
 }
 
-// FlowsDir returns the flows directory path (for use by executor).
 func (s *Store) FlowsDir() string {
 	return s.flowsDir
 }
 
-// SaveGeneratedFlows copies flow YAML files from srcDir (recursively) into flows/generated/<analysisID>/
-// so they persist and appear in ListFlows.
 func (s *Store) SaveGeneratedFlows(analysisID string, srcDir string) error {
 	dstDir := filepath.Join(s.flowsDir, "generated", analysisID)
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return fmt.Errorf("creating generated flows dir: %w", err)
 	}
-
 	filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !isYAMLFile(path) {
 			return nil
@@ -491,376 +729,78 @@ func (s *Store) SaveGeneratedFlows(analysisID string, srcDir string) error {
 		}
 		return nil
 	})
-
 	return nil
 }
 
-// --- Test Plans ---
+// --- User methods ---
 
-// ListTestPlans reads from data/test-plans.json.
-func (s *Store) ListTestPlans() ([]TestPlanSummary, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+func (s *Store) CreateUser(user User) error {
+	_, err := s.db.Exec(
+		`INSERT INTO users (id, email, display_name, password_hash, role, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		user.ID, user.Email, user.DisplayName, user.PasswordHash, user.Role, user.CreatedAt, user.CreatedAt,
+	)
+	return err
+}
 
-	plans, err := s.readTestPlans()
+func (s *Store) GetUserByEmail(email string) (*User, error) {
+	row := s.db.QueryRow(
+		`SELECT id, email, display_name, password_hash, role, created_at FROM users WHERE email = ?`, email,
+	)
+	var u User
+	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("user not found")
+	}
+	return &u, nil
+}
+
+func (s *Store) GetUserByID(id string) (*User, error) {
+	row := s.db.QueryRow(
+		`SELECT id, email, display_name, password_hash, role, created_at FROM users WHERE id = ?`, id,
+	)
+	var u User
+	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.Role, &u.CreatedAt)
+	if err != nil {
+		return nil, fmt.Errorf("user not found")
+	}
+	return &u, nil
+}
+
+func (s *Store) ListUsers() ([]UserSummary, error) {
+	rows, err := s.db.Query(`SELECT id, email, display_name, role, created_at FROM users ORDER BY created_at`)
 	if err != nil {
 		return nil, err
 	}
+	defer rows.Close()
 
-	var summaries []TestPlanSummary
-	for _, p := range plans {
-		summaries = append(summaries, TestPlanSummary{
-			ID:        p.ID,
-			Name:      p.Name,
-			Status:    p.Status,
-			FlowCount: len(p.FlowNames),
-			CreatedAt: p.CreatedAt,
-			LastRunID: p.LastRunID,
-		})
-	}
-
-	return summaries, nil
-}
-
-// GetTestPlan finds a plan by ID.
-func (s *Store) GetTestPlan(id string) (*TestPlan, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	plans, err := s.readTestPlans()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, p := range plans {
-		if p.ID == id {
-			return &p, nil
-		}
-	}
-
-	return nil, fmt.Errorf("test plan not found: %s", id)
-}
-
-// SaveTestPlan creates or updates a plan.
-func (s *Store) SaveTestPlan(plan TestPlan) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	plans, _ := s.readTestPlans()
-
-	found := false
-	for i, p := range plans {
-		if p.ID == plan.ID {
-			plans[i] = plan
-			found = true
-			break
-		}
-	}
-	if !found {
-		plans = append(plans, plan)
-	}
-
-	return s.writeTestPlans(plans)
-}
-
-// UpdateTestPlanStatus updates a plan's status and optional last run ID.
-func (s *Store) UpdateTestPlanStatus(id, status, lastRunID string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	plans, err := s.readTestPlans()
-	if err != nil {
-		return err
-	}
-
-	for i, p := range plans {
-		if p.ID == id {
-			plans[i].Status = status
-			if lastRunID != "" {
-				plans[i].LastRunID = lastRunID
-			}
-			return s.writeTestPlans(plans)
-		}
-	}
-
-	return fmt.Errorf("test plan not found: %s", id)
-}
-
-// DeleteTestPlan removes a test plan by ID.
-func (s *Store) DeleteTestPlan(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	plans, err := s.readTestPlans()
-	if err != nil {
-		return err
-	}
-
-	found := false
-	filtered := make([]TestPlan, 0, len(plans))
-	for _, p := range plans {
-		if p.ID == id {
-			found = true
+	var users []UserSummary
+	for rows.Next() {
+		var u UserSummary
+		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.CreatedAt); err != nil {
 			continue
 		}
-		filtered = append(filtered, p)
+		users = append(users, u)
 	}
-
-	if !found {
-		return fmt.Errorf("test plan not found: %s", id)
-	}
-
-	return s.writeTestPlans(filtered)
+	return users, rows.Err()
 }
 
-// --- Internal persistence ---
-
-func (s *Store) readTestResults() ([]TestResultDetail, error) {
-	path := filepath.Join(s.dataDir, "test-results.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var file TestResultsFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		// Try parsing as a plain array
-		var results []TestResultDetail
-		if err2 := json.Unmarshal(data, &results); err2 != nil {
-			return nil, fmt.Errorf("parsing test results: %w (also tried array: %w)", err, err2)
-		}
-		return results, nil
-	}
-
-	return file.Results, nil
-}
-
-func (s *Store) writeTestResults(results []TestResultDetail) error {
-	path := filepath.Join(s.dataDir, "test-results.json")
-
-	if err := os.MkdirAll(s.dataDir, 0755); err != nil {
-		return err
-	}
-
-	file := TestResultsFile{
-		Results: results,
-		Updated: time.Now(),
-	}
-
-	data, err := json.MarshalIndent(file, "", "  ")
+func (s *Store) UpdateUserRole(id, role string) error {
+	now := time.Now().Format(time.RFC3339)
+	result, err := s.db.Exec(`UPDATE users SET role = ?, updated_at = ? WHERE id = ?`, role, now, id)
 	if err != nil {
 		return err
 	}
-
-	return os.WriteFile(path, data, 0644)
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("user not found: %s", id)
+	}
+	return nil
 }
 
-func (s *Store) buildHistory(results []TestResultDetail, days int) []HistoryPoint {
-	now := time.Now()
-	dayMap := make(map[string]*HistoryPoint)
-
-	for i := 0; i < days; i++ {
-		d := now.AddDate(0, 0, -i)
-		key := d.Format("Jan 02")
-		dayMap[key] = &HistoryPoint{Date: key}
-	}
-
-	for _, r := range results {
-		t, err := time.Parse(time.RFC3339, r.Timestamp)
-		if err != nil {
-			continue
-		}
-		key := t.Format("Jan 02")
-		if pt, ok := dayMap[key]; ok {
-			if r.Status == "passed" {
-				pt.Passed++
-			} else {
-				pt.Failed++
-			}
-		}
-	}
-
-	// Build chronological slice (already ordered by loop)
-	history := make([]HistoryPoint, 0, days)
-	for i := days - 1; i >= 0; i-- {
-		d := now.AddDate(0, 0, -i)
-		key := d.Format("Jan 02")
-		if pt, ok := dayMap[key]; ok {
-			history = append(history, *pt)
-		}
-	}
-
-	return history
-}
-
-func (s *Store) readTestPlans() ([]TestPlan, error) {
-	path := filepath.Join(s.dataDir, "test-plans.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var file TestPlansFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("parsing test plans: %w", err)
-	}
-
-	return file.Plans, nil
-}
-
-func (s *Store) writeTestPlans(plans []TestPlan) error {
-	path := filepath.Join(s.dataDir, "test-plans.json")
-
-	if err := os.MkdirAll(s.dataDir, 0755); err != nil {
-		return err
-	}
-
-	file := TestPlansFile{
-		Plans:   plans,
-		Updated: time.Now(),
-	}
-
-	data, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0644)
-}
-
-// --- Analyses ---
-
-// SaveAnalysis appends an analysis record to data/analyses.json.
-func (s *Store) SaveAnalysis(record AnalysisRecord) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	analyses, _ := s.readAnalyses()
-	analyses = append(analyses, record)
-
-	return s.writeAnalyses(analyses)
-}
-
-// ListAnalyses returns all saved analysis records (without full result payload).
-func (s *Store) ListAnalyses() ([]AnalysisRecord, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	analyses, err := s.readAnalyses()
-	if err != nil {
-		return nil, err
-	}
-
-	// Strip the full result to keep the listing lightweight
-	summaries := make([]AnalysisRecord, len(analyses))
-	for i, a := range analyses {
-		summaries[i] = a
-		summaries[i].Result = nil
-	}
-
-	return summaries, nil
-}
-
-// GetAnalysis finds an analysis record by ID.
-func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	analyses, err := s.readAnalyses()
-	if err != nil {
-		return nil, err
-	}
-
-	for _, a := range analyses {
-		if a.ID == id {
-			return &a, nil
-		}
-	}
-
-	return nil, fmt.Errorf("analysis not found: %s", id)
-}
-
-// DeleteAnalysis removes an analysis record by ID.
-func (s *Store) DeleteAnalysis(id string) error {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	analyses, err := s.readAnalyses()
-	if err != nil {
-		return err
-	}
-
-	found := false
-	filtered := make([]AnalysisRecord, 0, len(analyses))
-	for _, a := range analyses {
-		if a.ID == id {
-			found = true
-			continue
-		}
-		filtered = append(filtered, a)
-	}
-
-	if !found {
-		return fmt.Errorf("analysis not found: %s", id)
-	}
-
-	return s.writeAnalyses(filtered)
-}
-
-// CountAnalyses returns the total number of stored analyses.
-func (s *Store) CountAnalyses() int {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	analyses, err := s.readAnalyses()
-	if err != nil {
-		return 0
-	}
-	return len(analyses)
-}
-
-func (s *Store) readAnalyses() ([]AnalysisRecord, error) {
-	path := filepath.Join(s.dataDir, "analyses.json")
-	data, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return nil, nil
-		}
-		return nil, err
-	}
-
-	var file AnalysesFile
-	if err := json.Unmarshal(data, &file); err != nil {
-		return nil, fmt.Errorf("parsing analyses: %w", err)
-	}
-
-	return file.Analyses, nil
-}
-
-func (s *Store) writeAnalyses(analyses []AnalysisRecord) error {
-	path := filepath.Join(s.dataDir, "analyses.json")
-
-	if err := os.MkdirAll(s.dataDir, 0755); err != nil {
-		return err
-	}
-
-	file := AnalysesFile{
-		Analyses: analyses,
-		Updated:  time.Now(),
-	}
-
-	data, err := json.MarshalIndent(file, "", "  ")
-	if err != nil {
-		return err
-	}
-
-	return os.WriteFile(path, data, 0644)
+func (s *Store) UserCount() (int, error) {
+	var count int
+	err := s.db.QueryRow("SELECT COUNT(*) FROM users").Scan(&count)
+	return count, err
 }
 
 func formatSize(bytes int64) string {

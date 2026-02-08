@@ -54,6 +54,7 @@ type TestResultDetail struct {
 	SuccessRate float64      `json:"successRate"`
 	Flows       []FlowResult `json:"flows,omitempty"`
 	ErrorOutput string       `json:"errorOutput,omitempty"`
+	CreatedBy   string       `json:"createdBy,omitempty"`
 }
 
 type HistoryPoint struct {
@@ -84,7 +85,7 @@ type ConfigData struct {
 	ExtraConfig map[string]string `json:"extraConfig,omitempty"`
 }
 
-// TestResultsFile represents the JSON structure stored on disk.
+// TestResultsFile represents the JSON structure stored on disk (used for migration).
 type TestResultsFile struct {
 	Results []TestResultDetail `json:"results"`
 	Updated time.Time          `json:"updated"`
@@ -102,11 +103,12 @@ type TestPlan struct {
 	Name        string            `json:"name"`
 	Description string            `json:"description"`
 	GameURL     string            `json:"gameUrl"`
-	FlowNames  []string          `json:"flowNames"`
+	FlowNames   []string          `json:"flowNames"`
 	Variables   map[string]string `json:"variables"`
 	Status      string            `json:"status"`
 	CreatedAt   string            `json:"createdAt"`
 	LastRunID   string            `json:"lastRunId,omitempty"`
+	CreatedBy   string            `json:"createdBy,omitempty"`
 }
 
 type TestPlanSummary struct {
@@ -126,15 +128,37 @@ type TestPlansFile struct {
 type AnalysisRecord struct {
 	ID        string      `json:"id"`
 	GameURL   string      `json:"gameUrl"`
-	Status    string      `json:"status"` // completed, failed
+	Status    string      `json:"status"`
+	Step      string      `json:"step,omitempty"`
+	UpdatedAt string      `json:"updatedAt,omitempty"`
 	Framework string      `json:"framework"`
 	GameName  string      `json:"gameName"`
 	FlowCount int         `json:"flowCount"`
 	CreatedAt string      `json:"createdAt"`
 	Result    interface{} `json:"result,omitempty"`
+	CreatedBy string      `json:"createdBy,omitempty"`
 }
 
 type AnalysesFile struct {
 	Analyses []AnalysisRecord `json:"analyses"`
 	Updated  time.Time        `json:"updated"`
+}
+
+// User represents a registered user.
+type User struct {
+	ID           string `json:"id"`
+	Email        string `json:"email"`
+	DisplayName  string `json:"displayName"`
+	PasswordHash string `json:"-"`
+	Role         string `json:"role"`
+	CreatedAt    string `json:"createdAt"`
+}
+
+// UserSummary is a public-safe user representation (no password hash).
+type UserSummary struct {
+	ID          string `json:"id"`
+	Email       string `json:"email"`
+	DisplayName string `json:"displayName"`
+	Role        string `json:"role"`
+	CreatedAt   string `json:"createdAt"`
 }

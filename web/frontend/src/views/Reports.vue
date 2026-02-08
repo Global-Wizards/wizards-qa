@@ -125,8 +125,19 @@ async function viewReport(report) {
   }
 }
 
-function downloadReport(report) {
-  window.open(`/api/reports/${report.id}?download=true`, '_blank')
+async function downloadReport(report) {
+  try {
+    const data = await reportsApi.get(report.id)
+    const blob = new Blob([data.content || ''], { type: 'text/plain' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = report.id
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    console.error('Failed to download report:', err)
+  }
 }
 
 onMounted(async () => {

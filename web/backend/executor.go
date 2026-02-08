@@ -21,7 +21,7 @@ var safeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\s.]+$`)
 
 // executeTestRun runs the wizards-qa CLI as a subprocess and streams progress via WebSocket.
 // Must be called in a goroutine with panic recovery (see launchTestRun).
-func (s *Server) executeTestRun(planID, testID string, flowDir string, planName string) {
+func (s *Server) executeTestRun(planID, testID string, flowDir string, planName string, createdBy string) {
 	startTime := time.Now()
 
 	if planID != "" {
@@ -54,7 +54,7 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		s.finishTestRun(planID, testID, planName, startTime, nil, fmt.Errorf("stdout pipe: %w", err))
+		s.finishTestRun(planID, testID, planName, startTime, nil, fmt.Errorf("stdout pipe: %w", err), createdBy)
 		return
 	}
 
@@ -62,7 +62,7 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 	cmd.Stderr = &stderrBuf
 
 	if err := cmd.Start(); err != nil {
-		s.finishTestRun(planID, testID, planName, startTime, nil, fmt.Errorf("start: %w", err))
+		s.finishTestRun(planID, testID, planName, startTime, nil, fmt.Errorf("start: %w", err), createdBy)
 		return
 	}
 
@@ -100,16 +100,20 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 	if err != nil && stderrBuf.Len() > 0 {
 		err = fmt.Errorf("%w\nstderr: %s", err, stderrBuf.String())
 	}
-	s.finishTestRun(planID, testID, planName, startTime, flowResults, err)
+	s.finishTestRun(planID, testID, planName, startTime, flowResults, err, createdBy)
 }
 
 // launchTestRun starts executeTestRun in a goroutine with panic recovery.
-func (s *Server) launchTestRun(planID, testID, flowDir, planName string, cleanupDir bool) {
+func (s *Server) launchTestRun(planID, testID, flowDir, planName string, cleanupDir bool, createdBy ...string) {
+	userID := ""
+	if len(createdBy) > 0 {
+		userID = createdBy[0]
+	}
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("Panic in test execution %s: %v", testID, r)
-				s.finishTestRun(planID, testID, planName, time.Now(), nil, fmt.Errorf("panic: %v", r))
+				s.finishTestRun(planID, testID, planName, time.Now(), nil, fmt.Errorf("panic: %v", r), userID)
 			}
 			if cleanupDir {
 				if err := os.RemoveAll(flowDir); err != nil && !os.IsNotExist(err) {
@@ -117,12 +121,12 @@ func (s *Server) launchTestRun(planID, testID, flowDir, planName string, cleanup
 				}
 			}
 		}()
-		s.executeTestRun(planID, testID, flowDir, planName)
+		s.executeTestRun(planID, testID, flowDir, planName, userID)
 	}()
 }
 
 // finishTestRun saves the result and broadcasts completion.
-func (s *Server) finishTestRun(planID, testID, planName string, startTime time.Time, flows []store.FlowResult, runErr error) {
+func (s *Server) finishTestRun(planID, testID, planName string, startTime time.Time, flows []store.FlowResult, runErr error, createdBy string) {
 	duration := time.Since(startTime)
 	status := "passed"
 	errorOutput := ""
@@ -160,6 +164,7 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 		SuccessRate: successRate,
 		Flows:       flows,
 		ErrorOutput: errorOutput,
+		CreatedBy:   createdBy,
 	}
 
 	if err := s.store.SaveTestResult(result); err != nil {

@@ -67,23 +67,33 @@
     <div v-else-if="status === 'scouting' || status === 'analyzing' || status === 'generating'" class="space-y-4">
       <Card>
         <CardHeader>
-          <CardTitle>Analyzing: {{ gameUrl }}</CardTitle>
+          <div class="flex items-center justify-between">
+            <CardTitle>Analyzing: {{ gameUrl }}</CardTitle>
+            <span v-if="elapsedSeconds > 0" class="text-sm text-muted-foreground">
+              {{ formatElapsed(elapsedSeconds) }}
+            </span>
+          </div>
         </CardHeader>
         <CardContent>
           <div class="space-y-1">
             <ProgressStep
-              :status="stepStatus('scouting')"
+              :status="granularStepStatus('scouting')"
               label="Scouting page..."
               :detail="pageMeta ? `${pageMeta.framework} | Canvas: ${pageMeta.canvasFound} | ${pageMeta.title || 'No title'}` : ''"
             />
             <ProgressStep
-              :status="stepStatus('analyzing')"
+              :status="granularStepStatus('analyzing')"
               label="Analyzing game mechanics..."
               :detail="analysis ? `${analysis.mechanics?.length || 0} mechanics, ${analysis.uiElements?.length || 0} UI elements` : ''"
             />
             <ProgressStep
-              :status="stepStatus('generating')"
-              label="Generating test flows..."
+              :status="granularStepStatus('scenarios')"
+              label="Generating test scenarios..."
+              :detail="currentStep === 'scenarios_done' || stepOrder(currentStep) > stepOrder('scenarios_done') ? 'Scenarios generated' : ''"
+            />
+            <ProgressStep
+              :status="granularStepStatus('flows')"
+              label="Generating Maestro test flows..."
               :detail="flowList.length ? `${flowList.length} flow(s) generated` : ''"
             />
           </div>
@@ -290,14 +300,18 @@ const flowCopied = ref(false)
 
 const {
   status,
+  currentStep,
   analysisId,
   pageMeta,
   analysis,
   flows: flowList,
   error: analysisError,
   logs,
+  elapsedSeconds,
+  formatElapsed,
   start,
   reset,
+  tryRecover,
 } = useAnalysis()
 
 const gameName = computed(() => {
@@ -321,14 +335,39 @@ function isValidUrl(str) {
   }
 }
 
-function stepStatus(step) {
-  const order = ['scouting', 'analyzing', 'generating', 'complete']
-  const currentIdx = order.indexOf(status.value)
-  const stepIdx = order.indexOf(step)
+// Ordered step names for granular progress
+const STEP_ORDER = ['scouting', 'scouted', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_done', 'saving', 'complete']
 
-  if (currentIdx > stepIdx) return 'complete'
-  if (currentIdx === stepIdx) return 'active'
-  return 'pending'
+function stepOrder(step) {
+  const idx = STEP_ORDER.indexOf(step)
+  return idx >= 0 ? idx : -1
+}
+
+/**
+ * Determine the status of a progress step group based on the current granular step.
+ * Each ProgressStep represents a group of granular steps:
+ *   scouting  → scouting, scouted
+ *   analyzing → analyzing, analyzed
+ *   scenarios → scenarios, scenarios_done
+ *   flows     → flows, flows_done, saving
+ */
+function granularStepStatus(groupStart) {
+  const groupMap = {
+    scouting: { start: 'scouting', end: 'scouted' },
+    analyzing: { start: 'analyzing', end: 'analyzed' },
+    scenarios: { start: 'scenarios', end: 'scenarios_done' },
+    flows: { start: 'flows', end: 'complete' },
+  }
+  const group = groupMap[groupStart]
+  if (!group) return 'pending'
+
+  const current = stepOrder(currentStep.value)
+  const groupStartIdx = stepOrder(group.start)
+  const groupEndIdx = stepOrder(group.end)
+
+  if (current < 0 || current < groupStartIdx) return 'pending'
+  if (current > groupEndIdx) return 'complete'
+  return 'active'
 }
 
 async function handleAnalyze() {
@@ -395,7 +434,9 @@ async function deleteAnalysis(item) {
 
 function exportAnalysis(format) {
   if (!currentAnalysisId.value) return
-  window.open(analysesApi.exportUrl(currentAnalysisId.value, format), '_blank')
+  analysesApi.export(currentAnalysisId.value, format).catch((err) => {
+    console.error('Failed to export analysis:', err)
+  })
 }
 
 function previewFlow(flow) {
@@ -490,7 +531,20 @@ watch(logs, () => {
   })
 })
 
-onMounted(() => {
+onMounted(async () => {
+  // Try to recover a running or completed analysis from localStorage
+  const recovery = await tryRecover()
+  if (recovery) {
+    if (recovery.gameUrl) {
+      gameUrl.value = recovery.gameUrl
+    }
+    if (recovery.status === 'running') {
+      logs.value = [...logs.value, 'Reconnected to running analysis...']
+    }
+    // If recovered as completed, the status/data refs are already set
+    return
+  }
+
   loadRecentAnalyses()
 })
 </script>

@@ -1,6 +1,9 @@
+import { getAccessToken } from '@/composables/useAuth'
+
 export class WebSocketManager {
   constructor(url) {
-    this.url = url || this._getWsUrl()
+    this.baseUrl = url || this._getWsUrl()
+    this.url = this.baseUrl
     this.ws = null
     this.listeners = new Map()
     this.reconnectAttempts = 0
@@ -16,11 +19,19 @@ export class WebSocketManager {
     return `${protocol}//${window.location.host}/ws`
   }
 
+  _buildUrl() {
+    const token = getAccessToken()
+    if (token) {
+      return `${this.baseUrl}?token=${encodeURIComponent(token)}`
+    }
+    return this.baseUrl
+  }
+
   connect() {
     if (this.ws?.readyState === WebSocket.OPEN) return
 
     try {
-      this.ws = new WebSocket(this.url)
+      this.ws = new WebSocket(this._buildUrl())
     } catch (err) {
       console.error('WebSocket connection failed:', err)
       this._scheduleReconnect()

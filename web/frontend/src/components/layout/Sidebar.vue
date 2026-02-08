@@ -1,15 +1,17 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute } from 'vue-router'
-import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft } from 'lucide-vue-next'
+import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { cn } from '@/lib/utils'
+import { useAuth } from '@/composables/useAuth'
 
 const route = useRoute()
 const collapsed = ref(false)
 const version = ref('')
+const { user, isAdmin, logout } = useAuth()
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -23,6 +25,11 @@ function isActive(path) {
   if (path === '/') return route.path === '/'
   return route.path.startsWith(path)
 }
+
+const userInitial = computed(() => {
+  if (!user.value?.displayName) return '?'
+  return user.value.displayName.charAt(0).toUpperCase()
+})
 
 onMounted(async () => {
   try {
@@ -68,8 +75,24 @@ onMounted(async () => {
       </router-link>
     </nav>
 
-    <!-- Footer -->
+    <!-- User + Footer -->
     <div class="p-2 border-t space-y-2">
+      <!-- User info -->
+      <div v-if="user" :class="cn('flex items-center gap-2 px-2 py-1', collapsed && 'justify-center px-0')">
+        <div class="h-7 w-7 rounded-full bg-primary/10 text-primary flex items-center justify-center text-xs font-bold shrink-0">
+          {{ userInitial }}
+        </div>
+        <div v-if="!collapsed" class="flex-1 min-w-0">
+          <p class="text-xs font-medium truncate">{{ user.displayName }}</p>
+          <p class="text-[10px] text-muted-foreground">{{ user.role }}</p>
+        </div>
+        <Button v-if="!collapsed" variant="ghost" size="icon" class="h-7 w-7 shrink-0" @click="logout" title="Logout">
+          <LogOut class="h-3.5 w-3.5" />
+        </Button>
+      </div>
+
+      <Separator v-if="!collapsed" />
+
       <div :class="cn('flex items-center', collapsed ? 'flex-col gap-1' : 'justify-between')">
         <ThemeToggle />
         <Button variant="ghost" size="icon" class="h-9 w-9" @click="collapsed = !collapsed">

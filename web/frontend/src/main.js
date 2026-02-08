@@ -3,10 +3,12 @@ import { createRouter, createWebHistory } from 'vue-router'
 import App from './App.vue'
 import './style.css'
 import { useTheme } from './composables/useTheme'
+import { useAuth } from './composables/useAuth'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    { path: '/login', component: () => import('./views/Login.vue'), meta: { public: true } },
     { path: '/', component: () => import('./views/Dashboard.vue') },
     { path: '/analyze', component: () => import('./views/Analyze.vue') },
     { path: '/tests', component: () => import('./views/Tests.vue') },
@@ -16,9 +18,37 @@ const router = createRouter({
   ],
 })
 
+// Navigation guard: require auth for non-public routes
+router.beforeEach((to, from, next) => {
+  const { isAuthenticated, loading } = useAuth()
+
+  // If still loading auth state, allow navigation (loadUser will redirect if needed)
+  if (loading.value && to.path !== '/login') {
+    next()
+    return
+  }
+
+  if (!to.meta.public && !isAuthenticated.value) {
+    next('/login')
+  } else if (to.path === '/login' && isAuthenticated.value) {
+    next('/')
+  } else {
+    next()
+  }
+})
+
 const { initTheme } = useTheme()
 initTheme()
 
 const app = createApp(App)
 app.use(router)
 app.mount('#app')
+
+// Load user on startup
+const { loadUser } = useAuth()
+loadUser().then(() => {
+  const { isAuthenticated } = useAuth()
+  if (!isAuthenticated.value && window.location.pathname !== '/login') {
+    router.push('/login')
+  }
+})

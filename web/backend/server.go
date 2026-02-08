@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -16,6 +18,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
+	"github.com/Global-Wizards/wizards-qa/web/backend/auth"
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
@@ -23,10 +26,11 @@ import (
 const Version = "0.1.0"
 
 type Server struct {
-	router *chi.Mux
-	port   string
-	store  *store.Store
-	wsHub  *ws.Hub
+	router    *chi.Mux
+	port      string
+	store     *store.Store
+	wsHub     *ws.Hub
+	jwtSecret string
 }
 
 func NewServer(port string) *Server {
@@ -35,24 +39,50 @@ func NewServer(port string) *Server {
 	dataDir := envOrDefault("WIZARDS_QA_DATA_DIR", "data")
 	configPath := envOrDefault("WIZARDS_QA_CONFIG", "wizards-qa.yaml")
 
-	st := store.New(flowsDir, reportsDir, dataDir, configPath)
+	// Initialize SQLite database
+	dbPath := filepath.Join(dataDir, "wizards.db")
+	db, err := store.InitDB(dbPath)
+	if err != nil {
+		log.Fatalf("Failed to initialize database: %v", err)
+	}
+
+	st := store.New(db, flowsDir, reportsDir, configPath)
 
 	// Validate directories on startup
 	if err := st.ValidateDirectories(); err != nil {
 		log.Printf("Warning: directory validation failed: %v", err)
 	}
 
+	// One-time migration from JSON files to SQLite
+	st.MigrateFromJSON(dataDir)
+
 	// Recover orphaned running test plans from previous crash
 	st.RecoverOrphanedRuns()
+
+	// Recover orphaned running analyses from previous crash
+	st.RecoverOrphanedAnalyses()
+
+	// JWT secret
+	jwtSecret := os.Getenv("JWT_SECRET")
+	if jwtSecret == "" {
+		// Generate a random secret and log a warning
+		b := make([]byte, 32)
+		if _, err := rand.Read(b); err != nil {
+			log.Fatal("Failed to generate JWT secret")
+		}
+		jwtSecret = hex.EncodeToString(b)
+		log.Printf("Warning: JWT_SECRET not set, using random secret (tokens will not survive restarts)")
+	}
 
 	hub := ws.NewHub()
 	go hub.Run()
 
 	s := &Server{
-		router: chi.NewRouter(),
-		port:   port,
-		store:  st,
-		wsHub:  hub,
+		router:    chi.NewRouter(),
+		port:      port,
+		store:     st,
+		wsHub:     hub,
+		jwtSecret: jwtSecret,
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -79,31 +109,45 @@ func (s *Server) setupMiddleware() {
 }
 
 func (s *Server) setupRoutes() {
+	// Public routes (no auth)
+	s.router.Post("/api/auth/register", s.handleRegister)
+	s.router.Post("/api/auth/login", s.handleLogin)
+	s.router.Post("/api/auth/refresh", s.handleRefresh)
 	s.router.Get("/api/health", s.handleHealth)
 	s.router.Get("/api/version", s.handleVersion)
-	s.router.Get("/api/tests", s.handleListTests)
-	s.router.Get("/api/tests/{id}", s.handleGetTest)
-	s.router.Post("/api/tests/run", s.handleRunTest)
-	s.router.Get("/api/reports", s.handleListReports)
-	s.router.Get("/api/reports/{id}", s.handleGetReport)
-	s.router.Get("/api/flows", s.handleListFlows)
-	s.router.Get("/api/flows/{name}", s.handleGetFlow)
-	s.router.Get("/api/stats", s.handleGetStats)
-	s.router.Get("/api/config", s.handleGetConfig)
-	s.router.Get("/api/performance", s.handleGetPerformance)
-	s.router.Get("/api/templates", s.handleListTemplates)
-	s.router.Get("/api/test-plans", s.handleListTestPlans)
-	s.router.Post("/api/test-plans", s.handleCreateTestPlan)
-	s.router.Get("/api/test-plans/{id}", s.handleGetTestPlan)
-	s.router.Post("/api/test-plans/{id}/run", s.handleRunTestPlan)
-	s.router.Post("/api/analyze", s.handleAnalyzeGame)
-	s.router.Get("/api/analyses", s.handleListAnalyses)
-	s.router.Get("/api/analyses/{id}", s.handleGetAnalysis)
-	s.router.Delete("/api/analyses/{id}", s.handleDeleteAnalysis)
-	s.router.Get("/api/analyses/{id}/export", s.handleExportAnalysis)
-	s.router.Delete("/api/test-plans/{id}", s.handleDeleteTestPlan)
+
+	// Protected routes (require auth)
+	s.router.Group(func(r chi.Router) {
+		r.Use(auth.Middleware(s.jwtSecret))
+
+		r.Get("/api/auth/me", s.handleMe)
+		r.Get("/api/tests", s.handleListTests)
+		r.Get("/api/tests/{id}", s.handleGetTest)
+		r.Post("/api/tests/run", s.handleRunTest)
+		r.Get("/api/reports", s.handleListReports)
+		r.Get("/api/reports/{id}", s.handleGetReport)
+		r.Get("/api/flows", s.handleListFlows)
+		r.Get("/api/flows/{name}", s.handleGetFlow)
+		r.Get("/api/stats", s.handleGetStats)
+		r.Get("/api/config", s.handleGetConfig)
+		r.Get("/api/performance", s.handleGetPerformance)
+		r.Get("/api/templates", s.handleListTemplates)
+		r.Get("/api/test-plans", s.handleListTestPlans)
+		r.Post("/api/test-plans", s.handleCreateTestPlan)
+		r.Get("/api/test-plans/{id}", s.handleGetTestPlan)
+		r.Post("/api/test-plans/{id}/run", s.handleRunTestPlan)
+		r.Delete("/api/test-plans/{id}", s.handleDeleteTestPlan)
+		r.Post("/api/analyze", s.handleAnalyzeGame)
+		r.Get("/api/analyses", s.handleListAnalyses)
+		r.Get("/api/analyses/{id}", s.handleGetAnalysis)
+		r.Get("/api/analyses/{id}/status", s.handleGetAnalysisStatus)
+		r.Delete("/api/analyses/{id}", s.handleDeleteAnalysis)
+		r.Get("/api/analyses/{id}/export", s.handleExportAnalysis)
+	})
+
+	// WebSocket — validate token from query param ?token=...
 	s.router.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
-		ws.ServeWs(s.wsHub, w, r)
+		ws.ServeWs(s.wsHub, w, r, s.jwtSecret)
 	})
 
 	// Serve frontend static files
@@ -168,7 +212,11 @@ func (s *Server) handleRunTest(w http.ResponseWriter, r *http.Request) {
 		flowDir = filepath.Dir(req.SpecPath)
 	}
 
-	s.launchTestRun("", testID, flowDir, filepath.Base(flowDir), false)
+	var createdBy string
+	if claims := auth.UserFromContext(r.Context()); claims != nil {
+		createdBy = claims.UserID
+	}
+	s.launchTestRun("", testID, flowDir, filepath.Base(flowDir), false, createdBy)
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"testId":  testID,
@@ -290,6 +338,11 @@ func (s *Server) handleCreateTestPlan(w http.ResponseWriter, r *http.Request) {
 		plan.Variables = make(map[string]string)
 	}
 
+	// Set created_by from auth context
+	if claims := auth.UserFromContext(r.Context()); claims != nil {
+		plan.CreatedBy = claims.UserID
+	}
+
 	if err := s.store.SaveTestPlan(plan); err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to save test plan")
 		return
@@ -323,7 +376,11 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	testID := fmt.Sprintf("test-%d", time.Now().UnixNano())
-	s.launchTestRun(plan.ID, testID, flowDir, plan.Name, true)
+	var createdByPlan string
+	if claims := auth.UserFromContext(r.Context()); claims != nil {
+		createdByPlan = claims.UserID
+	}
+	s.launchTestRun(plan.ID, testID, flowDir, plan.Name, true, createdByPlan)
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"testId":  testID,
@@ -355,8 +412,37 @@ func (s *Server) handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
 	respondJSON(w, http.StatusOK, analysis)
 }
 
+func (s *Server) handleGetAnalysisStatus(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	analysis, err := s.store.GetAnalysis(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Analysis not found")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{
+		"id":     analysis.ID,
+		"status": analysis.Status,
+		"step":   analysis.Step,
+	})
+}
+
 func (s *Server) handleDeleteAnalysis(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
+	// Admin or owner check
+	claims := auth.UserFromContext(r.Context())
+	if claims != nil && claims.Role != "admin" {
+		analysis, err := s.store.GetAnalysis(id)
+		if err != nil {
+			respondError(w, http.StatusNotFound, "Analysis not found")
+			return
+		}
+		if analysis.CreatedBy != "" && analysis.CreatedBy != claims.UserID {
+			respondError(w, http.StatusForbidden, "Only the owner or an admin can delete this analysis")
+			return
+		}
+	}
+
 	if err := s.store.DeleteAnalysis(id); err != nil {
 		respondError(w, http.StatusNotFound, "Analysis not found")
 		return
@@ -446,6 +532,21 @@ func formatAnalysisMarkdown(a *store.AnalysisRecord) string {
 
 func (s *Server) handleDeleteTestPlan(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
+
+	// Admin or owner check
+	claims := auth.UserFromContext(r.Context())
+	if claims != nil && claims.Role != "admin" {
+		plan, err := s.store.GetTestPlan(id)
+		if err != nil {
+			respondError(w, http.StatusNotFound, "Test plan not found")
+			return
+		}
+		if plan.CreatedBy != "" && plan.CreatedBy != claims.UserID {
+			respondError(w, http.StatusForbidden, "Only the owner or an admin can delete this test plan")
+			return
+		}
+	}
+
 	if err := s.store.DeleteTestPlan(id); err != nil {
 		respondError(w, http.StatusNotFound, "Test plan not found")
 		return
@@ -460,7 +561,7 @@ func (s *Server) Start() error {
 		Addr:         ":" + s.port,
 		Handler:      s.router,
 		ReadTimeout:  15 * time.Second,
-		WriteTimeout: 60 * time.Second, // longer for SSE/streaming
+		WriteTimeout: 60 * time.Second,
 		IdleTimeout:  120 * time.Second,
 	}
 
@@ -487,7 +588,6 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
-// nonNil ensures a nil slice is returned as an empty JSON array instead of null.
 func nonNil[T any](s []T) []T {
 	if s == nil {
 		return []T{}
@@ -496,8 +596,6 @@ func nonNil[T any](s []T) []T {
 }
 
 // FileServer serves static files from a http.FileSystem with SPA fallback.
-// If the requested file doesn't exist, it serves index.html so that
-// client-side routing (Vue Router history mode) works on page refresh.
 func FileServer(r chi.Router, path string, root http.FileSystem) {
 	if path != "/" && path[len(path)-1] != '/' {
 		r.Get(path, http.RedirectHandler(path+"/", 301).ServeHTTP)
@@ -513,10 +611,8 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 			requestPath = "/"
 		}
 
-		// Try to open the requested file
 		f, err := root.Open(requestPath)
 		if err != nil {
-			// File not found — serve index.html for SPA routing
 			indexFile, indexErr := root.Open("/index.html")
 			if indexErr != nil {
 				http.NotFound(w, r)
@@ -530,7 +626,6 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 		}
 		f.Close()
 
-		// File exists — serve it normally
 		fs := http.StripPrefix(pathPrefix, http.FileServer(root))
 		fs.ServeHTTP(w, r)
 	})
@@ -555,7 +650,7 @@ func main() {
 		log.Printf("Received signal %v, shutting down gracefully...", sig)
 		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		_ = ctx // Used for future graceful shutdown of http.Server
+		_ = ctx
 		os.Exit(0)
 	}()
 
