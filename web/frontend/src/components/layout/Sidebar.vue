@@ -1,20 +1,66 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut, FolderKanban, ArrowLeft, Settings, Users } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut, FolderKanban, ArrowLeft, Settings, Users, ChevronsUpDown, Plus, Globe } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import ThemeToggle from '@/components/ThemeToggle.vue'
 import { cn } from '@/lib/utils'
 import { useAuth } from '@/composables/useAuth'
-import { useProject } from '@/composables/useProject'
+import { useProject, clearLastProjectId } from '@/composables/useProject'
 import { versionApi } from '@/lib/api'
 
 const route = useRoute()
+const router = useRouter()
 const collapsed = ref(false)
 const version = ref('')
+const changelogOpen = ref(false)
+const changelogContent = ref('')
+const changelogLoading = ref(false)
 const { user, isAdmin, logout } = useAuth()
-const { currentProject, isInProject } = useProject()
+const { currentProject, isInProject, projects, projectsLoaded, loadProjects, clearProject } = useProject()
+
+onMounted(() => {
+  if (!projectsLoaded.value) {
+    loadProjects()
+  }
+})
+
+async function openChangelog() {
+  changelogOpen.value = true
+  if (changelogContent.value) return
+  changelogLoading.value = true
+  try {
+    const data = await versionApi.changelog()
+    changelogContent.value = data.content || ''
+  } catch {
+    changelogContent.value = 'Failed to load changelog.'
+  } finally {
+    changelogLoading.value = false
+  }
+}
+
+function switchToProject(project) {
+  router.push(`/projects/${project.id}`)
+}
+
+function goToGlobalDashboard() {
+  clearProject()
+  clearLastProjectId()
+  router.push('/')
+}
+
+function truncateUrl(url) {
+  if (!url) return ''
+  try {
+    const parsed = new URL(url)
+    return parsed.hostname
+  } catch {
+    return url.length > 30 ? url.slice(0, 30) + '...' : url
+  }
+}
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
@@ -22,7 +68,6 @@ const navItems = [
   { path: '/tests', label: 'Tests', icon: FlaskConical },
   { path: '/reports', label: 'Reports', icon: FileText },
   { path: '/flows', label: 'Flows', icon: GitBranch },
-  { path: '/projects', label: 'Projects', icon: FolderKanban },
 ]
 
 const projectNavItems = computed(() => {
@@ -77,41 +122,89 @@ onMounted(async () => {
       collapsed ? 'w-16' : 'w-60'
     )"
   >
-    <!-- Logo -->
-    <div class="flex items-center h-16 px-4 border-b">
-      <span class="text-xl font-bold text-primary whitespace-nowrap">
-        {{ collapsed ? 'W' : 'Wizards QA' }}
-      </span>
+    <!-- Project Switcher -->
+    <div class="flex items-center h-16 px-2 border-b">
+      <DropdownMenu>
+        <DropdownMenuTrigger>
+          <button
+            :class="cn(
+              'flex items-center gap-2 rounded-md px-2 py-1.5 w-full text-left hover:bg-accent transition-colors',
+              collapsed && 'justify-center'
+            )"
+          >
+            <!-- Active project dot / W icon -->
+            <div
+              v-if="isInProject"
+              class="h-7 w-7 rounded flex items-center justify-center text-white text-xs font-bold shrink-0"
+              :style="{ backgroundColor: currentProject?.color || '#6366f1' }"
+            >
+              {{ currentProject?.name?.charAt(0)?.toUpperCase() }}
+            </div>
+            <div
+              v-else
+              class="h-7 w-7 rounded bg-primary/10 flex items-center justify-center text-primary text-xs font-bold shrink-0"
+            >
+              W
+            </div>
+            <template v-if="!collapsed">
+              <span class="flex-1 text-sm font-semibold truncate">
+                {{ isInProject ? currentProject?.name : 'Wizards QA' }}
+              </span>
+              <ChevronsUpDown class="h-4 w-4 text-muted-foreground shrink-0" />
+            </template>
+          </button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent class="w-56" :side-offset="8">
+          <!-- Project List -->
+          <template v-if="projects.length">
+            <DropdownMenuItem
+              v-for="project in projects"
+              :key="project.id"
+              class="cursor-pointer"
+              @click="switchToProject(project)"
+            >
+              <div class="flex items-center gap-2 w-full">
+                <div
+                  class="h-5 w-5 rounded flex items-center justify-center text-white text-[10px] font-bold shrink-0"
+                  :style="{ backgroundColor: project.color || '#6366f1' }"
+                >
+                  {{ project.name?.charAt(0)?.toUpperCase() }}
+                </div>
+                <div class="flex-1 min-w-0">
+                  <p class="text-sm truncate">{{ project.name }}</p>
+                  <p v-if="project.gameUrl" class="text-[10px] text-muted-foreground truncate">{{ truncateUrl(project.gameUrl) }}</p>
+                </div>
+              </div>
+            </DropdownMenuItem>
+          </template>
+          <p v-else class="px-2 py-1.5 text-xs text-muted-foreground">No projects yet</p>
+
+          <Separator class="my-1" />
+
+          <DropdownMenuItem class="cursor-pointer" @click="$router.push('/projects')">
+            <FolderKanban class="h-4 w-4 mr-2" />
+            All Projects
+          </DropdownMenuItem>
+          <DropdownMenuItem class="cursor-pointer" @click="$router.push('/projects/new')">
+            <Plus class="h-4 w-4 mr-2" />
+            New Project
+          </DropdownMenuItem>
+
+          <template v-if="isInProject">
+            <Separator class="my-1" />
+            <DropdownMenuItem class="cursor-pointer" @click="goToGlobalDashboard">
+              <Globe class="h-4 w-4 mr-2" />
+              Global Dashboard
+            </DropdownMenuItem>
+          </template>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
 
     <!-- Navigation -->
     <nav class="flex-1 p-2 space-y-1 overflow-y-auto">
       <!-- Project Mode -->
       <template v-if="isInProject">
-        <router-link
-          to="/projects"
-          :class="cn(
-            'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-            collapsed && 'justify-center px-2'
-          )"
-        >
-          <ArrowLeft class="h-4 w-4 shrink-0" />
-          <span v-if="!collapsed">Back to Projects</span>
-        </router-link>
-
-        <!-- Project Header -->
-        <div v-if="!collapsed" class="flex items-center gap-2 px-3 py-2">
-          <div
-            class="h-6 w-6 rounded flex items-center justify-center text-white text-xs font-bold shrink-0"
-            :style="{ backgroundColor: currentProject?.color || '#6366f1' }"
-          >
-            {{ currentProject?.name?.charAt(0)?.toUpperCase() }}
-          </div>
-          <span class="text-sm font-semibold truncate">{{ currentProject?.name }}</span>
-        </div>
-
-        <Separator v-if="!collapsed" class="my-1" />
-
         <router-link
           v-for="item in projectNavItems"
           :key="item.path"
@@ -193,11 +286,29 @@ onMounted(async () => {
         </Button>
       </div>
       <div v-if="!collapsed" class="px-2 pb-1 text-center">
-        <p v-if="version" class="text-[10px] text-muted-foreground">v{{ version }}</p>
+        <p v-if="version" class="text-[10px] text-muted-foreground">
+          <button class="hover:text-primary hover:underline cursor-pointer" @click="openChangelog">
+            v{{ version }} — Changelog
+          </button>
+        </p>
         <p class="text-[10px] text-muted-foreground">
           Created by <a href="https://www.wizards.us" target="_blank" rel="noopener noreferrer" class="text-primary hover:underline">Wizards</a>
         </p>
       </div>
     </div>
+
+    <!-- Changelog Dialog -->
+    <Dialog :open="changelogOpen" @update:open="changelogOpen = $event">
+      <DialogContent class="max-w-2xl max-h-[80vh] overflow-hidden flex flex-col">
+        <DialogHeader>
+          <DialogTitle>Changelog</DialogTitle>
+          <DialogDescription>What's new in Wizards QA v{{ version }}</DialogDescription>
+        </DialogHeader>
+        <div class="flex-1 overflow-y-auto pr-2">
+          <div v-if="changelogLoading" class="py-8 text-center text-muted-foreground">Loading changelog...</div>
+          <pre v-else class="text-sm whitespace-pre-wrap font-mono leading-relaxed">{{ changelogContent }}</pre>
+        </div>
+      </DialogContent>
+    </Dialog>
   </aside>
 </template>

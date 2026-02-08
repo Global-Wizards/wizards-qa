@@ -4,6 +4,7 @@ import App from './App.vue'
 import './style.css'
 import { useTheme } from './composables/useTheme'
 import { useAuth } from './composables/useAuth'
+import { getLastProjectId } from './composables/useProject'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -49,6 +50,13 @@ router.beforeEach((to, from, next) => {
     next('/login')
   } else if (to.path === '/login' && isAuthenticated.value) {
     next('/')
+  } else if (to.path === '/' && isAuthenticated.value) {
+    const lastProjectId = getLastProjectId()
+    if (lastProjectId) {
+      next(`/projects/${lastProjectId}`)
+    } else {
+      next()
+    }
   } else {
     next()
   }

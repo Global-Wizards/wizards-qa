@@ -36,6 +36,7 @@ const stats = ref({
 })
 
 const projects = ref([])
+const onboardingDismissed = ref(false)
 
 let refreshInterval = null
 
@@ -51,14 +52,19 @@ async function loadStats() {
   }
 }
 
+const allProjects = ref([])
+
 async function loadProjects() {
   try {
     const data = await projectsApi.list()
-    projects.value = (data.projects || []).slice(0, 3)
+    allProjects.value = data.projects || []
+    projects.value = allProjects.value.slice(0, 3)
   } catch {
     // non-critical
   }
 }
+
+const hasNoProjects = computed(() => allProjects.value.length === 0 && !loading.value && !onboardingDismissed.value)
 
 const isEmpty = computed(() =>
   stats.value.totalTests === 0 &&
@@ -166,6 +172,32 @@ onUnmounted(() => {
       <AlertTitle>Error</AlertTitle>
       <AlertDescription>{{ error }}</AlertDescription>
     </Alert>
+
+    <!-- Project Onboarding -->
+    <template v-else-if="hasNoProjects">
+      <Card class="border-dashed">
+        <CardContent class="flex flex-col items-center justify-center py-20 text-center">
+          <div class="rounded-full bg-violet-500/10 p-4 mb-6">
+            <FolderKanban class="h-10 w-10 text-violet-500" />
+          </div>
+          <h3 class="text-2xl font-semibold mb-2">Welcome to Wizards QA</h3>
+          <p class="text-muted-foreground max-w-md mb-8">
+            Create your first project to get started. Projects help you organize game analyses, tests, and reports in one place.
+          </p>
+          <div class="flex flex-col sm:flex-row gap-3">
+            <router-link to="/projects/new">
+              <Button>
+                <FolderKanban class="h-4 w-4 mr-2" />
+                Create First Project
+              </Button>
+            </router-link>
+            <Button variant="outline" @click="onboardingDismissed = true">
+              Explore without a project
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+    </template>
 
     <template v-else>
       <!-- Empty State -->
