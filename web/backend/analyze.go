@@ -380,7 +380,21 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 				userMsg = fmt.Sprintf("Analysis timed out after %d minutes", int(timeout.Minutes()))
 			}
 		} else if exitErr, ok := err.(*exec.ExitError); ok {
-			userMsg = fmt.Sprintf("CLI exited with code %d", exitErr.ExitCode())
+			if lastKnownStep != "" {
+				userMsg = fmt.Sprintf("CLI exited with code %d (failed during: %s)", exitErr.ExitCode(), lastKnownStep)
+			} else {
+				userMsg = fmt.Sprintf("CLI exited with code %d", exitErr.ExitCode())
+			}
+			// Append last meaningful stderr line for context
+			for i := len(stderrLines) - 1; i >= 0; i-- {
+				if line := strings.TrimSpace(stderrLines[i]); line != "" {
+					if len(line) > 200 {
+						line = line[:200] + "..."
+					}
+					userMsg += "\n" + line
+					break
+				}
+			}
 		} else {
 			userMsg = err.Error()
 		}

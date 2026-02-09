@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-02-09
+
+### Fix Synthesis Failure — Context Too Large, Truncation, Error Messages
+
+#### Fixed
+- **Synthesis failing with "CLI exited with code 1"** — the synthesis API call included all base64 screenshots (~1.6MB) from exploration. Now strips ALL screenshots before synthesis since the AI already observed them during exploration.
+- **Truncated synthesis JSON silently failing** — if `stop_reason=max_tokens`, the incomplete JSON now gets auto-repaired by closing open brackets/braces before parsing. Logs a warning when truncation occurs.
+- **Cryptic "CLI exited with code 1" error message** — exit-code errors now include `lastKnownStep` (e.g., "failed during: agent_synthesize") and the last meaningful stderr line for debugging context.
+- **SynthesisMaxTokens floor too low** — raised from 4096 to 8192. The comprehensive JSON output (gameInfo + mechanics + uiElements + userFlows + edgeCases + scenarios) routinely needs 4000–6000 tokens; 8192 provides safe headroom.
+
 ## [0.7.1] - 2026-02-09
 
 ### Code Quality Audit — DRY, N+1 Queries, Transaction Safety

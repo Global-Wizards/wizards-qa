@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -296,6 +297,11 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 	progress("agent_done", fmt.Sprintf("Agent exploration complete: %d steps, %d screenshots", len(steps), len(allScreenshots)))
 
+	// Strip ALL screenshots before synthesis — the AI already observed them during
+	// exploration and doesn't need them for structured JSON output. This reduces
+	// the API payload by ~1.6MB and avoids input-too-large errors.
+	pruneOldScreenshots(messages, 0)
+
 	// --- Synthesis call ---
 	progress("agent_synthesize", "Synthesizing analysis from exploration...")
 
@@ -407,6 +413,10 @@ IMPORTANT: Base your analysis on what you actually observed during exploration. 
 		return nil, steps, fmt.Errorf("synthesis call failed: %w", synthErr)
 	}
 
+	if synthResp.StopReason == "max_tokens" {
+		log.Printf("WARNING: Synthesis truncated (stop_reason=max_tokens, %d output tokens)", synthResp.Usage.OutputTokens)
+	}
+
 	// Extract text from synthesis response
 	var synthesisText string
 	for _, block := range synthResp.Content {
@@ -417,8 +427,15 @@ IMPORTANT: Base your analysis on what you actually observed during exploration. 
 
 	// Parse as ComprehensiveAnalysisResult
 	parsed, parseErr := parseComprehensiveJSON(synthesisText)
+	if parseErr != nil && synthResp.StopReason == "max_tokens" {
+		// JSON was truncated — try to repair by closing open brackets
+		repaired, repairErr := repairTruncatedJSON(synthesisText)
+		if repairErr == nil {
+			parsed, parseErr = parseComprehensiveJSON(repaired)
+		}
+	}
 	if parseErr != nil {
-		return nil, steps, fmt.Errorf("failed to parse synthesis response: %w (raw: %s)", parseErr, truncate(synthesisText, 500))
+		return nil, steps, fmt.Errorf("failed to parse synthesis response: %w (stop_reason=%s, raw: %s)", parseErr, synthResp.StopReason, truncate(synthesisText, 500))
 	}
 
 	return parsed, steps, nil
@@ -607,4 +624,56 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// repairTruncatedJSON attempts to fix JSON truncated by max_tokens by
+// closing any open brackets/braces. Returns repaired string or error.
+func repairTruncatedJSON(s string) (string, error) {
+	start := strings.Index(s, "{")
+	if start < 0 {
+		return "", fmt.Errorf("no JSON object found")
+	}
+	s = s[start:]
+
+	var stack []rune
+	inString := false
+	escaped := false
+	for _, r := range s {
+		if escaped {
+			escaped = false
+			continue
+		}
+		if r == '\\' && inString {
+			escaped = true
+			continue
+		}
+		if r == '"' {
+			inString = !inString
+			continue
+		}
+		if inString {
+			continue
+		}
+		switch r {
+		case '{':
+			stack = append(stack, '}')
+		case '[':
+			stack = append(stack, ']')
+		case '}', ']':
+			if len(stack) > 0 {
+				stack = stack[:len(stack)-1]
+			}
+		}
+	}
+
+	if len(stack) == 0 {
+		return s, nil // Already balanced
+	}
+
+	// Trim trailing comma/whitespace, then close brackets
+	trimmed := strings.TrimRight(s, " \t\n\r,")
+	for i := len(stack) - 1; i >= 0; i-- {
+		trimmed += string(stack[i])
+	}
+	return trimmed, nil
 }

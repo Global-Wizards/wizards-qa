@@ -205,10 +205,10 @@ Example:
 					explorationTimeout = 20 * time.Minute
 				}
 
-				// Synthesis needs at least 4096 tokens for full JSON; ensure low-token profiles don't truncate
+				// Synthesis needs at least 8192 tokens for full JSON; ensure low-token profiles don't truncate
 				synthTokens := 0
-				if maxTokens > 0 && maxTokens < 4096 {
-					synthTokens = 4096
+				if maxTokens > 0 && maxTokens < 8192 {
+					synthTokens = 8192
 				}
 
 				agentCfg := ai.AgentConfig{
