@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-02-09
+
+### Fix Agent Timeout — Sliding Window Screenshot Pruning
+
+#### Fixed
+- **Agent exploration exhausting timeout before synthesis** — every `CallWithTools` sent the full conversation including ALL accumulated base64 screenshots (~100-200KB each). By step 17, API calls took 50-72 seconds each, consuming the entire timeout budget before synthesis could run. Added `pruneOldScreenshots()` sliding window that keeps only the last 4 screenshots in the conversation, replacing older ones with text placeholders. API calls now stay consistently fast regardless of exploration length.
+- **Backend timeout too tight for full agent pipeline** — increased backend context timeout from 10 to 15 minutes for agent mode, giving enough headroom for exploration + synthesis + flow generation.
+- **Agent exploration timeout too tight** — increased `TotalTimeout` from 8 to 12 minutes since the synthesis and flow generation calls happen inside the same context.
+
 ## [0.5.1] - 2026-02-08
 
 ### Fix Agent Timeouts on Multimodal API Calls

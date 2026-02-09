@@ -133,7 +133,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 
 	timeout := 5 * time.Minute
 	if agentMode {
-		timeout = 10 * time.Minute
+		timeout = 15 * time.Minute
 	}
 	ctx, cancel := context.WithTimeout(s.serverCtx, timeout)
 	defer cancel()

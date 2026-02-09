@@ -279,6 +279,11 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 		// Append tool results as a user message
 		messages = append(messages, AgentMessage{Role: "user", Content: toolResults})
+
+		// Prune old screenshots from conversation to prevent unbounded context growth.
+		// Each base64 screenshot is ~100-200KB; without pruning, API calls escalate from
+		// ~10s to 70s+ as screenshots accumulate, consuming the entire timeout budget.
+		pruneOldScreenshots(messages, 4)
 	}
 
 	progress("agent_done", fmt.Sprintf("Agent exploration complete: %d steps, %d screenshots", len(steps), len(allScreenshots)))
@@ -495,6 +500,49 @@ func formatToolAction(toolName string, inputJSON json.RawMessage) string {
 		return fmt.Sprintf("navigate to %s", truncate(p.URL, 60))
 	default:
 		return toolName
+	}
+}
+
+// pruneOldScreenshots walks messages from newest to oldest and replaces base64 image
+// data in screenshots beyond the keepRecent most recent ones. This prevents the API
+// payload from growing unboundedly as screenshots accumulate in the conversation.
+func pruneOldScreenshots(messages []AgentMessage, keepRecent int) {
+	imageCount := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		messages[i].Content = stripImages(messages[i].Content, &imageCount, keepRecent)
+	}
+}
+
+// stripImages recursively walks a content value and replaces image blocks beyond the
+// keepRecent threshold with a lightweight text placeholder.
+func stripImages(v interface{}, count *int, keep int) interface{} {
+	switch c := v.(type) {
+	case []interface{}:
+		for i, item := range c {
+			c[i] = stripImages(item, count, keep)
+		}
+		return c
+	case map[string]interface{}:
+		if c["type"] == "image" {
+			*count++
+			if *count > keep {
+				return map[string]interface{}{
+					"type": "text",
+					"text": "[Screenshot removed — older than context window]",
+				}
+			}
+		}
+		if c["type"] == "tool_result" {
+			if content, ok := c["content"]; ok {
+				c["content"] = stripImages(content, count, keep)
+			}
+		}
+		return c
+	case ToolResultBlock:
+		c.Content = stripImages(c.Content, count, keep)
+		return c
+	default:
+		return v
 	}
 }
 

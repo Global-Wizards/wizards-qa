@@ -155,7 +155,7 @@ func DefaultAgentConfig() AgentConfig {
 	return AgentConfig{
 		MaxSteps:     20,
 		StepTimeout:  30 * time.Second,
-		TotalTimeout: 8 * time.Minute,
+		TotalTimeout: 12 * time.Minute,
 	}
 }
 

@@ -196,7 +196,7 @@ Example:
 				agentCfg := ai.AgentConfig{
 					MaxSteps:     agentSteps,
 					StepTimeout:  30 * time.Second,
-					TotalTimeout: 8 * time.Minute,
+					TotalTimeout: 12 * time.Minute,
 				}
 
 				// When launched by the backend (--json + --agent), read user hints from stdin
