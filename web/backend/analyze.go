@@ -131,7 +131,11 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 	}
 	defer os.RemoveAll(tmpDir)
 
-	ctx, cancel := context.WithTimeout(s.serverCtx, 5*time.Minute)
+	timeout := 5 * time.Minute
+	if agentMode {
+		timeout = 10 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(s.serverCtx, timeout)
 	defer cancel()
 
 	args := []string{"scout", "--game", gameURL, "--json", "--save-flows", "--output", tmpDir, "--headless", "--timeout", "60"}
@@ -327,7 +331,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 		// Classify error concisely for the user
 		var userMsg string
 		if ctx.Err() != nil {
-			userMsg = "Analysis timed out after 5 minutes"
+			userMsg = fmt.Sprintf("Analysis timed out after %d minutes", int(timeout.Minutes()))
 		} else if exitErr, ok := err.(*exec.ExitError); ok {
 			userMsg = fmt.Sprintf("CLI exited with code %d", exitErr.ExitCode())
 		} else {

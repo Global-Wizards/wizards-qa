@@ -45,7 +45,7 @@ func NewBaseClient(apiKey, model string, temperature float64, maxTokens int, cal
 		Temperature: temperature,
 		MaxTokens:   maxTokens,
 		HTTPClient: &http.Client{
-			Timeout: 120 * time.Second,
+			Timeout: 300 * time.Second,
 		},
 		caller: caller,
 	}

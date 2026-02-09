@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
+	"time"
 )
 
 // Client is an interface for AI providers
@@ -243,8 +245,12 @@ func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessag
 		return nil, fmt.Errorf("failed to marshal tool use request: %w", err)
 	}
 
+	log.Printf("CallWithTools: sending %d bytes (%d messages, %d tools)", len(reqBody), len(messages), len(tools))
+	start := time.Now()
 	body, err := c.doRequest(reqBody)
+	elapsed := time.Since(start)
 	if err != nil {
+		log.Printf("CallWithTools: failed after %s: %v", elapsed, err)
 		return nil, err
 	}
 
@@ -252,6 +258,8 @@ func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessag
 	if err := json.Unmarshal(body, &toolResp); err != nil {
 		return nil, fmt.Errorf("failed to parse tool use response: %w", err)
 	}
+	log.Printf("CallWithTools: completed in %s (in=%d out=%d tokens, stop=%s)",
+		elapsed, toolResp.Usage.InputTokens, toolResp.Usage.OutputTokens, toolResp.StopReason)
 	return &toolResp, nil
 }
 

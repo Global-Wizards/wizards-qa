@@ -5,6 +5,18 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.1] - 2026-02-08
+
+### Fix Agent Timeouts on Multimodal API Calls
+
+#### Fixed
+- **Agent API calls timing out** — HTTP client timeout was 120s but multimodal API calls (screenshot images + growing conversation) routinely exceed this. Increased to 300s to match agent total timeout.
+- **Backend context too short for agent mode** — the 5-minute `context.WithTimeout` killed the CLI subprocess before the agent could finish. Now uses 10 minutes for agent mode, 5 minutes for standard mode.
+- **Agent total timeout too tight** — increased from 5 to 8 minutes to account for browser startup (~30s), canvas readiness polling (~20s), and multiple slow API calls with image context.
+
+#### Added
+- **API call timing logs** — `CallWithTools` now logs request size, elapsed time, token usage, and stop reason for each Claude API call, enabling diagnosis of slow calls.
+
 ## [0.5.0] - 2026-02-08
 
 ### Persist Agent Steps, Fix Errors, Enhanced Logging & Step Navigator
