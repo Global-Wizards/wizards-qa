@@ -2,8 +2,10 @@ package ai
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"regexp"
@@ -60,7 +62,96 @@ func parseURLHints(gameURL string) map[string]string {
 		hints["gameId"] = gid
 	}
 	hints["domain"] = u.Host
+
+	// Add token expiry info
+	tokenStatuses := checkURLTokenExpiry(gameURL)
+	if len(tokenStatuses) > 0 {
+		var statusParts []string
+		var expiredNames []string
+		for param, ts := range tokenStatuses {
+			if ts.Expired {
+				ago := time.Since(ts.ExpiresAt).Truncate(time.Minute)
+				statusParts = append(statusParts, fmt.Sprintf("%s expired %s ago", param, ago))
+				expiredNames = append(expiredNames, param)
+			} else {
+				remaining := time.Until(ts.ExpiresAt).Truncate(time.Minute)
+				statusParts = append(statusParts, fmt.Sprintf("%s valid (%s remaining)", param, remaining))
+			}
+		}
+		hints["tokenStatus"] = strings.Join(statusParts, ", ")
+		if len(expiredNames) > 0 {
+			hints["expiredTokens"] = strings.Join(expiredNames, ", ")
+		}
+	} else {
+		hints["tokenStatus"] = "no tokens found"
+	}
+
 	return hints
+}
+
+// tokenExpiryInfo holds expiry information for a single JWT token found in URL parameters.
+type tokenExpiryInfo struct {
+	Expired          bool
+	ExpiresAt        time.Time
+	SecondsRemaining int
+}
+
+// checkURLTokenExpiry inspects URL query parameters for JWT-shaped values and
+// returns expiry information for any tokens that contain an "exp" claim.
+// A value is considered JWT-shaped if it has exactly 3 dot-separated segments
+// where the middle segment is valid base64.
+func checkURLTokenExpiry(gameURL string) map[string]tokenExpiryInfo {
+	u, err := url.Parse(gameURL)
+	if err != nil {
+		return nil
+	}
+
+	result := map[string]tokenExpiryInfo{}
+	for param, values := range u.Query() {
+		if len(values) == 0 {
+			continue
+		}
+		val := values[0]
+		parts := strings.Split(val, ".")
+		if len(parts) != 3 {
+			continue
+		}
+
+		// Try to decode the payload (middle segment)
+		payload, err := base64.RawURLEncoding.DecodeString(parts[1])
+		if err != nil {
+			continue
+		}
+
+		// Parse as JSON and look for "exp" claim
+		var claims map[string]interface{}
+		if err := json.Unmarshal(payload, &claims); err != nil {
+			continue
+		}
+
+		expVal, ok := claims["exp"]
+		if !ok {
+			continue
+		}
+
+		// exp should be a number (Unix timestamp)
+		expFloat, ok := expVal.(float64)
+		if !ok {
+			continue
+		}
+
+		expiresAt := time.Unix(int64(expFloat), 0)
+		now := time.Now()
+		secondsRemaining := int(math.Max(0, expiresAt.Sub(now).Seconds()))
+
+		result[param] = tokenExpiryInfo{
+			Expired:          now.After(expiresAt),
+			ExpiresAt:        expiresAt,
+			SecondsRemaining: secondsRemaining,
+		}
+	}
+
+	return result
 }
 
 // AnalyzeGame analyzes a game from specification and URL

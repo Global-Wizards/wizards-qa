@@ -57,6 +57,24 @@ func (a *Analyzer) AgentExplore(
 
 	// Build initial user message with page metadata + screenshot
 	pageMetaJSON := buildPageMetaJSON(pageMeta)
+
+	// Check for expired JWT tokens in the URL
+	var tokenSection string
+	tokenStatuses := checkURLTokenExpiry(gameURL)
+	if len(tokenStatuses) > 0 {
+		var parts []string
+		for param, ts := range tokenStatuses {
+			if ts.Expired {
+				ago := time.Since(ts.ExpiresAt).Truncate(time.Minute)
+				parts = append(parts, fmt.Sprintf("%s expired %s ago", param, ago))
+			} else {
+				remaining := time.Until(ts.ExpiresAt).Truncate(time.Minute)
+				parts = append(parts, fmt.Sprintf("%s valid (%s remaining)", param, remaining))
+			}
+		}
+		tokenSection = fmt.Sprintf("\n\nToken status: %s", strings.Join(parts, ", "))
+	}
+
 	initialContent := []interface{}{
 		map[string]interface{}{
 			"type": "image",
@@ -73,11 +91,11 @@ func (a *Analyzer) AgentExplore(
 Game URL: %s
 
 Page metadata (auto-detected):
-%s%s
+%s%s%s
 
 Above is a screenshot of the initial page state. Begin your exploration by interacting with the game.
 Remember to take screenshots after interactions to observe results.
-When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, string(pageMetaJSON), consoleSection),
+When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, string(pageMetaJSON), consoleSection, tokenSection),
 		},
 	}
 

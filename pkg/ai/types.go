@@ -187,6 +187,12 @@ LOADING FAILURE RECOVERY:
 - If the game is stuck loading, use navigate with the game URL to reload.
 - After reloading, wait 3-5 seconds then take a screenshot to check the new state.
 
+SESSION-GATED GAMES:
+- Many games require valid session tokens passed via URL parameters (sessionToken, game_instance_token).
+- If the initial message indicates tokens are expired, the game WILL NOT load. Do not waste steps trying to interact with a loading screen.
+- Instead: take 1 screenshot to confirm the loading/error state, check console_logs for auth errors, then output EXPLORATION_COMPLETE.
+- In your synthesis, note that the game could not be analyzed due to expired session tokens and that fresh tokens are needed.
+
 RULES:
 1. Take a screenshot after each significant interaction to observe the result.
 2. Use get_page_info to understand the page structure when screenshots are ambiguous.

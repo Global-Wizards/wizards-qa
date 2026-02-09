@@ -5,6 +5,18 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.2] - 2026-02-08
+
+### JWT Token Expiration Detection & Session-Gated Game Handling
+
+#### Added
+- **JWT token expiry detection** — `checkURLTokenExpiry()` in `pkg/ai/analyzer.go` scans URL query params for JWT-shaped values, decodes the payload, and extracts the `exp` claim
+- **Token status in URL hints** — `parseURLHints()` now includes `tokenStatus` and `expiredTokens` keys, which flow automatically into analysis prompts
+- **Token status in agent initial message** — `AgentExplore()` includes token expiry info (e.g., "sessionToken expired 2h ago") so the agent knows immediately whether the game can load
+- **SESSION-GATED GAMES system prompt** — new section in `AgentSystemPrompt` instructs the agent to abort quickly (1 screenshot + console check + EXPLORATION_COMPLETE) when tokens are expired
+- **Frontend expired token warning** — `tokenWarning` computed property on Analyze page parses the URL for expired JWTs and shows an `<Alert>` below the URL input (warning only, does not block submission)
+- **Token info in debug log** — `buildDebugLogText()` includes the token warning in the clipboard diagnostic output
+
 ## [0.4.1] - 2026-02-08
 
 ### Audit Remediation — Security, Race Conditions & UX Fixes

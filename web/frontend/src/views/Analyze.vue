@@ -25,6 +25,13 @@
             Enter a valid URL starting with http:// or https://
           </p>
         </div>
+        <Alert v-if="tokenWarning" variant="destructive" class="flex items-start gap-2">
+          <AlertCircle class="h-4 w-4 mt-0.5 shrink-0" />
+          <div>
+            <AlertTitle>Expired Token Detected</AlertTitle>
+            <AlertDescription>{{ tokenWarning }}</AlertDescription>
+          </div>
+        </Alert>
         <div class="flex items-center gap-4">
           <Button :disabled="!isValidUrl(gameUrl) || analyzing" @click="handleAnalyze">
             {{ analyzing ? 'Starting...' : 'Analyze Game' }}
@@ -340,8 +347,26 @@
 
           <!-- Debug Info -->
           <details class="group">
-            <summary class="cursor-pointer text-sm font-medium">Debug Info</summary>
+            <summary class="cursor-pointer text-sm font-medium flex items-center gap-1.5">
+              <Bug class="h-4 w-4" />
+              Debug Info
+            </summary>
             <div class="mt-2 space-y-3 text-sm">
+              <!-- Progress Log -->
+              <div>
+                <div class="flex items-center justify-between mb-1">
+                  <span class="text-muted-foreground font-medium">Progress Log ({{ logs.length }} lines):</span>
+                  <Button variant="outline" size="sm" class="h-7 text-xs gap-1" @click="copyDebugLog">
+                    <Copy class="h-3 w-3" />
+                    {{ logCopied ? 'Copied!' : 'Copy Full Log' }}
+                  </Button>
+                </div>
+                <div class="max-h-48 overflow-y-auto rounded-md bg-muted p-3">
+                  <p v-for="(line, i) in logs" :key="i" class="text-xs font-mono text-muted-foreground">{{ line }}</p>
+                  <p v-if="!logs.length" class="text-xs text-muted-foreground">No log entries recorded.</p>
+                </div>
+              </div>
+
               <!-- Screenshot -->
               <div v-if="pageMeta?.screenshotB64">
                 <span class="text-muted-foreground font-medium">Screenshot:</span>
@@ -464,8 +489,17 @@
         </div>
 
         <!-- Show collected logs -->
-        <div v-if="logs.length" class="mt-4 max-h-40 overflow-y-auto rounded-md bg-muted p-3">
-          <p v-for="(line, i) in logs" :key="i" class="text-xs font-mono text-muted-foreground">{{ line }}</p>
+        <div v-if="logs.length" class="mt-4">
+          <div class="flex items-center justify-between mb-1">
+            <span class="text-sm text-muted-foreground font-medium">Log ({{ logs.length }} lines)</span>
+            <Button variant="outline" size="sm" class="h-7 text-xs gap-1" @click="copyDebugLog">
+              <Copy class="h-3 w-3" />
+              {{ logCopied ? 'Copied!' : 'Copy Full Log' }}
+            </Button>
+          </div>
+          <div class="max-h-40 overflow-y-auto rounded-md bg-muted p-3">
+            <p v-for="(line, i) in logs" :key="i" class="text-xs font-mono text-muted-foreground">{{ line }}</p>
+          </div>
         </div>
 
         <!-- Elapsed time at failure -->
@@ -528,7 +562,7 @@ import { truncateUrl, isValidUrl } from '@/lib/utils'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -562,6 +596,8 @@ const agentScreenshotStep = ref(null)
 
 // Clipboard timeout tracking
 let copyTimeoutId = null
+const logCopied = ref(false)
+let logCopyTimeoutId = null
 
 const {
   status,
@@ -617,6 +653,38 @@ const framework = computed(() => {
 
 const flowCount = computed(() => {
   return flowList.value?.length || 0
+})
+
+// JWT token expiration warning
+const tokenWarning = computed(() => {
+  if (!gameUrl.value || !isValidUrl(gameUrl.value)) return ''
+  try {
+    const u = new URL(gameUrl.value)
+    const warnings = []
+    for (const [param, value] of u.searchParams) {
+      const parts = value.split('.')
+      if (parts.length !== 3) continue
+      try {
+        const payload = JSON.parse(atob(parts[1].replace(/-/g, '+').replace(/_/g, '/')))
+        if (typeof payload.exp !== 'number') continue
+        const now = Date.now() / 1000
+        if (payload.exp < now) {
+          const agoSec = Math.round(now - payload.exp)
+          let agoStr
+          if (agoSec < 60) agoStr = `${agoSec}s ago`
+          else if (agoSec < 3600) agoStr = `${Math.round(agoSec / 60)}m ago`
+          else agoStr = `${Math.round(agoSec / 3600)}h ago`
+          warnings.push(`The ${param} in this URL expired ${agoStr}.`)
+        }
+      } catch {
+        // Not a valid JWT payload — skip
+      }
+    }
+    if (warnings.length === 0) return ''
+    return warnings.join(' ') + ' The game may not load during analysis.'
+  } catch {
+    return ''
+  }
 })
 
 // --- Rich progress detail computeds ---
@@ -915,6 +983,76 @@ async function copyFlowYaml() {
   }
 }
 
+function buildDebugLogText() {
+  const lines = []
+  lines.push('=== Wizards QA Debug Log ===')
+  lines.push(`Date: ${new Date().toISOString()}`)
+  if (currentAnalysisId.value) lines.push(`Analysis ID: ${currentAnalysisId.value}`)
+  if (gameUrl.value) lines.push(`Game URL: ${gameUrl.value}`)
+  lines.push(`Status: ${status.value}`)
+  lines.push(`Agent Mode: ${agentMode.value ? 'yes' : 'no'}`)
+  lines.push(`Framework: ${framework.value}`)
+  lines.push(`Flows: ${flowCount.value}`)
+  if (tokenWarning.value) {
+    lines.push(`Token Warning: ${tokenWarning.value}`)
+  }
+  lines.push('')
+
+  // Duration and step timings
+  if (elapsedSeconds.value > 0) {
+    lines.push(`Duration: ${formatElapsed(elapsedSeconds.value)}`)
+  }
+  const timingSummary = formatStepTimingSummary()
+  if (timingSummary) {
+    lines.push(`Step Timings: ${timingSummary}`)
+  }
+  lines.push('')
+
+  // Error
+  if (analysisError.value) {
+    lines.push(`Error: ${analysisError.value}`)
+    lines.push('')
+  }
+
+  // Full progress log
+  lines.push(`--- Progress Log (${logs.value.length} lines) ---`)
+  logs.value.forEach((line) => lines.push(line))
+  lines.push('')
+
+  // Analysis summary
+  if (analysis.value) {
+    lines.push('--- Analysis Summary ---')
+    lines.push(`Mechanics: ${analysis.value.mechanics?.length || 0}`)
+    lines.push(`UI Elements: ${analysis.value.uiElements?.length || 0}`)
+    lines.push(`User Flows: ${analysis.value.userFlows?.length || 0}`)
+    lines.push(`Edge Cases: ${analysis.value.edgeCases?.length || 0}`)
+    lines.push('')
+  }
+
+  // Flow names + command counts
+  if (flowList.value.length) {
+    lines.push('--- Generated Flows ---')
+    flowList.value.forEach((f) => {
+      lines.push(`  ${f.name}: ${f.commands?.length || 0} commands`)
+    })
+    lines.push('')
+  }
+
+  lines.push('=== End Debug Log ===')
+  return lines.join('\n')
+}
+
+async function copyDebugLog() {
+  try {
+    await navigator.clipboard.writeText(buildDebugLogText())
+    logCopied.value = true
+    if (logCopyTimeoutId != null) clearTimeout(logCopyTimeoutId)
+    logCopyTimeoutId = setTimeout(() => { logCopied.value = false }, 2000)
+  } catch {
+    // clipboard API not available
+  }
+}
+
 async function viewAnalysis(item) {
   try {
     const data = await analysesApi.get(item.id)
@@ -947,6 +1085,7 @@ async function loadRecentAnalyses() {
 
 onUnmounted(() => {
   if (copyTimeoutId != null) clearTimeout(copyTimeoutId)
+  if (logCopyTimeoutId != null) clearTimeout(logCopyTimeoutId)
   if (hintSentTimeout != null) clearTimeout(hintSentTimeout)
 })
 
