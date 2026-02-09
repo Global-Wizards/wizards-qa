@@ -5,6 +5,23 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-02-09
+
+### Complete Profiles System — Optimize Agent Token Usage & Timeouts
+
+#### Changed
+- **CLI TotalTimeout scales with agentSteps** — exploration timeout now uses `steps × 30s + 5min buffer` (clamped 5–20min) instead of hardcoded 12min. Debug (3 steps) → 5min, quick (8) → 9min, balanced (15) → 12.5min, thorough (20) → 15min, maximum (25) → 17.5min.
+- **Default config MaxTokens lowered from 16000 to 8192** — no profile uses more than 8192; the old value encouraged overly verbose exploration output.
+- **Profile temperatures lowered for reliable JSON** — thorough/maximum dropped from 0.7 → 0.3/0.2; balanced from 0.5 → 0.3; quick from 0.3 → 0.2. Structured JSON output is far more reliable at low temperatures.
+- **Quick profile maxTokens raised from 2048 → 4096** — synthesis needs at least 4096 tokens for full JSON output.
+- **Debug profile maxTokens raised from 1024 → 2048, agentSteps reduced from 5 → 3** — faster pipeline debugging.
+- **Maximum profile description updated** to mention extensive exploration.
+
+#### Added
+- **SynthesisMaxTokens in AgentConfig** — new field overrides maxTokens for the synthesis call only, ensuring low-token profiles (quick, debug) don't truncate the synthesis JSON. Automatically set to 4096 when the profile's maxTokens is below that threshold.
+- **Cost/time indicators in profile selector** — each profile now shows estimated cost tier and time range (e.g., "medium cost · ~5–10 min") in the Analyze page UI.
+- **`agentTotalTimeout()` helper** — reusable timeout formula shared between `DefaultAgentConfig()` and `cmd/scout.go`.
+
 ## [0.6.1] - 2026-02-09
 
 ### Fix Analysis Timeouts — Per-Phase Retry & Dynamic Timeouts

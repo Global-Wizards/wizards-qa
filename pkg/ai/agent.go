@@ -371,6 +371,20 @@ IMPORTANT: Base your analysis on what you actually observed during exploration. 
 	// Add synthesis request as a user message (no tools for this call)
 	messages = append(messages, AgentMessage{Role: "user", Content: synthesisPrompt})
 
+	// Ensure synthesis has enough token budget for full JSON output
+	if cfg.SynthesisMaxTokens > 0 {
+		if bc, ok := a.Client.(*ClaudeClient); ok {
+			origMaxTokens := bc.MaxTokens
+			bc.MaxTokens = cfg.SynthesisMaxTokens
+			defer func() { bc.MaxTokens = origMaxTokens }()
+		}
+		if gc, ok := a.Client.(*GeminiClient); ok {
+			origMaxTokens := gc.MaxTokens
+			gc.MaxTokens = cfg.SynthesisMaxTokens
+			defer func() { gc.MaxTokens = origMaxTokens }()
+		}
+	}
+
 	// Call without tools to get structured JSON — retry up to 3 times with backoff
 	var synthResp *ToolUseResponse
 	retryCfg := &retry.Config{

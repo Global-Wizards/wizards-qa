@@ -70,7 +70,7 @@ func DefaultConfig() *Config {
 			Model:       "claude-sonnet-4-5",
 			APIKey:      "${ANTHROPIC_API_KEY}",
 			Temperature: 0.3,
-			MaxTokens:   16000,
+			MaxTokens:   8192,
 		},
 		Maestro: MaestroConfig{
 			Path:          "maestro",

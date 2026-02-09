@@ -69,6 +69,9 @@
               / {{ activeProfile.maxTokens }} tokens
               / {{ activeProfile.agentSteps }} steps
             </span>
+            <span v-if="activeProfile.cost" class="text-muted-foreground/70">
+              &middot; {{ activeProfile.cost }} cost &middot; ~{{ activeProfile.time }}
+            </span>
           </p>
 
           <!-- Custom fields -->

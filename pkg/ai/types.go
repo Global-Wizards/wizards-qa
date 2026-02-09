@@ -143,20 +143,35 @@ type AgentStep struct {
 
 // AgentConfig controls the agent exploration loop.
 type AgentConfig struct {
-	MaxSteps      int
-	StepTimeout   time.Duration
-	TotalTimeout  time.Duration
-	UserMessages  <-chan string // Optional channel for user hints injected during exploration
-	ScreenshotDir string       // Optional directory to write screenshots for live streaming
+	MaxSteps           int
+	StepTimeout        time.Duration
+	TotalTimeout       time.Duration
+	UserMessages       <-chan string // Optional channel for user hints injected during exploration
+	ScreenshotDir      string       // Optional directory to write screenshots for live streaming
+	SynthesisMaxTokens int          // Override maxTokens for synthesis call (0 = use client default)
 }
 
 // DefaultAgentConfig returns sensible defaults for agent exploration.
 func DefaultAgentConfig() AgentConfig {
+	steps := 20
 	return AgentConfig{
-		MaxSteps:     20,
+		MaxSteps:     steps,
 		StepTimeout:  30 * time.Second,
-		TotalTimeout: 12 * time.Minute,
+		TotalTimeout: agentTotalTimeout(steps),
 	}
+}
+
+// agentTotalTimeout scales exploration timeout with step count:
+// steps × 30s avg + 5min buffer, clamped to [5min, 20min].
+func agentTotalTimeout(steps int) time.Duration {
+	t := time.Duration(steps)*30*time.Second + 5*time.Minute
+	if t < 5*time.Minute {
+		t = 5 * time.Minute
+	}
+	if t > 20*time.Minute {
+		t = 20 * time.Minute
+	}
+	return t
 }
 
 // AgentSystemPrompt is the system prompt for the agent exploration loop.

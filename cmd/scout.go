@@ -196,10 +196,26 @@ Example:
 					fmt.Println()
 				}
 
+				// Scale exploration timeout: steps × 30s avg + 5min buffer, clamped 5-20min
+				explorationTimeout := time.Duration(agentSteps)*30*time.Second + 5*time.Minute
+				if explorationTimeout < 5*time.Minute {
+					explorationTimeout = 5 * time.Minute
+				}
+				if explorationTimeout > 20*time.Minute {
+					explorationTimeout = 20 * time.Minute
+				}
+
+				// Synthesis needs at least 4096 tokens for full JSON; ensure low-token profiles don't truncate
+				synthTokens := 0
+				if maxTokens > 0 && maxTokens < 4096 {
+					synthTokens = 4096
+				}
+
 				agentCfg := ai.AgentConfig{
-					MaxSteps:     agentSteps,
-					StepTimeout:  30 * time.Second,
-					TotalTimeout: 12 * time.Minute,
+					MaxSteps:           agentSteps,
+					StepTimeout:        30 * time.Second,
+					TotalTimeout:       explorationTimeout,
+					SynthesisMaxTokens: synthTokens,
 				}
 
 				// When launched by the backend (--json + --agent), read user hints from stdin
