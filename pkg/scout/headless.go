@@ -139,16 +139,22 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Launch headless Chrome with WebGL support via SwiftShader (software rendering).
-	// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL,
-	// which Phaser 4 (and many Phaser 3 games) require for rendering.
+	// Launch headless Chrome optimized for Phaser/WebGL game testing.
+	// - HeadlessNew: uses --headless=new (Chrome 112+) which shares the full browser
+	//   rendering pipeline, giving proper WebGL/canvas support unlike old --headless.
+	// - SwiftShader: CPU-based Vulkan/GLES backend for WebGL without a real GPU.
+	// - Autoplay: allow game audio without user gesture (Phaser Web Audio API).
+	// - Font hinting: disabled for consistent screenshot rendering across environments.
+	// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL.
 	l := launcher.New().
-		Headless(true).
+		HeadlessNew(true).
 		NoSandbox(true).
+		Set("disable-dev-shm-usage").
 		Set("use-gl", "angle").
 		Set("use-angle", "swiftshader").
 		Set("enable-unsafe-swiftshader").
-		Set("disable-dev-shm-usage")
+		Set("autoplay-policy", "no-user-gesture-required").
+		Set("font-render-hinting", "none")
 
 	if bin := lookupChromeBin(); bin != "" {
 		l = l.Bin(bin)
@@ -330,16 +336,22 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Launch headless Chrome with WebGL support via SwiftShader (software rendering).
-	// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL,
-	// which Phaser 4 (and many Phaser 3 games) require for rendering.
+	// Launch headless Chrome optimized for Phaser/WebGL game testing.
+	// - HeadlessNew: uses --headless=new (Chrome 112+) which shares the full browser
+	//   rendering pipeline, giving proper WebGL/canvas support unlike old --headless.
+	// - SwiftShader: CPU-based Vulkan/GLES backend for WebGL without a real GPU.
+	// - Autoplay: allow game audio without user gesture (Phaser Web Audio API).
+	// - Font hinting: disabled for consistent screenshot rendering across environments.
+	// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL.
 	l := launcher.New().
-		Headless(true).
+		HeadlessNew(true).
 		NoSandbox(true).
+		Set("disable-dev-shm-usage").
 		Set("use-gl", "angle").
 		Set("use-angle", "swiftshader").
 		Set("enable-unsafe-swiftshader").
-		Set("disable-dev-shm-usage")
+		Set("autoplay-policy", "no-user-gesture-required").
+		Set("font-render-hinting", "none")
 
 	if bin := lookupChromeBin(); bin != "" {
 		l = l.Bin(bin)

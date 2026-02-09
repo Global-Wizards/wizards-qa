@@ -25,8 +25,8 @@ RUN CGO_ENABLED=0 go build -ldflags="-s -w -X main.version=$(cat VERSION | tr -d
 
 # Stage 3: Runtime
 FROM alpine:3.19
-RUN apk add --no-cache ca-certificates chromium nss freetype harfbuzz \
-    mesa-egl mesa-gl libxcomposite libxdamage \
+RUN apk add --no-cache ca-certificates chromium chromium-swiftshader nss freetype harfbuzz \
+    ttf-freefont mesa-egl mesa-gl libxcomposite libxdamage \
     openjdk17-jre-headless curl unzip bash \
     && addgroup -S appgroup && adduser -S appuser -G appgroup
 

@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.5] - 2026-02-09
+
+### Headless Chrome Hardening for Phaser/WebGL Game Testing
+
+#### Fixed
+- **Old headless mode had degraded WebGL** — switched from `Headless(true)` (legacy `--headless`) to `HeadlessNew(true)` (`--headless=new`, Chrome 112+) which shares the full browser rendering pipeline for proper WebGL/canvas support
+- **SwiftShader libraries missing from Docker image** — added `chromium-swiftshader` package (CPU-based Vulkan for WebGL without a real GPU) and `ttf-freefont` for complete font coverage
+- **Game audio blocking page load** — added `--autoplay-policy=no-user-gesture-required` to prevent Phaser games from hanging on Web Audio API initialization
+- **Inconsistent screenshot font rendering** — added `--font-render-hinting=none` for predictable text rendering across environments
+
 ## [0.4.4] - 2026-02-09
 
 ### WebGL Support for Phaser 4 Games
