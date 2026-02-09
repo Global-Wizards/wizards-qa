@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Global-Wizards/wizards-qa/pkg/retry"
 	"github.com/Global-Wizards/wizards-qa/pkg/scout"
 )
 
@@ -109,10 +110,17 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 	totalStart := time.Now()
 
+	// Reserve time for synthesis + flow generation (with retries) so exploration can't starve them
+	synthesisReserve := 3 * time.Minute
+	effectiveExplorationTimeout := cfg.TotalTimeout - synthesisReserve
+	if effectiveExplorationTimeout < 2*time.Minute {
+		effectiveExplorationTimeout = 2 * time.Minute
+	}
+
 	for step := 1; step <= cfg.MaxSteps; step++ {
-		// Check total timeout
-		if cfg.TotalTimeout > 0 && time.Since(totalStart) > cfg.TotalTimeout {
-			progress("agent_step", fmt.Sprintf("Step %d: total timeout reached", step))
+		// Check exploration timeout (reserves time for synthesis)
+		if cfg.TotalTimeout > 0 && time.Since(totalStart) > effectiveExplorationTimeout {
+			progress("agent_step", fmt.Sprintf("Step %d: exploration timeout reached (reserving time for synthesis)", step))
 			break
 		}
 
@@ -363,8 +371,24 @@ IMPORTANT: Base your analysis on what you actually observed during exploration. 
 	// Add synthesis request as a user message (no tools for this call)
 	messages = append(messages, AgentMessage{Role: "user", Content: synthesisPrompt})
 
-	// Call without tools to get structured JSON
-	synthResp, synthErr := agent.CallWithTools(AgentSystemPrompt, messages, nil)
+	// Call without tools to get structured JSON — retry up to 3 times with backoff
+	var synthResp *ToolUseResponse
+	retryCfg := &retry.Config{
+		MaxAttempts:  3,
+		InitialDelay: 5 * time.Second,
+		MaxDelay:     30 * time.Second,
+		Multiplier:   2.0,
+	}
+	synthAttempt := 0
+	synthErr := retry.Do(ctx, retryCfg, func() error {
+		synthAttempt++
+		if synthAttempt > 1 {
+			progress("synthesis_retry", fmt.Sprintf("Retrying synthesis (attempt %d/%d)...", synthAttempt, retryCfg.MaxAttempts))
+		}
+		var err error
+		synthResp, err = agent.CallWithTools(AgentSystemPrompt, messages, nil)
+		return err
+	})
 	if synthErr != nil {
 		return nil, steps, fmt.Errorf("synthesis call failed: %w", synthErr)
 	}
@@ -438,7 +462,24 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 
 	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
 
-	flows, flowErr := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, flowScreenshots)
+	// Retry flow generation up to 3 times with backoff
+	var flows []*MaestroFlow
+	flowRetryCfg := &retry.Config{
+		MaxAttempts:  3,
+		InitialDelay: 5 * time.Second,
+		MaxDelay:     30 * time.Second,
+		Multiplier:   2.0,
+	}
+	flowAttempt := 0
+	flowErr := retry.Do(ctx, flowRetryCfg, func() error {
+		flowAttempt++
+		if flowAttempt > 1 {
+			progress("flows_retry", fmt.Sprintf("Retrying flow generation (attempt %d/%d)...", flowAttempt, flowRetryCfg.MaxAttempts))
+		}
+		var err error
+		flows, err = a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, flowScreenshots)
+		return err
+	})
 	if flowErr != nil {
 		return pageMeta, result, nil, agentSteps, fmt.Errorf("flow generation failed: %w", flowErr)
 	}

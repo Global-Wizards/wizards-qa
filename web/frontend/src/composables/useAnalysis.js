@@ -28,10 +28,12 @@ const STEP_TO_STATUS = {
   agent_action: 'analyzing',
   agent_done: 'analyzing',
   agent_synthesize: 'analyzing',
+  synthesis_retry: 'analyzing',
   agent_reasoning: 'analyzing',
   agent_step_detail: 'analyzing',
   agent_screenshot: 'analyzing',
   user_hint: 'analyzing',
+  flows_retry: 'generating',
 }
 
 export function useAnalysis() {
@@ -48,6 +50,8 @@ export function useAnalysis() {
   const startTime = ref(null)
   const elapsedSeconds = ref(0)
   const stepTimings = ref({}) // { scouting: {start, end}, analyzing: {start, end}, ... }
+
+  const failedStep = ref(null) // last step name when analysis failed
 
   // Live agent exploration state
   const liveAgentSteps = ref([])
@@ -252,6 +256,7 @@ export function useAnalysis() {
       }
 
       error.value = data.error || 'Analysis failed'
+      failedStep.value = currentStep.value || null
       status.value = 'error'
       stopElapsedTimer()
       clearLocalStorage()
@@ -264,7 +269,7 @@ export function useAnalysis() {
     cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offCompleted, offFailed]
   }
 
-  async function start(gameUrl, projectId, useAgentMode = false) {
+  async function start(gameUrl, projectId, useAgentMode = false, profileParams = {}) {
     status.value = 'scouting'
     currentStep.value = 'scouting'
     analysisId.value = null
@@ -274,6 +279,7 @@ export function useAnalysis() {
     agentSteps.value = []
     agentMode.value = useAgentMode
     error.value = null
+    failedStep.value = null
     logs.value = []
     stepTimings.value = {}
     liveAgentSteps.value = []
@@ -288,7 +294,7 @@ export function useAnalysis() {
     setupListeners()
 
     try {
-      const response = await analyzeApi.start(gameUrl, projectId, useAgentMode)
+      const response = await analyzeApi.start(gameUrl, projectId, useAgentMode, profileParams)
       analysisId.value = response.analysisId
 
       // Persist to localStorage so we can recover
@@ -337,7 +343,7 @@ export function useAnalysis() {
         currentStep.value = statusData.step || ''
 
         // Restore agent mode from persisted state or infer from step name
-        const agentStepNames = ['agent_start', 'agent_step', 'agent_action', 'agent_done', 'agent_synthesize', 'agent_reasoning', 'agent_step_detail', 'agent_screenshot']
+        const agentStepNames = ['agent_start', 'agent_step', 'agent_action', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'agent_reasoning', 'agent_step_detail', 'agent_screenshot']
         if (parsed.agentMode || agentStepNames.includes(statusData.step)) {
           agentMode.value = true
         }
@@ -398,6 +404,7 @@ export function useAnalysis() {
     agentSteps.value = []
     agentMode.value = false
     error.value = null
+    failedStep.value = null
     logs.value = []
     elapsedSeconds.value = 0
     startTime.value = null
@@ -454,6 +461,8 @@ export function useAnalysis() {
     agentStepCurrent,
     agentStepTotal,
     sendHint,
+    // Failed step tracking
+    failedStep,
     // Persisted agent steps
     persistedAgentSteps,
     loadPersistedSteps,

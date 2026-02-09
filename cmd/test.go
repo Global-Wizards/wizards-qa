@@ -63,7 +63,7 @@ Example:
 				return err
 			}
 
-			analyzer, err := newAnalyzer(cfg)
+			analyzer, err := newAnalyzer(cfg, "", 0, -1)
 			if err != nil {
 				return err
 			}

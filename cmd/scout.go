@@ -17,15 +17,18 @@ import (
 
 func newScoutCmd() *cobra.Command {
 	var (
-		gameURL    string
-		output     string
-		jsonOutput bool
-		saveFlows  bool
-		configPath string
-		headless   bool
-		timeout    int
-		agentMode  bool
-		agentSteps int
+		gameURL      string
+		output       string
+		jsonOutput   bool
+		saveFlows    bool
+		configPath   string
+		headless     bool
+		timeout      int
+		agentMode    bool
+		agentSteps   int
+		modelFlag    string
+		maxTokens    int
+		temperature  float64
 	)
 
 	cmd := &cobra.Command{
@@ -122,7 +125,7 @@ Example:
 				return err
 			}
 
-			analyzer, err := newAnalyzer(cfg)
+			analyzer, err := newAnalyzer(cfg, modelFlag, maxTokens, temperature)
 			if err != nil {
 				return err
 			}
@@ -316,6 +319,9 @@ Example:
 	cmd.Flags().IntVar(&timeout, "timeout", 10, "HTTP fetch timeout in seconds")
 	cmd.Flags().BoolVar(&agentMode, "agent", false, "Enable agent mode: AI actively explores the game via browser tools")
 	cmd.Flags().IntVar(&agentSteps, "agent-steps", 20, "Max exploration steps in agent mode")
+	cmd.Flags().StringVar(&modelFlag, "model", "", "Override AI model (e.g. claude-sonnet-4-5-20250929)")
+	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Override max tokens for AI responses")
+	cmd.Flags().Float64Var(&temperature, "temperature", -1, "Override AI temperature (0.0-1.0, unset by default)")
 
 	cmd.MarkFlagRequired("game")
 

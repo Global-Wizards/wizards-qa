@@ -24,9 +24,13 @@ import (
 )
 
 type AnalysisRequest struct {
-	GameURL   string `json:"gameUrl"`
-	ProjectID string `json:"projectId"`
-	AgentMode bool   `json:"agentMode"`
+	GameURL     string   `json:"gameUrl"`
+	ProjectID   string   `json:"projectId"`
+	AgentMode   bool     `json:"agentMode"`
+	Model       string   `json:"model,omitempty"`
+	MaxTokens   int      `json:"maxTokens,omitempty"`
+	AgentSteps  int      `json:"agentSteps,omitempty"`
+	Temperature *float64 `json:"temperature,omitempty"`
 }
 
 type AnalysisProgress struct {
@@ -53,6 +57,20 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Validate profile param bounds
+	if req.MaxTokens != 0 && (req.MaxTokens < 256 || req.MaxTokens > 32768) {
+		respondError(w, http.StatusBadRequest, "maxTokens must be between 256 and 32768")
+		return
+	}
+	if req.AgentSteps != 0 && (req.AgentSteps < 1 || req.AgentSteps > 100) {
+		respondError(w, http.StatusBadRequest, "agentSteps must be between 1 and 100")
+		return
+	}
+	if req.Temperature != nil && (*req.Temperature < 0 || *req.Temperature > 1) {
+		respondError(w, http.StatusBadRequest, "temperature must be between 0.0 and 1.0")
+		return
+	}
+
 	analysisID := fmt.Sprintf("analysis-%d", time.Now().UnixNano())
 
 	// Get createdBy from auth context
@@ -60,10 +78,6 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 	if claims := auth.UserFromContext(r.Context()); claims != nil {
 		createdBy = claims.UserID
 	}
-
-	projectID := req.ProjectID
-
-	agentMode := req.AgentMode
 
 	go func() {
 		defer func() {
@@ -78,7 +92,7 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 				})
 			}
 		}()
-		s.executeAnalysis(analysisID, req.GameURL, createdBy, projectID, agentMode)
+		s.executeAnalysis(analysisID, createdBy, req)
 	}()
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
@@ -88,7 +102,9 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID string, agentMode bool) {
+func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisRequest) {
+	gameURL := req.GameURL
+	agentMode := req.AgentMode
 	// Acquire concurrency slot
 	select {
 	case s.analysisSem <- struct{}{}:
@@ -116,7 +132,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 		CreatedAt: time.Now().Format(time.RFC3339),
 		UpdatedAt: time.Now().Format(time.RFC3339),
 		CreatedBy: createdBy,
-		ProjectID: projectID,
+		ProjectID: req.ProjectID,
 	}
 	if err := s.store.SaveAnalysis(runningRecord); err != nil {
 		log.Printf("Warning: failed to save running analysis record for %s: %v", analysisID, err)
@@ -133,7 +149,20 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 
 	timeout := 5 * time.Minute
 	if agentMode {
-		timeout = 15 * time.Minute
+		steps := req.AgentSteps
+		if steps <= 0 {
+			steps = 20 // default
+		}
+		// Base: exploration budget (steps × 40s avg) + 8min buffer for synthesis + flow gen (with retries)
+		explorationBudget := time.Duration(steps) * 40 * time.Second
+		timeout = explorationBudget + 8*time.Minute
+		// Clamp between 10min and 30min
+		if timeout < 10*time.Minute {
+			timeout = 10 * time.Minute
+		}
+		if timeout > 30*time.Minute {
+			timeout = 30 * time.Minute
+		}
 	}
 	ctx, cancel := context.WithTimeout(s.serverCtx, timeout)
 	defer cancel()
@@ -141,6 +170,18 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 	args := []string{"scout", "--game", gameURL, "--json", "--save-flows", "--output", tmpDir, "--headless", "--timeout", "60"}
 	if agentMode {
 		args = append(args, "--agent")
+		if req.AgentSteps > 0 {
+			args = append(args, "--agent-steps", fmt.Sprintf("%d", req.AgentSteps))
+		}
+	}
+	if req.Model != "" {
+		args = append(args, "--model", req.Model)
+	}
+	if req.MaxTokens > 0 {
+		args = append(args, "--max-tokens", fmt.Sprintf("%d", req.MaxTokens))
+	}
+	if req.Temperature != nil {
+		args = append(args, "--temperature", fmt.Sprintf("%g", *req.Temperature))
 	}
 	log.Printf("Analysis %s: executing %s %s", analysisID, cliPath, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, cliPath, args...)
@@ -182,6 +223,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 
 	// Stream stderr for PROGRESS: lines and collect non-progress lines for error reporting
 	var stderrLines []string
+	var lastKnownStep string
 	stderrDone := make(chan struct{})
 	go func() {
 		defer close(stderrDone)
@@ -198,6 +240,7 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 				rest := line[len("PROGRESS:"):]
 				parts := strings.SplitN(rest, ":", 2)
 				step := strings.TrimSpace(parts[0])
+				lastKnownStep = step
 				message := ""
 				if len(parts) > 1 {
 					message = strings.TrimSpace(parts[1])
@@ -331,7 +374,11 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 		// Classify error concisely for the user
 		var userMsg string
 		if ctx.Err() != nil {
-			userMsg = fmt.Sprintf("Analysis timed out after %d minutes", int(timeout.Minutes()))
+			if lastKnownStep != "" {
+				userMsg = fmt.Sprintf("Analysis timed out after %d minutes (last step: %s)", int(timeout.Minutes()), lastKnownStep)
+			} else {
+				userMsg = fmt.Sprintf("Analysis timed out after %d minutes", int(timeout.Minutes()))
+			}
 		} else if exitErr, ok := err.(*exec.ExitError); ok {
 			userMsg = fmt.Sprintf("CLI exited with code %d", exitErr.ExitCode())
 		} else {

@@ -29,8 +29,22 @@ func validateAPIKey(cfg *config.Config) error {
 }
 
 // newAnalyzer creates an AI analyzer from the configuration, respecting the provider setting.
-func newAnalyzer(cfg *config.Config) (*ai.Analyzer, error) {
-	return ai.NewAnalyzerFromConfig(cfg.AI.Provider, cfg.AI.APIKey, cfg.AI.Model, cfg.AI.Temperature, cfg.AI.MaxTokens)
+// Optional overrides (model, maxTokens, temperature) take precedence over config values
+// when non-zero/non-empty. Use temperature < 0 to indicate "no override".
+func newAnalyzer(cfg *config.Config, model string, maxTokens int, temperature float64) (*ai.Analyzer, error) {
+	m := cfg.AI.Model
+	if model != "" {
+		m = model
+	}
+	mt := cfg.AI.MaxTokens
+	if maxTokens > 0 {
+		mt = maxTokens
+	}
+	t := cfg.AI.Temperature
+	if temperature >= 0 {
+		t = temperature
+	}
+	return ai.NewAnalyzerFromConfig(cfg.AI.Provider, cfg.AI.APIKey, m, t, mt)
 }
 
 // deriveGameName extracts a game name from a URL, falling back to "game".

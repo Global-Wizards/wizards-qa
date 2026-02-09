@@ -5,6 +5,31 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-02-09
+
+### Fix Analysis Timeouts — Per-Phase Retry & Dynamic Timeouts
+
+#### Fixed
+- **Synthesis and flow generation failures losing all exploration work** — both calls now auto-retry up to 3 times with exponential backoff (5s → 10s → 20s). A single transient API error no longer wastes 12+ minutes of exploration.
+- **Fixed 15-minute timeout too short for thorough analyses, too long for quick ones** — backend timeout now scales dynamically with agent steps (e.g., 5 steps → 11min, 20 steps → 21min, 25 steps → 25min), clamped between 10–30 minutes.
+- **Exploration starving synthesis of time** — exploration loop now reserves 3 minutes for synthesis by stopping early when the time budget runs low, ensuring synthesis always has time to complete.
+- **Timeout errors lacking context** — timeout error messages now include the last known step (e.g., "Analysis timed out after 25 minutes (last step: agent_synthesize)").
+
+#### Added
+- **Retry progress events** — new `synthesis_retry` and `flows_retry` progress events stream to the frontend so users see "Retrying synthesis (attempt 2/3)..." in real time.
+- **Failed phase indicator** — error state now shows which phase failed (e.g., "Failed during: Synthesis") below the error message.
+
+## [0.6.0] - 2026-02-09
+
+### Analysis Profiles — Configurable Model, Tokens & Steps
+
+#### Added
+- **Analysis Profiles** — 5 presets (Quick Scan, Balanced, Thorough, Maximum, Debug) that configure model, max tokens, agent steps, and temperature in one click
+- **Profile selector UI** on the Analyze page with a dropdown below the Agent Mode toggle; selecting a profile shows a summary of its settings
+- **Custom profile mode** — selecting "Custom" expands individual fields (model, max tokens, agent steps, temperature) for full manual control
+- **CLI flags** — `--model`, `--max-tokens`, `--temperature` flags on the `scout` command for direct override of AI parameters
+- **Backend passthrough** — `AnalysisRequest` now accepts `model`, `maxTokens`, `agentSteps`, `temperature` fields and passes them as CLI flags to the scout subprocess
+
 ## [0.5.2] - 2026-02-09
 
 ### Fix Agent Timeout — Sliding Window Screenshot Pruning

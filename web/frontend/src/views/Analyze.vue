@@ -42,6 +42,55 @@
             <span class="text-xs text-muted-foreground">(AI explores the game interactively)</span>
           </label>
         </div>
+
+        <!-- Analysis Profile Selector -->
+        <div class="space-y-3 pt-2 border-t">
+          <div class="flex items-center gap-3">
+            <Settings2 class="h-4 w-4 text-muted-foreground shrink-0" />
+            <div class="flex items-center gap-2 flex-1">
+              <label class="text-sm font-medium whitespace-nowrap">Analysis Profile</label>
+              <Select :model-value="selectedProfile" @update:model-value="onProfileChange">
+                <SelectTrigger class="w-[180px]">
+                  <SelectValue placeholder="Select profile" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="p in ANALYSIS_PROFILES" :key="p.name" :value="p.name">
+                    {{ p.label }}
+                  </SelectItem>
+                  <SelectItem value="custom">Custom</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+          <p v-if="activeProfile" class="text-xs text-muted-foreground ml-7">
+            {{ activeProfile.description }}
+            <span class="text-muted-foreground/70">
+              &mdash; {{ activeProfile.model.split('-').slice(0, 2).join('-') }}
+              / {{ activeProfile.maxTokens }} tokens
+              / {{ activeProfile.agentSteps }} steps
+            </span>
+          </p>
+
+          <!-- Custom fields -->
+          <div v-if="showCustomFields" class="ml-7 grid gap-3 sm:grid-cols-2">
+            <div class="space-y-1">
+              <label class="text-xs font-medium">Model</label>
+              <Input v-model="customModel" placeholder="claude-sonnet-4-5-20250929" class="text-sm" />
+            </div>
+            <div class="space-y-1">
+              <label class="text-xs font-medium">Max Tokens</label>
+              <Input v-model.number="customMaxTokens" type="number" :min="512" :max="16384" class="text-sm" />
+            </div>
+            <div class="space-y-1">
+              <label class="text-xs font-medium">Agent Steps</label>
+              <Input v-model.number="customAgentSteps" type="number" :min="1" :max="50" class="text-sm" />
+            </div>
+            <div class="space-y-1">
+              <label class="text-xs font-medium">Temperature</label>
+              <Input v-model.number="customTemperature" type="number" :min="0" :max="1" step="0.1" class="text-sm" />
+            </div>
+          </div>
+        </div>
       </CardContent>
     </Card>
 
@@ -437,7 +486,12 @@
       <CardContent class="pt-6">
         <Alert variant="destructive">
           <AlertTitle>Analysis Failed</AlertTitle>
-          <AlertDescription>{{ analysisError }}</AlertDescription>
+          <AlertDescription>
+            {{ analysisError }}
+            <span v-if="failedPhaseLabel" class="block mt-1 text-xs opacity-80">
+              Failed during: {{ failedPhaseLabel }}
+            </span>
+          </AlertDescription>
         </Alert>
 
         <!-- Show progress steps so user sees where it failed -->
@@ -557,10 +611,11 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAnalysis } from '@/composables/useAnalysis'
 import { truncateUrl, isValidUrl } from '@/lib/utils'
+import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2 } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -569,6 +624,7 @@ import { Separator } from '@/components/ui/separator'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import ProgressStep from '@/components/ProgressStep.vue'
 import AgentStepNavigator from '@/components/AgentStepNavigator.vue'
 
@@ -579,6 +635,13 @@ const projectId = computed(() => route.params.projectId || '')
 const gameUrl = ref('')
 const analyzing = ref(false)
 const useAgentMode = ref(true)
+const selectedProfile = ref('balanced')
+const showCustomFields = ref(false)
+const defaultProfile = getProfileByName('balanced')
+const customModel = ref(defaultProfile.model)
+const customMaxTokens = ref(defaultProfile.maxTokens)
+const customAgentSteps = ref(defaultProfile.agentSteps)
+const customTemperature = ref(defaultProfile.temperature)
 const recentAnalyses = ref([])
 const logContainer = ref(null)
 const currentAnalysisId = ref(null)
@@ -623,6 +686,8 @@ const {
   agentStepCurrent,
   agentStepTotal,
   sendHint,
+  // Failed step tracking
+  failedStep,
   // Persisted agent steps
   persistedAgentSteps,
   loadPersistedSteps,
@@ -644,6 +709,50 @@ async function handleSendHint() {
 
 // Auto-scroll live timeline
 const liveTimelineRef = ref(null)
+
+const activeProfile = computed(() => {
+  if (selectedProfile.value === 'custom') return null
+  return getProfileByName(selectedProfile.value)
+})
+
+const profileParams = computed(() => {
+  if (selectedProfile.value === 'custom') {
+    const params = {
+      model: customModel.value || undefined,
+      maxTokens: customMaxTokens.value || undefined,
+      temperature: customTemperature.value,
+    }
+    if (useAgentMode.value) {
+      params.agentSteps = customAgentSteps.value || undefined
+    }
+    return params
+  }
+  const p = activeProfile.value
+  if (!p) return {}
+  const params = {
+    model: p.model,
+    maxTokens: p.maxTokens,
+    temperature: p.temperature,
+  }
+  if (useAgentMode.value) {
+    params.agentSteps = p.agentSteps
+  }
+  return params
+})
+
+function onProfileChange(val) {
+  selectedProfile.value = val
+  showCustomFields.value = val === 'custom'
+  if (val !== 'custom') {
+    const p = getProfileByName(val)
+    if (p) {
+      customModel.value = p.model
+      customMaxTokens.value = p.maxTokens
+      customAgentSteps.value = p.agentSteps
+      customTemperature.value = p.temperature
+    }
+  }
+}
 
 const gameName = computed(() => {
   return analysis.value?.gameInfo?.name || pageMeta.value?.title || 'Unknown Game'
@@ -773,11 +882,31 @@ const navigatorSteps = computed(() => {
 
 const agentExplorationStatus = computed(() => {
   const agentSteps = ['agent_start', 'agent_step', 'agent_action']
-  const doneSteps = ['agent_done', 'agent_synthesize', 'analyzing', 'analyzed', 'flows', 'flows_done', 'complete']
+  const doneSteps = ['agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'flows', 'flows_retry', 'flows_done', 'complete']
   if (doneSteps.includes(currentStep.value)) return 'complete'
   if (agentSteps.includes(currentStep.value)) return 'active'
   if (stepOrder(currentStep.value) < stepOrder('agent_start')) return 'pending'
   return 'pending'
+})
+
+const failedPhaseLabel = computed(() => {
+  if (!failedStep.value) return ''
+  const map = {
+    agent_step: 'Exploration',
+    agent_action: 'Exploration',
+    agent_start: 'Exploration',
+    agent_synthesize: 'Synthesis',
+    synthesis_retry: 'Synthesis',
+    analyzing: 'Analysis',
+    analyzed: 'Analysis',
+    flows: 'Flow Generation',
+    flows_retry: 'Flow Generation',
+    flows_done: 'Flow Generation',
+    scouting: 'Page Scouting',
+    scouted: 'Page Scouting',
+    scenarios: 'Scenario Generation',
+  }
+  return map[failedStep.value] || failedStep.value
 })
 
 const agentExplorationDetail = computed(() => {
@@ -807,7 +936,7 @@ function expandLiveScreenshot() {
 }
 
 // Ordered step names for granular progress
-const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_done', 'agent_synthesize', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_done', 'saving', 'complete']
+const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_retry', 'flows_done', 'saving', 'complete']
 
 function stepOrder(step) {
   const idx = STEP_ORDER.indexOf(step)
@@ -880,7 +1009,7 @@ async function handleAnalyze() {
   if (!isValidUrl(gameUrl.value)) return
   analyzing.value = true
   try {
-    await start(gameUrl.value, projectId.value, useAgentMode.value)
+    await start(gameUrl.value, projectId.value, useAgentMode.value, profileParams.value)
   } catch {
     analyzing.value = false
   }
@@ -902,6 +1031,8 @@ function handleReset() {
   reset()
   analyzing.value = false
   useAgentMode.value = false
+  selectedProfile.value = 'balanced'
+  showCustomFields.value = false
   gameUrl.value = ''
   currentAnalysisId.value = null
   loadRecentAnalyses()
