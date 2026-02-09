@@ -37,6 +37,23 @@ export function isValidUrl(str) {
 /**
  * Trigger a file download from in-memory content.
  */
+/**
+ * Map finding severity to Badge variant.
+ */
+export function severityVariant(severity) {
+  switch (severity) {
+    case 'critical': return 'destructive'
+    case 'major': return 'default'
+    case 'minor':
+    case 'suggestion': return 'secondary'
+    case 'positive': return 'outline'
+    default: return 'secondary'
+  }
+}
+
+/**
+ * Trigger a file download from in-memory content.
+ */
 export function downloadBlob(content, filename, mimeType = 'text/plain') {
   const blob = new Blob([content], { type: mimeType })
   const url = URL.createObjectURL(blob)

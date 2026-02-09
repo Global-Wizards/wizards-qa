@@ -16,6 +16,7 @@ const router = createRouter({
     { path: '/tests/new', component: () => import('./views/NewTestPlan.vue') },
     { path: '/reports', component: () => import('./views/Reports.vue') },
     { path: '/flows', component: () => import('./views/Flows.vue') },
+    { path: '/analyses/:id', component: () => import('./views/AnalysisDetail.vue') },
     { path: '/projects', component: () => import('./views/ProjectList.vue') },
     { path: '/projects/new', component: () => import('./views/ProjectForm.vue') },
     {
@@ -28,6 +29,7 @@ const router = createRouter({
         { path: 'tests/new', component: () => import('./views/NewTestPlan.vue') },
         { path: 'reports', component: () => import('./views/Reports.vue') },
         { path: 'flows', component: () => import('./views/Flows.vue') },
+        { path: 'analyses/:id', component: () => import('./views/AnalysisDetail.vue') },
         { path: 'settings', component: () => import('./views/ProjectSettings.vue') },
         { path: 'members', component: () => import('./views/ProjectMembers.vue') },
         { path: 'edit', component: () => import('./views/ProjectForm.vue') },

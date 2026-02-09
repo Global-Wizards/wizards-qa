@@ -514,6 +514,10 @@
           <div class="flex flex-wrap gap-2">
             <Button @click="navigateToNewPlan">Create Test Plan</Button>
             <Button variant="secondary" @click="runFlowsNow">Run Flows Now</Button>
+            <Button variant="outline" @click="viewCurrentAnalysis">
+              <ExternalLink class="h-4 w-4 mr-1" />
+              View Full Analysis
+            </Button>
             <Button variant="outline" @click="navigateToFlows">View Flows</Button>
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
@@ -662,13 +666,13 @@
 import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAnalysis } from '@/composables/useAnalysis'
-import { truncateUrl, isValidUrl } from '@/lib/utils'
+import { truncateUrl, isValidUrl, severityVariant } from '@/lib/utils'
 import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@/composables/useClipboard'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2 } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2, ExternalLink } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -977,17 +981,6 @@ const agentExplorationDetail = computed(() => {
   }
   return lastAgentLog || 'AI is exploring the game...'
 })
-
-function severityVariant(severity) {
-  switch (severity) {
-    case 'critical': return 'destructive'
-    case 'major': return 'default'
-    case 'minor':
-    case 'suggestion': return 'secondary'
-    case 'positive': return 'outline'
-    default: return 'secondary'
-  }
-}
 
 function expandAgentScreenshot(step) {
   agentScreenshotStep.value = step
@@ -1300,24 +1293,15 @@ async function copyDebugLog() {
   await copyLogToClipboard(buildDebugLogText())
 }
 
-async function viewAnalysis(item) {
-  try {
-    const data = await analysesApi.get(item.id)
-    if (data.result) {
-      pageMeta.value = data.result.pageMeta || null
-      analysis.value = data.result.analysis || null
-      flowList.value = data.result.flows || []
-      agentStepsList.value = data.result.agentSteps || []
-      agentMode.value = data.result.mode === 'agent'
-      gameUrl.value = data.gameUrl || ''
-      currentAnalysisId.value = data.id
-      status.value = 'complete'
-      // Load persisted agent steps
-      loadPersistedSteps(data.id)
-    }
-  } catch (err) {
-    console.error('Failed to load analysis:', err)
-  }
+function viewAnalysis(item) {
+  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push(`${basePath}/analyses/${item.id}`)
+}
+
+function viewCurrentAnalysis() {
+  if (!currentAnalysisId.value) return
+  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push(`${basePath}/analyses/${currentAnalysisId.value}`)
 }
 
 async function loadRecentAnalyses() {

@@ -5,6 +5,24 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-02-09
+
+### Dedicated Analysis Detail View with Tabbed Navigation
+
+#### Added
+- **Analysis Detail View** (`/analyses/:id`) — dedicated page for viewing analysis results with rich tabbed navigation instead of inline collapsible sections
+- **Overview Tab** — game info card, 8-stat grid (mechanics, UI elements, user flows, edge cases, UI/UX issues, wording issues, game design findings, test flows), page metadata, and screenshot thumbnail
+- **Functional QA Tab** — tables for mechanics (with actions and priority), UI elements (with selectors), and cards for user flows (with numbered steps) and edge cases
+- **Findings Tab** (reusable) — severity summary bar, severity toggle filters, category dropdown filter, and finding cards with severity badges; used for UI/UX Analysis, Wording Check, and Game Design Analysis tabs
+- **Test Flows Tab** — grid of flow cards with tag badges and command counts, click-to-preview YAML dialog with copy button
+- **Exploration Tab** (agent mode only) — embedded AgentStepNavigator for reviewing agent exploration steps
+- **`severityVariant()` shared utility** — extracted from Analyze.vue to `lib/utils.js` for reuse across components
+- **"View Full Analysis" button** — in Analyze.vue completed state, navigates to the detail view
+- **Project-scoped routing** — detail view accessible at both `/analyses/:id` and `/projects/:projectId/analyses/:id`
+
+#### Changed
+- **Recent analyses list** — clicking an analysis now navigates to the detail view instead of loading results inline
+
 ## [0.8.0] - 2026-02-09
 
 ### UI/UX Analysis, Wording Check & Game Design Analysis
