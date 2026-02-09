@@ -321,7 +321,7 @@ func (s *Server) handleRunTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testID := fmt.Sprintf("test-%d", time.Now().UnixNano())
+	testID := newID("test")
 	flowDir := s.store.FlowsDir()
 	if req.SpecPath != "" {
 		flowDir = filepath.Dir(req.SpecPath)
@@ -459,7 +459,7 @@ func (s *Server) handleCreateTestPlan(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	plan.ID = fmt.Sprintf("plan-%d", time.Now().UnixNano())
+	plan.ID = newID("plan")
 	plan.Status = store.StatusDraft
 	plan.CreatedAt = time.Now().Format(time.RFC3339)
 	if plan.Variables == nil {
@@ -504,7 +504,7 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	testID := fmt.Sprintf("test-%d", time.Now().UnixNano())
+	testID := newID("test")
 	var createdByPlan string
 	if claims := auth.UserFromContext(r.Context()); claims != nil {
 		createdByPlan = claims.UserID
@@ -763,6 +763,13 @@ func (s *Server) NewHTTPServer() *http.Server {
 }
 
 // --- Helpers ---
+
+// newID generates a unique ID with the given prefix and a random suffix for collision resistance.
+func newID(prefix string) string {
+	b := make([]byte, 4)
+	rand.Read(b)
+	return fmt.Sprintf("%s-%d-%s", prefix, time.Now().UnixNano(), hex.EncodeToString(b))
+}
 
 // statusWriter wraps http.ResponseWriter to capture the status code.
 type statusWriter struct {

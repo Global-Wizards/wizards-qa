@@ -87,7 +87,7 @@
                   <TableCell>{{ test.duration }}</TableCell>
                   <TableCell>{{ test.successRate }}%</TableCell>
                   <TableCell class="text-right text-muted-foreground">
-                    {{ new Date(test.timestamp).toLocaleString() }}
+                    {{ formatDate(test.timestamp) }}
                   </TableCell>
                 </TableRow>
                 <TableRow v-if="!filteredTests.length">
@@ -152,7 +152,7 @@
                   <TableCell><StatusBadge :status="plan.status" /></TableCell>
                   <TableCell>{{ plan.flowCount }}</TableCell>
                   <TableCell class="text-muted-foreground">
-                    {{ new Date(plan.createdAt).toLocaleString() }}
+                    {{ formatDate(plan.createdAt) }}
                   </TableCell>
                   <TableCell class="text-right">
                     <div class="flex items-center justify-end gap-1">
@@ -258,6 +258,7 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { AlertCircle, Plus, Play, Trash2 } from 'lucide-vue-next'
 import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
+import { formatDate } from '@/lib/dateUtils'
 import { getWebSocket } from '@/lib/websocket'
 import { Card, CardContent } from '@/components/ui/card'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'

@@ -5,6 +5,29 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-02-09
+
+### Code Quality Audit — DRY, N+1 Queries, Transaction Safety
+
+#### Fixed
+- **N+1 stats queries** — `GetStats()` and `GetStatsByProject()` consolidated from 6 sequential queries to 2, reducing database round-trips.
+- **DeleteProject missing transaction** — multi-step delete (unassign analyses, plans, results + delete) now wrapped in a single SQL transaction with proper rollback on failure.
+- **Unbounded query results** — added LIMIT clauses to all project-scoped list queries (200) and user/project listings (500/100) to prevent memory issues with large datasets.
+- **ID collision risk** — all entity IDs (analysis, user, project, test, plan, member) now include a random suffix via `crypto/rand` for collision resistance.
+
+#### Added
+- **`useClipboard` composable** — extracted duplicated clipboard copy+timeout pattern from Analyze.vue (×2) and Flows.vue into a reusable composable.
+- **`newID()` helper** — centralized ID generation with `prefix-timestamp-randomhex` format, replacing 8 inline `fmt.Sprintf` patterns.
+- **`authTokenResponse()` helper** — extracted triplicated auth token response struct from register/login/refresh handlers.
+- **`marshalToPtr()` applied to migrations** — replaced 4 remaining inline JSON marshal patterns in db.go migration functions.
+- **Missing database indexes** — added `idx_test_results_status` and `idx_project_members_user` for frequently-queried columns.
+
+#### Changed
+- **Consistent date formatting** — Tests.vue, Reports.vue, ProjectSettings.vue now use `formatDate()` from dateUtils instead of inline `new Date().toLocaleString()`.
+
+#### Removed
+- **Dead code** — deleted unused `useApiLoader.js` composable.
+
 ## [0.7.0] - 2026-02-09
 
 ### Complete Profiles System — Optimize Agent Token Usage & Timeouts

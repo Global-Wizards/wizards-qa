@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"regexp"
 	"strings"
@@ -13,6 +12,20 @@ import (
 )
 
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$`)
+
+// authTokenResponse builds the standard token+user response for auth endpoints.
+func authTokenResponse(user *store.User, accessToken, refreshToken string) map[string]interface{} {
+	return map[string]interface{}{
+		"accessToken":  accessToken,
+		"refreshToken": refreshToken,
+		"user": map[string]interface{}{
+			"id":          user.ID,
+			"email":       user.Email,
+			"displayName": user.DisplayName,
+			"role":        user.Role,
+		},
+	}
+}
 
 func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	var req struct {
@@ -61,7 +74,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 	}
 
 	user := store.User{
-		ID:           fmt.Sprintf("user-%d", time.Now().UnixNano()),
+		ID:           newID("user"),
 		Email:        req.Email,
 		DisplayName:  req.DisplayName,
 		PasswordHash: hash,
@@ -80,16 +93,7 @@ func (s *Server) handleRegister(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusCreated, map[string]interface{}{
-		"accessToken":  accessToken,
-		"refreshToken": refreshToken,
-		"user": map[string]interface{}{
-			"id":          user.ID,
-			"email":       user.Email,
-			"displayName": user.DisplayName,
-			"role":        user.Role,
-		},
-	})
+	respondJSON(w, http.StatusCreated, authTokenResponse(&user, accessToken, refreshToken))
 }
 
 func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
@@ -116,16 +120,7 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"accessToken":  accessToken,
-		"refreshToken": refreshToken,
-		"user": map[string]interface{}{
-			"id":          user.ID,
-			"email":       user.Email,
-			"displayName": user.DisplayName,
-			"role":        user.Role,
-		},
-	})
+	respondJSON(w, http.StatusOK, authTokenResponse(user, accessToken, refreshToken))
 }
 
 func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
@@ -155,16 +150,7 @@ func (s *Server) handleRefresh(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"accessToken":  accessToken,
-		"refreshToken": refreshToken,
-		"user": map[string]interface{}{
-			"id":          user.ID,
-			"email":       user.Email,
-			"displayName": user.DisplayName,
-			"role":        user.Role,
-		},
-	})
+	respondJSON(w, http.StatusOK, authTokenResponse(user, accessToken, refreshToken))
 }
 
 func (s *Server) handleMe(w http.ResponseWriter, r *http.Request) {

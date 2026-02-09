@@ -172,7 +172,9 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_analyses_project ON analyses(project_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_plans_project ON test_plans(project_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_results_project ON test_results(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_test_results_status ON test_results(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agent_steps_analysis ON agent_steps(analysis_id)`,
 	}
 	for _, stmt := range indexes {
@@ -293,14 +295,7 @@ func (s *Store) migrateAnalyses(dataDir string) {
 
 	migrated := 0
 	for _, a := range file.Analyses {
-		var resultJSON *string
-		if a.Result != nil {
-			b, err := json.Marshal(a.Result)
-			if err == nil {
-				s := string(b)
-				resultJSON = &s
-			}
-		}
+		resultJSON := marshalToPtr(a.Result)
 		now := time.Now().Format(time.RFC3339)
 		createdAt := a.CreatedAt
 		if createdAt == "" {
@@ -347,14 +342,7 @@ func (s *Store) migrateTestResults(dataDir string) {
 
 	migrated := 0
 	for _, r := range file.Results {
-		var flowsJSON *string
-		if r.Flows != nil {
-			b, err := json.Marshal(r.Flows)
-			if err == nil {
-				s := string(b)
-				flowsJSON = &s
-			}
-		}
+		flowsJSON := marshalToPtr(r.Flows)
 		ts := r.Timestamp
 		if ts == "" {
 			ts = time.Now().Format(time.RFC3339)
@@ -391,18 +379,8 @@ func (s *Store) migrateTestPlans(dataDir string) {
 
 	migrated := 0
 	for _, p := range file.Plans {
-		var flowNamesJSON *string
-		if p.FlowNames != nil {
-			b, _ := json.Marshal(p.FlowNames)
-			s := string(b)
-			flowNamesJSON = &s
-		}
-		var variablesJSON *string
-		if p.Variables != nil {
-			b, _ := json.Marshal(p.Variables)
-			s := string(b)
-			variablesJSON = &s
-		}
+		flowNamesJSON := marshalToPtr(p.FlowNames)
+		variablesJSON := marshalToPtr(p.Variables)
 		createdAt := p.CreatedAt
 		if createdAt == "" {
 			createdAt = time.Now().Format(time.RFC3339)

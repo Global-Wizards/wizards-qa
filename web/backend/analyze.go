@@ -71,7 +71,7 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	analysisID := fmt.Sprintf("analysis-%d", time.Now().UnixNano())
+	analysisID := newID("analysis")
 
 	// Get createdBy from auth context
 	var createdBy string

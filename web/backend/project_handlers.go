@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"net/http"
 	"time"
@@ -70,7 +69,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	}
 
 	now := time.Now().Format(time.RFC3339)
-	p.ID = fmt.Sprintf("proj-%d", time.Now().UnixNano())
+	p.ID = newID("proj")
 	p.CreatedAt = now
 	p.UpdatedAt = now
 	if p.Color == "" {
@@ -98,7 +97,7 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 	// Auto-add creator as owner member
 	if p.CreatedBy != "" {
 		if err := s.store.AddProjectMember(store.ProjectMember{
-			ID:        fmt.Sprintf("pm-%d", time.Now().UnixNano()),
+			ID:        newID("pm"),
 			ProjectID: p.ID,
 			UserID:    p.CreatedBy,
 			Role:      "owner",
@@ -302,7 +301,7 @@ func (s *Server) handleAddProjectMember(w http.ResponseWriter, r *http.Request) 
 
 	now := time.Now().Format(time.RFC3339)
 	member := store.ProjectMember{
-		ID:        fmt.Sprintf("pm-%d", time.Now().UnixNano()),
+		ID:        newID("pm"),
 		ProjectID: projectID,
 		UserID:    user.ID,
 		Role:      role,

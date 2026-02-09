@@ -131,6 +131,19 @@ func isSafeName(name string) bool {
 	return safeNameRegex.MatchString(name)
 }
 
+// marshalToPtr marshals v to a JSON string pointer. Returns nil if v is nil or marshaling fails.
+func marshalToPtr(v interface{}) *string {
+	if v == nil {
+		return nil
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	s := string(b)
+	return &s
+}
+
 // --- Flows ---
 
 func (s *Store) ListFlows() ([]FlowInfo, error) {
@@ -233,14 +246,7 @@ func (s *Store) GetReport(id string) (*ReportDetail, error) {
 // --- Analyses (SQLite) ---
 
 func (s *Store) SaveAnalysis(record AnalysisRecord) error {
-	var resultJSON *string
-	if record.Result != nil {
-		b, err := json.Marshal(record.Result)
-		if err == nil {
-			str := string(b)
-			resultJSON = &str
-		}
-	}
+	resultJSON := marshalToPtr(record.Result)
 	now := time.Now().Format(time.RFC3339)
 	if record.CreatedAt == "" {
 		record.CreatedAt = now
@@ -279,14 +285,7 @@ func (s *Store) UpdateAnalysisStatus(id, status, step string) error {
 
 func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, gameName, framework string, flowCount int) error {
 	now := time.Now().Format(time.RFC3339)
-	var resultJSON *string
-	if result != nil {
-		b, err := json.Marshal(result)
-		if err == nil {
-			str := string(b)
-			resultJSON = &str
-		}
-	}
+	resultJSON := marshalToPtr(result)
 	res, err := s.db.Exec(
 		`UPDATE analyses SET status = ?, step = '', result = ?, game_name = ?, framework = ?, flow_count = ?, updated_at = ? WHERE id = ?`,
 		status, resultJSON, gameName, framework, flowCount, now, id,
@@ -424,14 +423,7 @@ func (s *Store) UpdateAnalysisError(id, errorMessage string) error {
 // --- Test Results (SQLite) ---
 
 func (s *Store) SaveTestResult(result TestResultDetail) error {
-	var flowsJSON *string
-	if result.Flows != nil {
-		b, err := json.Marshal(result.Flows)
-		if err == nil {
-			str := string(b)
-			flowsJSON = &str
-		}
-	}
+	flowsJSON := marshalToPtr(result.Flows)
 	ts := result.Timestamp
 	if ts == "" {
 		ts = time.Now().Format(time.RFC3339)
@@ -490,18 +482,8 @@ func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
 // --- Test Plans (SQLite) ---
 
 func (s *Store) SaveTestPlan(plan TestPlan) error {
-	var flowNamesJSON *string
-	if plan.FlowNames != nil {
-		b, _ := json.Marshal(plan.FlowNames)
-		str := string(b)
-		flowNamesJSON = &str
-	}
-	var variablesJSON *string
-	if plan.Variables != nil {
-		b, _ := json.Marshal(plan.Variables)
-		str := string(b)
-		variablesJSON = &str
-	}
+	flowNamesJSON := marshalToPtr(plan.FlowNames)
+	variablesJSON := marshalToPtr(plan.Variables)
 	if plan.CreatedAt == "" {
 		plan.CreatedAt = time.Now().Format(time.RFC3339)
 	}
@@ -606,10 +588,9 @@ func (s *Store) GetStats() (*Stats, error) {
 	var totalTests, passedTests, failedTests int
 	var avgRate float64
 
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_results`).Scan(&totalTests)
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE status = 'passed'`).Scan(&passedTests)
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE status = 'failed'`).Scan(&failedTests)
-	s.db.QueryRow(`SELECT COALESCE(AVG(success_rate), 0) FROM test_results`).Scan(&avgRate)
+	if err := s.db.QueryRow(`SELECT COUNT(*), COUNT(CASE WHEN status = 'passed' THEN 1 END), COUNT(CASE WHEN status = 'failed' THEN 1 END), COALESCE(AVG(success_rate), 0) FROM test_results`).Scan(&totalTests, &passedTests, &failedTests, &avgRate); err != nil {
+		return nil, fmt.Errorf("querying test stats: %w", err)
+	}
 
 	// Recent tests (last 10)
 	recent := s.recentTests(10)
@@ -618,8 +599,9 @@ func (s *Store) GetStats() (*Stats, error) {
 	history := s.buildHistoryFromDB(14)
 
 	var totalAnalyses, totalPlans int
-	s.db.QueryRow(`SELECT COUNT(*) FROM analyses`).Scan(&totalAnalyses)
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_plans`).Scan(&totalPlans)
+	if err := s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM analyses), (SELECT COUNT(*) FROM test_plans)`).Scan(&totalAnalyses, &totalPlans); err != nil {
+		return nil, fmt.Errorf("querying entity counts: %w", err)
+	}
 
 	flowCount := 0
 	if flows, err := s.ListFlows(); err == nil {
@@ -858,7 +840,7 @@ func (s *Store) GetUserByID(id string) (*User, error) {
 }
 
 func (s *Store) ListUsers() ([]UserSummary, error) {
-	rows, err := s.db.Query(`SELECT id, email, display_name, role, created_at FROM users ORDER BY created_at`)
+	rows, err := s.db.Query(`SELECT id, email, display_name, role, created_at FROM users ORDER BY created_at LIMIT 500`)
 	if err != nil {
 		return nil, err
 	}
@@ -941,7 +923,8 @@ func (s *Store) ListProjects() ([]ProjectSummary, error) {
 		LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM test_plans GROUP BY project_id) tp ON tp.project_id = p.id
 		LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM test_results GROUP BY project_id) tr ON tr.project_id = p.id
 		LEFT JOIN (SELECT project_id, COUNT(*) AS cnt FROM project_members GROUP BY project_id) pm ON pm.project_id = p.id
-		ORDER BY p.updated_at DESC`)
+		ORDER BY p.updated_at DESC
+		LIMIT 100`)
 	if err != nil {
 		return nil, err
 	}
@@ -986,19 +969,31 @@ func (s *Store) UpdateProject(p Project) error {
 }
 
 func (s *Store) DeleteProject(id string) error {
-	// Unassign entities before deleting (CASCADE handles project_members)
-	s.db.Exec(`UPDATE analyses SET project_id = '' WHERE project_id = ?`, id)
-	s.db.Exec(`UPDATE test_plans SET project_id = '' WHERE project_id = ?`, id)
-	s.db.Exec(`UPDATE test_results SET project_id = '' WHERE project_id = ?`, id)
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
 
-	result, err := s.db.Exec(`DELETE FROM projects WHERE id = ?`, id)
+	// Unassign entities before deleting (CASCADE handles project_members)
+	if _, err := tx.Exec(`UPDATE analyses SET project_id = '' WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("unassign analyses: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE test_plans SET project_id = '' WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("unassign test plans: %w", err)
+	}
+	if _, err := tx.Exec(`UPDATE test_results SET project_id = '' WHERE project_id = ?`, id); err != nil {
+		return fmt.Errorf("unassign test results: %w", err)
+	}
+
+	result, err := tx.Exec(`DELETE FROM projects WHERE id = ?`, id)
 	if err != nil {
 		return err
 	}
 	if n, _ := result.RowsAffected(); n == 0 {
 		return fmt.Errorf("project not found: %s", id)
 	}
-	return nil
+	return tx.Commit()
 }
 
 // GetProjectMemberRole returns the role of a user within a project, or an error if not a member.
@@ -1072,7 +1067,7 @@ func (s *Store) UpdateProjectMemberRole(projectID, userID, role string) error {
 
 func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses WHERE project_id = ? ORDER BY created_at DESC`, projectID,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
 	)
 	if err != nil {
 		return nil, err
@@ -1092,7 +1087,7 @@ func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error
 
 func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,'') FROM test_plans WHERE project_id = ? ORDER BY created_at DESC`, projectID,
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,'') FROM test_plans WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
 	)
 	if err != nil {
 		return nil, err
@@ -1120,7 +1115,7 @@ func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, err
 
 func (s *Store) ListTestResultsByProject(projectID string) ([]TestResultSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,'') FROM test_results WHERE project_id = ? ORDER BY timestamp DESC`, projectID,
+		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,'') FROM test_results WHERE project_id = ? ORDER BY timestamp DESC LIMIT 200`, projectID,
 	)
 	if err != nil {
 		return nil, err
@@ -1142,17 +1137,17 @@ func (s *Store) GetStatsByProject(projectID string) (*Stats, error) {
 	var totalTests, passedTests, failedTests int
 	var avgRate float64
 
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE project_id = ?`, projectID).Scan(&totalTests)
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE status = 'passed' AND project_id = ?`, projectID).Scan(&passedTests)
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_results WHERE status = 'failed' AND project_id = ?`, projectID).Scan(&failedTests)
-	s.db.QueryRow(`SELECT COALESCE(AVG(success_rate), 0) FROM test_results WHERE project_id = ?`, projectID).Scan(&avgRate)
+	if err := s.db.QueryRow(`SELECT COUNT(*), COUNT(CASE WHEN status = 'passed' THEN 1 END), COUNT(CASE WHEN status = 'failed' THEN 1 END), COALESCE(AVG(success_rate), 0) FROM test_results WHERE project_id = ?`, projectID).Scan(&totalTests, &passedTests, &failedTests, &avgRate); err != nil {
+		return nil, fmt.Errorf("querying project test stats: %w", err)
+	}
 
 	recent := s.recentTestsByProject(projectID, 10)
 	history := s.buildHistoryFromDB(14) // reuse global for now
 
 	var totalAnalyses, totalPlans int
-	s.db.QueryRow(`SELECT COUNT(*) FROM analyses WHERE project_id = ?`, projectID).Scan(&totalAnalyses)
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_plans WHERE project_id = ?`, projectID).Scan(&totalPlans)
+	if err := s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM analyses WHERE project_id = ?), (SELECT COUNT(*) FROM test_plans WHERE project_id = ?)`, projectID, projectID).Scan(&totalAnalyses, &totalPlans); err != nil {
+		return nil, fmt.Errorf("querying project entity counts: %w", err)
+	}
 
 	return &Stats{
 		TotalTests:     totalTests,

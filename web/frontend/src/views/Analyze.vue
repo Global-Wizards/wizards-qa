@@ -617,6 +617,7 @@ import { truncateUrl, isValidUrl } from '@/lib/utils'
 import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
+import { useClipboard } from '@/composables/useClipboard'
 import { useProject } from '@/composables/useProject'
 import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2 } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -653,16 +654,14 @@ const currentAnalysisId = ref(null)
 const flowDialogOpen = ref(false)
 const previewFlowData = ref(null)
 const previewFlowYaml = ref('')
-const flowCopied = ref(false)
+const { copied: flowCopied, copy: copyFlowToClipboard } = useClipboard()
 
 // Agent screenshot preview state
 const agentScreenshotOpen = ref(false)
 const agentScreenshotStep = ref(null)
 
-// Clipboard timeout tracking
-let copyTimeoutId = null
-const logCopied = ref(false)
-let logCopyTimeoutId = null
+// Debug log clipboard
+const { copied: logCopied, copy: copyLogToClipboard } = useClipboard()
 
 const {
   status,
@@ -1128,14 +1127,7 @@ function previewFlow(flow) {
 }
 
 async function copyFlowYaml() {
-  try {
-    await navigator.clipboard.writeText(previewFlowYaml.value)
-    flowCopied.value = true
-    if (copyTimeoutId != null) clearTimeout(copyTimeoutId)
-    copyTimeoutId = setTimeout(() => { flowCopied.value = false }, 2000)
-  } catch {
-    // clipboard API not available
-  }
+  await copyFlowToClipboard(previewFlowYaml.value)
 }
 
 function buildDebugLogText() {
@@ -1233,14 +1225,7 @@ function buildDebugLogText() {
 }
 
 async function copyDebugLog() {
-  try {
-    await navigator.clipboard.writeText(buildDebugLogText())
-    logCopied.value = true
-    if (logCopyTimeoutId != null) clearTimeout(logCopyTimeoutId)
-    logCopyTimeoutId = setTimeout(() => { logCopied.value = false }, 2000)
-  } catch {
-    // clipboard API not available
-  }
+  await copyLogToClipboard(buildDebugLogText())
 }
 
 async function viewAnalysis(item) {
@@ -1276,8 +1261,6 @@ async function loadRecentAnalyses() {
 }
 
 onUnmounted(() => {
-  if (copyTimeoutId != null) clearTimeout(copyTimeoutId)
-  if (logCopyTimeoutId != null) clearTimeout(logCopyTimeoutId)
   if (hintSentTimeout != null) clearTimeout(hintSentTimeout)
 })
 

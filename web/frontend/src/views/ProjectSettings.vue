@@ -33,7 +33,7 @@
           <Separator />
           <div>
             <p class="text-sm font-medium">Created</p>
-            <p class="text-sm text-muted-foreground">{{ currentProject?.createdAt ? new Date(currentProject.createdAt).toLocaleDateString() : '-' }}</p>
+            <p class="text-sm text-muted-foreground">{{ formatDate(currentProject?.createdAt) || '-' }}</p>
           </div>
           <Separator />
           <router-link :to="`/projects/${route.params.projectId}/edit`">
@@ -65,6 +65,7 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { projectsApi } from '@/lib/api'
+import { formatDate } from '@/lib/dateUtils'
 import { useProject } from '@/composables/useProject'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'

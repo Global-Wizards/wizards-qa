@@ -57,7 +57,7 @@
           <CardContent class="pt-0">
             <div class="flex items-center justify-between">
               <span class="text-xs text-muted-foreground">
-                {{ new Date(report.timestamp).toLocaleDateString() }}
+                {{ formatDate(report.timestamp) }}
               </span>
               <div class="flex gap-2">
                 <Button variant="outline" size="sm" @click="viewReport(report)">View</Button>
@@ -94,6 +94,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { FileText, FileJson, FileCode, Download, AlertCircle } from 'lucide-vue-next'
 import { reportsApi } from '@/lib/api'
+import { formatDate } from '@/lib/dateUtils'
 import { downloadBlob } from '@/lib/utils'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
