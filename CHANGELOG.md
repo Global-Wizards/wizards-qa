@@ -5,6 +5,29 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-02-09
+
+### UI/UX Analysis, Wording Check & Game Design Analysis
+
+#### Added
+- **UI/UX Analysis section** — AI now evaluates visual design quality (alignments, spacing, color harmony, typography, visual hierarchy, accessibility, animations) and reports findings with severity levels and fix suggestions
+- **Wording/Translation Check section** — AI examines all visible text for grammar, spelling, inconsistent terminology, tone, truncated text, placeholder text, and text overflow issues
+- **Game Design Analysis section** — AI analyzes game design quality including reward systems, balance, progression, player engagement, difficulty curve, monetization fairness, tutorial quality, and feedback systems
+- **Frontend display** — three new collapsible sections in analysis results with severity badges, category tags, and detailed findings
+- **Markdown export** — new sections included in markdown export format
+
+#### Changed
+- **Token budgets raised** — profiles now use higher maxTokens (debug: 4096, quick/balanced: 8192, thorough/maximum: 16384) to accommodate the expanded analysis output
+- **SynthesisMaxTokens floor raised** from 8192 to 16384 to prevent truncation of the larger JSON output
+- **Custom max tokens ceiling** raised from 16384 to 32768
+
+## [0.7.3] - 2026-02-09
+
+### Fix 401 Unauthorized Errors After 15 Minutes
+
+#### Fixed
+- **Access token expiring during active sessions** — increased access token TTL from 15 minutes to 24 hours. Users working on analyses (which can run 10-30 minutes) were hitting 401 errors that appeared in the browser console when the token expired mid-session. The refresh token remains at 7 days, and the axios interceptor still handles edge cases.
+
 ## [0.7.2] - 2026-02-09
 
 ### Fix Synthesis Failure — Context Too Large, Truncation, Error Messages

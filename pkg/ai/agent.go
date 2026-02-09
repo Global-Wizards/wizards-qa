@@ -309,6 +309,11 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 You interacted with the game and observed its behavior through screenshots. Now produce a structured analysis based on ONLY what you actually observed during exploration.
 
+In addition to functional QA, also analyze:
+- UI/UX quality: alignments, spacing, color harmony, typography, visual hierarchy, accessibility, animations
+- Wording/translation: grammar, spelling, consistency, tone, truncation, placeholder text, text overflow
+- Game design: rewards, balance, progression, engagement, difficulty, monetization, tutorial, feedback
+
 Respond with a single JSON object matching this exact format:
 {
   "gameInfo": {
@@ -368,6 +373,34 @@ Respond with a single JSON object matching this exact format:
       ],
       "priority": "high|medium|low",
       "tags": ["smoke", "regression"]
+    }
+  ],
+  "uiuxAnalysis": [
+    {
+      "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
+      "description": "...",
+      "severity": "critical|major|minor|suggestion",
+      "location": "where in the UI",
+      "suggestion": "recommended fix"
+    }
+  ],
+  "wordingCheck": [
+    {
+      "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
+      "text": "the problematic text",
+      "description": "what is wrong",
+      "severity": "critical|major|minor",
+      "location": "where this text appears",
+      "suggestion": "corrected text"
+    }
+  ],
+  "gameDesign": [
+    {
+      "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
+      "description": "...",
+      "severity": "critical|major|minor|positive",
+      "impact": "how this affects player experience",
+      "suggestion": "recommended improvement"
     }
   ]
 }

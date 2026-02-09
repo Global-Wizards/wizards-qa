@@ -82,7 +82,7 @@
             </div>
             <div class="space-y-1">
               <label class="text-xs font-medium">Max Tokens</label>
-              <Input v-model.number="customMaxTokens" type="number" :min="512" :max="16384" class="text-sm" />
+              <Input v-model.number="customMaxTokens" type="number" :min="512" :max="32768" class="text-sm" />
             </div>
             <div class="space-y-1">
               <label class="text-xs font-medium">Agent Steps</label>
@@ -349,6 +349,55 @@
                 <ul class="ml-4 list-disc">
                   <li v-for="ec in analysis.edgeCases" :key="ec.name">{{ ec.name }}: {{ ec.description }}</li>
                 </ul>
+              </div>
+            </div>
+          </details>
+
+          <!-- UI/UX Analysis -->
+          <details v-if="analysis?.uiuxAnalysis?.length" class="group">
+            <summary class="cursor-pointer text-sm font-medium">UI/UX Analysis ({{ analysis.uiuxAnalysis.length }})</summary>
+            <div class="mt-2 space-y-2">
+              <div v-for="(finding, i) in analysis.uiuxAnalysis" :key="i" class="rounded-md border p-3 text-sm space-y-1">
+                <div class="flex items-center gap-2">
+                  <Badge :variant="severityVariant(finding.severity)">{{ finding.severity }}</Badge>
+                  <Badge variant="outline">{{ finding.category }}</Badge>
+                  <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
+                </div>
+                <p>{{ finding.description }}</p>
+                <p v-if="finding.suggestion" class="text-muted-foreground text-xs">Suggestion: {{ finding.suggestion }}</p>
+              </div>
+            </div>
+          </details>
+
+          <!-- Wording/Translation Check -->
+          <details v-if="analysis?.wordingCheck?.length" class="group">
+            <summary class="cursor-pointer text-sm font-medium">Wording/Translation Check ({{ analysis.wordingCheck.length }})</summary>
+            <div class="mt-2 space-y-2">
+              <div v-for="(finding, i) in analysis.wordingCheck" :key="i" class="rounded-md border p-3 text-sm space-y-1">
+                <div class="flex items-center gap-2">
+                  <Badge :variant="severityVariant(finding.severity)">{{ finding.severity }}</Badge>
+                  <Badge variant="outline">{{ finding.category }}</Badge>
+                  <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
+                </div>
+                <p v-if="finding.text" class="font-mono text-xs bg-muted px-2 py-1 rounded">"{{ finding.text }}"</p>
+                <p>{{ finding.description }}</p>
+                <p v-if="finding.suggestion" class="text-muted-foreground text-xs">Suggestion: {{ finding.suggestion }}</p>
+              </div>
+            </div>
+          </details>
+
+          <!-- Game Design Analysis -->
+          <details v-if="analysis?.gameDesign?.length" class="group">
+            <summary class="cursor-pointer text-sm font-medium">Game Design Analysis ({{ analysis.gameDesign.length }})</summary>
+            <div class="mt-2 space-y-2">
+              <div v-for="(finding, i) in analysis.gameDesign" :key="i" class="rounded-md border p-3 text-sm space-y-1">
+                <div class="flex items-center gap-2">
+                  <Badge :variant="severityVariant(finding.severity)">{{ finding.severity }}</Badge>
+                  <Badge variant="outline">{{ finding.category }}</Badge>
+                </div>
+                <p>{{ finding.description }}</p>
+                <p v-if="finding.impact" class="text-xs"><span class="text-muted-foreground">Impact:</span> {{ finding.impact }}</p>
+                <p v-if="finding.suggestion" class="text-muted-foreground text-xs">Suggestion: {{ finding.suggestion }}</p>
               </div>
             </div>
           </details>
@@ -851,6 +900,15 @@ const analysisDetails = computed(() => {
   if (analysis.value.edgeCases?.length) {
     details.push({ label: 'Edge Cases', value: `${analysis.value.edgeCases.length} identified` })
   }
+  if (analysis.value.uiuxAnalysis?.length) {
+    details.push({ label: 'UI/UX Issues', value: `${analysis.value.uiuxAnalysis.length} found` })
+  }
+  if (analysis.value.wordingCheck?.length) {
+    details.push({ label: 'Wording Issues', value: `${analysis.value.wordingCheck.length} found` })
+  }
+  if (analysis.value.gameDesign?.length) {
+    details.push({ label: 'Game Design', value: `${analysis.value.gameDesign.length} observations` })
+  }
   return details
 })
 
@@ -919,6 +977,17 @@ const agentExplorationDetail = computed(() => {
   }
   return lastAgentLog || 'AI is exploring the game...'
 })
+
+function severityVariant(severity) {
+  switch (severity) {
+    case 'critical': return 'destructive'
+    case 'major': return 'default'
+    case 'minor':
+    case 'suggestion': return 'secondary'
+    case 'positive': return 'outline'
+    default: return 'secondary'
+  }
+}
 
 function expandAgentScreenshot(step) {
   agentScreenshotStep.value = step
@@ -1173,6 +1242,9 @@ function buildDebugLogText() {
     lines.push(`UI Elements: ${analysis.value.uiElements?.length || 0}`)
     lines.push(`User Flows: ${analysis.value.userFlows?.length || 0}`)
     lines.push(`Edge Cases: ${analysis.value.edgeCases?.length || 0}`)
+    lines.push(`UI/UX Issues: ${analysis.value.uiuxAnalysis?.length || 0}`)
+    lines.push(`Wording Issues: ${analysis.value.wordingCheck?.length || 0}`)
+    lines.push(`Game Design: ${analysis.value.gameDesign?.length || 0}`)
     lines.push('')
   }
 

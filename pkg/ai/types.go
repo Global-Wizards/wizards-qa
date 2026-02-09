@@ -4,35 +4,44 @@ import "time"
 
 // AnalysisResult represents the result of analyzing a game
 type AnalysisResult struct {
-	GameInfo    GameInfo     `json:"gameInfo,omitempty"`
-	Mechanics   []Mechanic   `json:"mechanics,omitempty"`
-	UIElements  []UIElement  `json:"uiElements,omitempty"`
-	UserFlows   []UserFlow   `json:"userFlows,omitempty"`
-	EdgeCases   []EdgeCase   `json:"edgeCases,omitempty"`
-	RawResponse string       `json:"rawResponse,omitempty"`
+	GameInfo     GameInfo            `json:"gameInfo,omitempty"`
+	Mechanics    []Mechanic          `json:"mechanics,omitempty"`
+	UIElements   []UIElement         `json:"uiElements,omitempty"`
+	UserFlows    []UserFlow          `json:"userFlows,omitempty"`
+	EdgeCases    []EdgeCase          `json:"edgeCases,omitempty"`
+	UIUXAnalysis []UIUXFinding       `json:"uiuxAnalysis,omitempty"`
+	WordingCheck []WordingFinding    `json:"wordingCheck,omitempty"`
+	GameDesign   []GameDesignFinding `json:"gameDesign,omitempty"`
+	RawResponse  string              `json:"rawResponse,omitempty"`
 }
 
 // ComprehensiveAnalysisResult combines game analysis with test scenarios in a
 // single AI response. This avoids the lossy context degradation that occurs
 // when analysis and scenario generation are separate calls.
 type ComprehensiveAnalysisResult struct {
-	GameInfo   GameInfo       `json:"gameInfo"`
-	Mechanics  []Mechanic     `json:"mechanics"`
-	UIElements []UIElement    `json:"uiElements"`
-	UserFlows  []UserFlow     `json:"userFlows"`
-	EdgeCases  []EdgeCase     `json:"edgeCases"`
-	Scenarios  []TestScenario `json:"scenarios"`
+	GameInfo     GameInfo            `json:"gameInfo"`
+	Mechanics    []Mechanic          `json:"mechanics"`
+	UIElements   []UIElement         `json:"uiElements"`
+	UserFlows    []UserFlow          `json:"userFlows"`
+	EdgeCases    []EdgeCase          `json:"edgeCases"`
+	Scenarios    []TestScenario      `json:"scenarios"`
+	UIUXAnalysis []UIUXFinding       `json:"uiuxAnalysis,omitempty"`
+	WordingCheck []WordingFinding    `json:"wordingCheck,omitempty"`
+	GameDesign   []GameDesignFinding `json:"gameDesign,omitempty"`
 }
 
 // ToAnalysisResult converts a ComprehensiveAnalysisResult to the legacy AnalysisResult
 // for backward compatibility with callers that expect the old type.
 func (c *ComprehensiveAnalysisResult) ToAnalysisResult() *AnalysisResult {
 	return &AnalysisResult{
-		GameInfo:   c.GameInfo,
-		Mechanics:  c.Mechanics,
-		UIElements: c.UIElements,
-		UserFlows:  c.UserFlows,
-		EdgeCases:  c.EdgeCases,
+		GameInfo:     c.GameInfo,
+		Mechanics:    c.Mechanics,
+		UIElements:   c.UIElements,
+		UserFlows:    c.UserFlows,
+		EdgeCases:    c.EdgeCases,
+		UIUXAnalysis: c.UIUXAnalysis,
+		WordingCheck: c.WordingCheck,
+		GameDesign:   c.GameDesign,
 	}
 }
 
@@ -77,6 +86,34 @@ type EdgeCase struct {
 	Description string `json:"description"`
 	Scenario    string `json:"scenario"`
 	Expected    string `json:"expected"`
+}
+
+// UIUXFinding represents a single UI/UX observation from the analysis.
+type UIUXFinding struct {
+	Category    string `json:"category"`    // alignment, spacing, color, typography, responsive, hierarchy, accessibility, animation
+	Description string `json:"description"`
+	Severity    string `json:"severity"`    // critical, major, minor, suggestion
+	Location    string `json:"location"`    // Where in the UI this was observed
+	Suggestion  string `json:"suggestion"`  // Recommended fix
+}
+
+// WordingFinding represents a single wording/translation issue.
+type WordingFinding struct {
+	Category    string `json:"category"`    // grammar, spelling, consistency, tone, truncation, placeholder, translation, overflow
+	Text        string `json:"text"`        // The problematic text
+	Description string `json:"description"`
+	Severity    string `json:"severity"`    // critical, major, minor
+	Location    string `json:"location"`    // Where in the UI this text appears
+	Suggestion  string `json:"suggestion"`  // Corrected text or fix
+}
+
+// GameDesignFinding represents a single game design observation.
+type GameDesignFinding struct {
+	Category    string `json:"category"`    // rewards, balance, progression, psychology, difficulty, monetization, tutorial, feedback
+	Description string `json:"description"`
+	Severity    string `json:"severity"`    // critical, major, minor, positive
+	Impact      string `json:"impact"`      // How this affects the player experience
+	Suggestion  string `json:"suggestion"`  // Recommended improvement
 }
 
 // TestScenario represents a test scenario generated from analysis
@@ -311,10 +348,15 @@ ANALYSIS INSTRUCTIONS:
 4. Describe ONLY mechanics, UI elements, and flows that are evidenced by the screenshots or metadata. Do not guess.
 5. For UI elements, provide percentage-based coordinates from the screenshots (e.g., "50%,80%").
 
+UI/UX ANALYSIS:
+6. Evaluate visual design — alignments, layout consistency, color palette harmony, spacing, typography, visual hierarchy, accessibility (contrast ratios), animation quality. Report issues and strengths.
+7. WORDING/TRANSLATION CHECK: Examine all visible text for grammar, spelling, inconsistent terminology, tone, truncated text, placeholder text (e.g., "Lorem ipsum"), translation completeness, text overflow.
+8. GAME DESIGN ANALYSIS: Analyze game design — reward systems, balance, progression, player engagement, difficulty curve, monetization fairness, tutorial/onboarding quality, feedback systems.
+
 SCENARIO GENERATION INSTRUCTIONS:
-6. Generate 3-6 test scenarios covering: happy path (main user flow), edge cases (boundary conditions), and failure scenarios (timeouts, disconnects).
-7. Each scenario must have concrete, actionable steps with specific coordinates or selectors from the screenshots.
-8. Include at least one happy-path scenario that exercises the core game loop end-to-end.
+9. Generate 3-6 test scenarios covering: happy path (main user flow), edge cases (boundary conditions), and failure scenarios (timeouts, disconnects).
+10. Each scenario must have concrete, actionable steps with specific coordinates or selectors from the screenshots.
+11. Include at least one happy-path scenario that exercises the core game loop end-to-end.
 
 Respond with a single JSON object matching this exact format:
 {
@@ -375,6 +417,34 @@ Respond with a single JSON object matching this exact format:
       ],
       "priority": "high|medium|low",
       "tags": ["smoke", "regression"]
+    }
+  ],
+  "uiuxAnalysis": [
+    {
+      "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
+      "description": "...",
+      "severity": "critical|major|minor|suggestion",
+      "location": "where in the UI",
+      "suggestion": "recommended fix"
+    }
+  ],
+  "wordingCheck": [
+    {
+      "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
+      "text": "the problematic text",
+      "description": "what is wrong",
+      "severity": "critical|major|minor",
+      "location": "where this text appears",
+      "suggestion": "corrected text"
+    }
+  ],
+  "gameDesign": [
+    {
+      "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
+      "description": "...",
+      "severity": "critical|major|minor|positive",
+      "impact": "how this affects player experience",
+      "suggestion": "recommended improvement"
     }
   ]
 }`,

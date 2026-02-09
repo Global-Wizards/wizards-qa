@@ -655,6 +655,49 @@ func formatAnalysisMarkdown(a *store.AnalysisRecord) string {
 					}
 				}
 			}
+			if uiux, ok := analysis["uiuxAnalysis"].([]interface{}); ok && len(uiux) > 0 {
+				sb.WriteString("\n## UI/UX Analysis\n\n")
+				for _, item := range uiux {
+					if m, ok := item.(map[string]interface{}); ok {
+						sb.WriteString(fmt.Sprintf("- [%v / %v] %v", m["severity"], m["category"], m["description"]))
+						if sug, ok := m["suggestion"].(string); ok && sug != "" {
+							sb.WriteString(fmt.Sprintf(" — *%v*", sug))
+						}
+						sb.WriteString("\n")
+					}
+				}
+			}
+			if wording, ok := analysis["wordingCheck"].([]interface{}); ok && len(wording) > 0 {
+				sb.WriteString("\n## Wording/Translation Check\n\n")
+				for _, item := range wording {
+					if m, ok := item.(map[string]interface{}); ok {
+						sb.WriteString(fmt.Sprintf("- [%v / %v]", m["severity"], m["category"]))
+						if text, ok := m["text"].(string); ok && text != "" {
+							sb.WriteString(fmt.Sprintf(" \"%v\"", text))
+						}
+						sb.WriteString(fmt.Sprintf(" — %v", m["description"]))
+						if sug, ok := m["suggestion"].(string); ok && sug != "" {
+							sb.WriteString(fmt.Sprintf(" → *%v*", sug))
+						}
+						sb.WriteString("\n")
+					}
+				}
+			}
+			if gd, ok := analysis["gameDesign"].([]interface{}); ok && len(gd) > 0 {
+				sb.WriteString("\n## Game Design Analysis\n\n")
+				for _, item := range gd {
+					if m, ok := item.(map[string]interface{}); ok {
+						sb.WriteString(fmt.Sprintf("- [%v / %v] %v", m["severity"], m["category"], m["description"]))
+						if impact, ok := m["impact"].(string); ok && impact != "" {
+							sb.WriteString(fmt.Sprintf(" (Impact: %v)", impact))
+						}
+						if sug, ok := m["suggestion"].(string); ok && sug != "" {
+							sb.WriteString(fmt.Sprintf(" — *%v*", sug))
+						}
+						sb.WriteString("\n")
+					}
+				}
+			}
 		}
 	}
 
