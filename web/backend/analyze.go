@@ -23,14 +23,22 @@ import (
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
 )
 
+type AnalysisModules struct {
+	UIUX       *bool `json:"uiux,omitempty"`
+	Wording    *bool `json:"wording,omitempty"`
+	GameDesign *bool `json:"gameDesign,omitempty"`
+	TestFlows  *bool `json:"testFlows,omitempty"`
+}
+
 type AnalysisRequest struct {
-	GameURL     string   `json:"gameUrl"`
-	ProjectID   string   `json:"projectId"`
-	AgentMode   bool     `json:"agentMode"`
-	Model       string   `json:"model,omitempty"`
-	MaxTokens   int      `json:"maxTokens,omitempty"`
-	AgentSteps  int      `json:"agentSteps,omitempty"`
-	Temperature *float64 `json:"temperature,omitempty"`
+	GameURL     string          `json:"gameUrl"`
+	ProjectID   string          `json:"projectId"`
+	AgentMode   bool            `json:"agentMode"`
+	Modules     AnalysisModules `json:"modules"`
+	Model       string          `json:"model,omitempty"`
+	MaxTokens   int             `json:"maxTokens,omitempty"`
+	AgentSteps  int             `json:"agentSteps,omitempty"`
+	Temperature *float64        `json:"temperature,omitempty"`
 }
 
 type AnalysisProgress struct {
@@ -123,6 +131,20 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		},
 	})
 
+	// Serialize modules to JSON for persistence
+	modulesJSON := ""
+	{
+		m := map[string]bool{
+			"uiux":      req.Modules.UIUX == nil || *req.Modules.UIUX,
+			"wording":   req.Modules.Wording == nil || *req.Modules.Wording,
+			"gameDesign": req.Modules.GameDesign == nil || *req.Modules.GameDesign,
+			"testFlows": req.Modules.TestFlows == nil || *req.Modules.TestFlows,
+		}
+		if b, err := json.Marshal(m); err == nil {
+			modulesJSON = string(b)
+		}
+	}
+
 	// Save "running" record immediately so the job is persisted
 	runningRecord := store.AnalysisRecord{
 		ID:        analysisID,
@@ -133,6 +155,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		UpdatedAt: time.Now().Format(time.RFC3339),
 		CreatedBy: createdBy,
 		ProjectID: req.ProjectID,
+		Modules:   modulesJSON,
 	}
 	if err := s.store.SaveAnalysis(runningRecord); err != nil {
 		log.Printf("Warning: failed to save running analysis record for %s: %v", analysisID, err)
@@ -182,6 +205,18 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	}
 	if req.Temperature != nil {
 		args = append(args, "--temperature", fmt.Sprintf("%g", *req.Temperature))
+	}
+	if req.Modules.UIUX != nil && !*req.Modules.UIUX {
+		args = append(args, "--no-uiux")
+	}
+	if req.Modules.Wording != nil && !*req.Modules.Wording {
+		args = append(args, "--no-wording")
+	}
+	if req.Modules.GameDesign != nil && !*req.Modules.GameDesign {
+		args = append(args, "--no-game-design")
+	}
+	if req.Modules.TestFlows != nil && !*req.Modules.TestFlows {
+		args = append(args, "--no-test-flows")
 	}
 	log.Printf("Analysis %s: executing %s %s", analysisID, cliPath, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, cliPath, args...)

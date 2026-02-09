@@ -23,6 +23,7 @@ func (a *Analyzer) AgentExplore(
 	pageMeta *scout.PageMeta,
 	gameURL string,
 	cfg AgentConfig,
+	modules AnalysisModules,
 	onProgress ProgressFunc,
 ) (*ComprehensiveAnalysisResult, []AgentStep, error) {
 	progress := func(step, message string) {
@@ -305,107 +306,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	// --- Synthesis call ---
 	progress("agent_synthesize", "Synthesizing analysis from exploration...")
 
-	synthesisPrompt := `Based on your exploration of this game, provide a comprehensive QA analysis as a single JSON object.
-
-You interacted with the game and observed its behavior through screenshots. Now produce a structured analysis based on ONLY what you actually observed during exploration.
-
-In addition to functional QA, also analyze:
-- UI/UX quality: alignments, spacing, color harmony, typography, visual hierarchy, accessibility, animations
-- Wording/translation: grammar, spelling, consistency, tone, truncation, placeholder text, text overflow
-- Game design: rewards, balance, progression, engagement, difficulty, monetization, tutorial, feedback
-
-Respond with a single JSON object matching this exact format:
-{
-  "gameInfo": {
-    "name": "...",
-    "description": "...",
-    "genre": "...",
-    "technology": "...",
-    "features": ["..."]
-  },
-  "mechanics": [
-    {
-      "name": "...",
-      "description": "...",
-      "actions": ["click", "drag", etc.],
-      "expected": "...",
-      "priority": "high|medium|low"
-    }
-  ],
-  "uiElements": [
-    {
-      "name": "...",
-      "type": "button|canvas|input",
-      "selector": "text or percentage coordinate",
-      "location": {"x": "50%", "y": "80%"}
-    }
-  ],
-  "userFlows": [
-    {
-      "name": "...",
-      "description": "...",
-      "steps": ["step 1", "step 2"],
-      "expected": "...",
-      "priority": "high|medium|low"
-    }
-  ],
-  "edgeCases": [
-    {
-      "name": "...",
-      "description": "...",
-      "scenario": "...",
-      "expected": "..."
-    }
-  ],
-  "scenarios": [
-    {
-      "name": "...",
-      "description": "...",
-      "type": "happy-path|edge-case|failure",
-      "steps": [
-        {
-          "action": "launch|click|input|wait|assert",
-          "target": "description of target",
-          "value": "",
-          "expected": "what should happen",
-          "coordinates": {"x": "50%", "y": "80%"}
-        }
-      ],
-      "priority": "high|medium|low",
-      "tags": ["smoke", "regression"]
-    }
-  ],
-  "uiuxAnalysis": [
-    {
-      "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
-      "description": "...",
-      "severity": "critical|major|minor|suggestion",
-      "location": "where in the UI",
-      "suggestion": "recommended fix"
-    }
-  ],
-  "wordingCheck": [
-    {
-      "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
-      "text": "the problematic text",
-      "description": "what is wrong",
-      "severity": "critical|major|minor",
-      "location": "where this text appears",
-      "suggestion": "corrected text"
-    }
-  ],
-  "gameDesign": [
-    {
-      "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
-      "description": "...",
-      "severity": "critical|major|minor|positive",
-      "impact": "how this affects player experience",
-      "suggestion": "recommended improvement"
-    }
-  ]
-}
-
-IMPORTANT: Base your analysis on what you actually observed during exploration. Include specific coordinates you discovered. Respond with valid JSON only.`
+	synthesisPrompt := BuildSynthesisPrompt(modules)
 
 	// Add synthesis request as a user message (no tools for this call)
 	messages = append(messages, AgentMessage{Role: "user", Content: synthesisPrompt})
@@ -483,6 +384,7 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 	pageMeta *scout.PageMeta,
 	gameURL string,
 	agentCfg AgentConfig,
+	modules AnalysisModules,
 	onProgress ProgressFunc,
 ) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, []AgentStep, error) {
 	progress := func(step, message string) {
@@ -492,7 +394,7 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 	}
 
 	// Step 1: Agent exploration
-	comprehensiveResult, agentSteps, err := a.AgentExplore(ctx, browserPage, pageMeta, gameURL, agentCfg, onProgress)
+	comprehensiveResult, agentSteps, err := a.AgentExplore(ctx, browserPage, pageMeta, gameURL, agentCfg, modules, onProgress)
 	if err != nil {
 		return pageMeta, nil, nil, agentSteps, fmt.Errorf("agent exploration failed: %w", err)
 	}
@@ -510,6 +412,12 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 
 	if len(scenarios) > 0 {
 		progress("scenarios_done", fmt.Sprintf("Generated %d scenarios from agent exploration", len(scenarios)))
+	}
+
+	// Skip flow generation if test flows module is disabled
+	if !modules.TestFlows {
+		progress("flows_done", "Test flow generation skipped (module disabled)")
+		return pageMeta, result, nil, agentSteps, nil
 	}
 
 	// Step 2: Flow generation — collect last 5 agent screenshots for grounding

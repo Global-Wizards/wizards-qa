@@ -153,6 +153,9 @@ func (s *Store) ListFlows() ([]FlowInfo, error) {
 			return nil
 		}
 		name, category, relPath := s.flowMeta(path, info)
+		if category == "game-mechanics" {
+			return nil
+		}
 		flows = append(flows, FlowInfo{Name: name, Category: category, Path: relPath})
 		return nil
 	})
@@ -260,10 +263,10 @@ func (s *Store) SaveAnalysis(record AnalysisRecord) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO analyses (id, game_url, status, step, framework, game_name, flow_count, result, created_by, project_id, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO analyses (id, game_url, status, step, framework, game_name, flow_count, result, created_by, project_id, modules, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		record.ID, record.GameURL, record.Status, record.Step, record.Framework,
-		record.GameName, record.FlowCount, resultJSON, createdBy, record.ProjectID, record.CreatedAt, record.UpdatedAt,
+		record.GameName, record.FlowCount, resultJSON, createdBy, record.ProjectID, record.Modules, record.CreatedAt, record.UpdatedAt,
 	)
 	return err
 }
@@ -301,11 +304,11 @@ func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, game
 
 func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 	row := s.db.QueryRow(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at, COALESCE(error_message,'') FROM analyses WHERE id = ?`, id,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at, COALESCE(error_message,''), COALESCE(modules,'') FROM analyses WHERE id = ?`, id,
 	)
 	var a AnalysisRecord
 	var resultJSON sql.NullString
-	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt, &a.ErrorMessage)
+	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt, &a.ErrorMessage, &a.Modules)
 	if err != nil {
 		return nil, fmt.Errorf("analysis not found: %s", id)
 	}
@@ -320,7 +323,7 @@ func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 
 func (s *Store) ListAnalyses(limit, offset int) ([]AnalysisRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(modules,''), created_at, updated_at FROM analyses ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -330,7 +333,7 @@ func (s *Store) ListAnalyses(limit, offset int) ([]AnalysisRecord, error) {
 	var analyses []AnalysisRecord
 	for rows.Next() {
 		var a AnalysisRecord
-		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			continue
 		}
 		analyses = append(analyses, a)
@@ -1067,7 +1070,7 @@ func (s *Store) UpdateProjectMemberRole(projectID, userID, role string) error {
 
 func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(modules,''), created_at, updated_at FROM analyses WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
 	)
 	if err != nil {
 		return nil, err
@@ -1077,7 +1080,7 @@ func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error
 	var analyses []AnalysisRecord
 	for rows.Next() {
 		var a AnalysisRecord
-		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.CreatedAt, &a.UpdatedAt); err != nil {
 			continue
 		}
 		analyses = append(analyses, a)

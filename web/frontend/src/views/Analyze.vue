@@ -43,6 +43,36 @@
           </label>
         </div>
 
+        <!-- Analysis Modules -->
+        <div class="space-y-3 pt-2 border-t">
+          <div class="flex items-center gap-3">
+            <Sparkles class="h-4 w-4 text-muted-foreground shrink-0" />
+            <label class="text-sm font-medium">Analysis Modules</label>
+          </div>
+          <div class="ml-7 grid gap-2 sm:grid-cols-2">
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" v-model="moduleUiux" class="rounded border-gray-300" />
+              <Eye class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>UI/UX Analysis</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" v-model="moduleWording" class="rounded border-gray-300" />
+              <Type class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Wording Check</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" v-model="moduleGameDesign" class="rounded border-gray-300" />
+              <Gamepad2 class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Game Design</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" v-model="moduleTestFlows" class="rounded border-gray-300" />
+              <PlayCircle class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Test Flows</span>
+            </label>
+          </div>
+        </div>
+
         <!-- Analysis Profile Selector -->
         <div class="space-y-3 pt-2 border-t">
           <div class="flex items-center gap-3">
@@ -99,8 +129,12 @@
 
     <!-- Recent Analyses (idle state) -->
     <Card v-if="status === 'idle' && recentAnalyses.length" class="mt-4">
-      <CardHeader>
+      <CardHeader class="flex flex-row items-center justify-between">
         <CardTitle class="text-lg">Recent Analyses</CardTitle>
+        <Button variant="link" size="sm" class="text-xs" @click="navigateToAnalysesList">
+          View All Analyses
+          <ExternalLink class="h-3 w-3 ml-1" />
+        </Button>
       </CardHeader>
       <CardContent>
         <div class="space-y-2">
@@ -672,7 +706,7 @@ import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@/composables/useClipboard'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2, ExternalLink } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -699,6 +733,10 @@ const customModel = ref(defaultProfile.model)
 const customMaxTokens = ref(defaultProfile.maxTokens)
 const customAgentSteps = ref(defaultProfile.agentSteps)
 const customTemperature = ref(defaultProfile.temperature)
+const moduleUiux = ref(true)
+const moduleWording = ref(true)
+const moduleGameDesign = ref(true)
+const moduleTestFlows = ref(true)
 const recentAnalyses = ref([])
 const logContainer = ref(null)
 const currentAnalysisId = ref(null)
@@ -1072,8 +1110,14 @@ function parseUrlHints(urlStr) {
 async function handleAnalyze() {
   if (!isValidUrl(gameUrl.value)) return
   analyzing.value = true
+  const modules = {
+    uiux: moduleUiux.value,
+    wording: moduleWording.value,
+    gameDesign: moduleGameDesign.value,
+    testFlows: moduleTestFlows.value,
+  }
   try {
-    await start(gameUrl.value, projectId.value, useAgentMode.value, profileParams.value)
+    await start(gameUrl.value, projectId.value, useAgentMode.value, profileParams.value, modules)
   } catch {
     analyzing.value = false
   }
@@ -1293,6 +1337,11 @@ async function copyDebugLog() {
   await copyLogToClipboard(buildDebugLogText())
 }
 
+function navigateToAnalysesList() {
+  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push(`${basePath}/analyses`)
+}
+
 function viewAnalysis(item) {
   const basePath = projectId.value ? `/projects/${projectId.value}` : ''
   router.push(`${basePath}/analyses/${item.id}`)
@@ -1310,7 +1359,7 @@ async function loadRecentAnalyses() {
       ? await projectsApi.analyses(projectId.value)
       : await analysesApi.list()
     const all = data.analyses || []
-    recentAnalyses.value = all.slice(-5).reverse()
+    recentAnalyses.value = all.slice(-3).reverse()
   } catch {
     // Silently ignore — analyses endpoint may not have data yet
   }

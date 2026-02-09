@@ -269,7 +269,7 @@ export function useAnalysis() {
     cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offCompleted, offFailed]
   }
 
-  async function start(gameUrl, projectId, useAgentMode = false, profileParams = {}) {
+  async function start(gameUrl, projectId, useAgentMode = false, profileParams = {}, modules = {}) {
     status.value = 'scouting'
     currentStep.value = 'scouting'
     analysisId.value = null
@@ -294,7 +294,7 @@ export function useAnalysis() {
     setupListeners()
 
     try {
-      const response = await analyzeApi.start(gameUrl, projectId, useAgentMode, profileParams)
+      const response = await analyzeApi.start(gameUrl, projectId, useAgentMode, profileParams, modules)
       analysisId.value = response.analysisId
 
       // Persist to localStorage so we can recover

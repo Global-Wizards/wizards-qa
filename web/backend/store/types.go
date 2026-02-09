@@ -143,6 +143,7 @@ type AnalysisRecord struct {
 	CreatedBy    string      `json:"createdBy,omitempty"`
 	ProjectID    string      `json:"projectId,omitempty"`
 	ErrorMessage string      `json:"errorMessage,omitempty"`
+	Modules      string      `json:"modules,omitempty"`
 }
 
 type AgentStepRecord struct {

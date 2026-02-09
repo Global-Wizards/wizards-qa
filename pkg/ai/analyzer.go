@@ -197,7 +197,7 @@ type ProgressFunc func(step, message string)
 // AnalyzeFromURLWithMeta performs analysis and flow generation using pre-fetched page metadata.
 // Use this to avoid double-fetching when the caller already has PageMeta.
 func (a *Analyzer) AnalyzeFromURLWithMeta(ctx context.Context, gameURL string, pageMeta *scout.PageMeta) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
-	return a.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, nil)
+	return a.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, DefaultAnalysisModules(), nil)
 }
 
 // collectScreenshots gathers all available screenshots from PageMeta.
@@ -249,7 +249,7 @@ func buildPageMetaJSON(pageMeta *scout.PageMeta) []byte {
 //  2. Flow generation (multimodal call with screenshots + full structured JSON from step 1)
 func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 	ctx context.Context, gameURL string, pageMeta *scout.PageMeta,
-	onProgress ProgressFunc,
+	modules AnalysisModules, onProgress ProgressFunc,
 ) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
 	progress := func(step, message string) {
 		if onProgress != nil {
@@ -275,7 +275,8 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 	}
 
 	// --- AI Call #1: Comprehensive analysis + scenarios ---
-	prompt := fillTemplate(ComprehensiveAnalysisPrompt.Template, map[string]string{
+	promptTemplate := BuildAnalysisPrompt(modules)
+	prompt := fillTemplate(promptTemplate, map[string]string{
 		"url":               gameURL,
 		"pageMeta":          string(pageMetaJSON),
 		"urlHints":          string(urlHintsJSON),
@@ -415,6 +416,12 @@ Respond with structured JSON matching the ComprehensiveAnalysisResult format (ga
 			typeSummary = fmt.Sprintf("%d total", len(scenarios))
 		}
 		progress("scenarios_done", fmt.Sprintf("Generated %d scenarios (%s)", len(scenarios), typeSummary))
+	}
+
+	// Skip flow generation if test flows module is disabled
+	if !modules.TestFlows {
+		progress("flows_done", "Test flow generation skipped (module disabled)")
+		return pageMeta, result, nil, nil
 	}
 
 	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))

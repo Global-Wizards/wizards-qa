@@ -167,6 +167,301 @@ type BrowserPage interface {
 	Navigate(url string) error
 }
 
+// AnalysisModules controls which optional analysis sections are enabled.
+type AnalysisModules struct {
+	UIUX       bool
+	Wording    bool
+	GameDesign bool
+	TestFlows  bool
+}
+
+// DefaultAnalysisModules returns modules with everything enabled.
+func DefaultAnalysisModules() AnalysisModules {
+	return AnalysisModules{UIUX: true, Wording: true, GameDesign: true, TestFlows: true}
+}
+
+// BuildAnalysisPrompt constructs the comprehensive analysis prompt with only
+// the enabled module sections included. This reduces token usage when modules
+// are disabled.
+func BuildAnalysisPrompt(modules AnalysisModules) string {
+	tmpl := `Analyze this web-based game for automated QA testing. You are provided with screenshots of the game in different states and page metadata.
+
+Game URL: {{url}}
+URL Hints: {{urlHints}}
+
+Page metadata (auto-detected):
+{{pageMeta}}
+
+{{screenshotSection}}
+
+ANALYSIS INSTRUCTIONS:
+1. URL parameters often reveal critical game info (e.g., game_type=SLOTS, mode=demo). Use the domain and path to infer the game studio/platform.
+2. If page metadata is minimal (just a JS loader), this is a JS-rendered SPA. Focus on what the screenshots and URL parameters tell you.
+3. For canvas-based games (Phaser, PIXI, etc.): game interactions are coordinate-based taps on the canvas. HTML overlays use text selectors.
+4. Describe ONLY mechanics, UI elements, and flows that are evidenced by the screenshots or metadata. Do not guess.
+5. For UI elements, provide percentage-based coordinates from the screenshots (e.g., "50%,80%").
+`
+	if modules.UIUX {
+		tmpl += `
+UI/UX ANALYSIS:
+6. Evaluate visual design — alignments, layout consistency, color palette harmony, spacing, typography, visual hierarchy, accessibility (contrast ratios), animation quality. Report issues and strengths.
+`
+	}
+	if modules.Wording {
+		tmpl += `
+WORDING/TRANSLATION CHECK:
+7. Examine all visible text for grammar, spelling, inconsistent terminology, tone, truncated text, placeholder text (e.g., "Lorem ipsum"), translation completeness, text overflow.
+`
+	}
+	if modules.GameDesign {
+		tmpl += `
+GAME DESIGN ANALYSIS:
+8. Analyze game design — reward systems, balance, progression, player engagement, difficulty curve, monetization fairness, tutorial/onboarding quality, feedback systems.
+`
+	}
+
+	tmpl += `
+SCENARIO GENERATION INSTRUCTIONS:
+9. Generate 3-6 test scenarios covering: happy path (main user flow), edge cases (boundary conditions), and failure scenarios (timeouts, disconnects).
+10. Each scenario must have concrete, actionable steps with specific coordinates or selectors from the screenshots.
+11. Include at least one happy-path scenario that exercises the core game loop end-to-end.
+
+Respond with a single JSON object matching this exact format:
+{
+  "gameInfo": {
+    "name": "...",
+    "description": "...",
+    "genre": "...",
+    "technology": "...",
+    "features": ["..."]
+  },
+  "mechanics": [
+    {
+      "name": "...",
+      "description": "...",
+      "actions": ["click", "drag", etc.],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "uiElements": [
+    {
+      "name": "...",
+      "type": "button|canvas|input",
+      "selector": "text or percentage coordinate",
+      "location": {"x": "50%", "y": "80%"}
+    }
+  ],
+  "userFlows": [
+    {
+      "name": "...",
+      "description": "...",
+      "steps": ["step 1", "step 2"],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "edgeCases": [
+    {
+      "name": "...",
+      "description": "...",
+      "scenario": "...",
+      "expected": "..."
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "...",
+      "description": "...",
+      "type": "happy-path|edge-case|failure",
+      "steps": [
+        {
+          "action": "launch|click|input|wait|assert",
+          "target": "description of target",
+          "value": "",
+          "expected": "what should happen",
+          "coordinates": {"x": "50%", "y": "80%"}
+        }
+      ],
+      "priority": "high|medium|low",
+      "tags": ["smoke", "regression"]
+    }
+  ]`
+
+	if modules.UIUX {
+		tmpl += `,
+  "uiuxAnalysis": [
+    {
+      "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
+      "description": "...",
+      "severity": "critical|major|minor|suggestion",
+      "location": "where in the UI",
+      "suggestion": "recommended fix"
+    }
+  ]`
+	}
+	if modules.Wording {
+		tmpl += `,
+  "wordingCheck": [
+    {
+      "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
+      "text": "the problematic text",
+      "description": "what is wrong",
+      "severity": "critical|major|minor",
+      "location": "where this text appears",
+      "suggestion": "corrected text"
+    }
+  ]`
+	}
+	if modules.GameDesign {
+		tmpl += `,
+  "gameDesign": [
+    {
+      "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
+      "description": "...",
+      "severity": "critical|major|minor|positive",
+      "impact": "how this affects player experience",
+      "suggestion": "recommended improvement"
+    }
+  ]`
+	}
+
+	tmpl += `
+}`
+
+	return tmpl
+}
+
+// BuildSynthesisPrompt constructs the agent synthesis prompt with only
+// the enabled module sections included.
+func BuildSynthesisPrompt(modules AnalysisModules) string {
+	prompt := `Based on your exploration of this game, provide a comprehensive QA analysis as a single JSON object.
+
+You interacted with the game and observed its behavior through screenshots. Now produce a structured analysis based on ONLY what you actually observed during exploration.
+`
+
+	if modules.UIUX || modules.Wording || modules.GameDesign {
+		prompt += "\nIn addition to functional QA, also analyze:\n"
+		if modules.UIUX {
+			prompt += "- UI/UX quality: alignments, spacing, color harmony, typography, visual hierarchy, accessibility, animations\n"
+		}
+		if modules.Wording {
+			prompt += "- Wording/translation: grammar, spelling, consistency, tone, truncation, placeholder text, text overflow\n"
+		}
+		if modules.GameDesign {
+			prompt += "- Game design: rewards, balance, progression, engagement, difficulty, monetization, tutorial, feedback\n"
+		}
+	}
+
+	prompt += `
+Respond with a single JSON object matching this exact format:
+{
+  "gameInfo": {
+    "name": "...",
+    "description": "...",
+    "genre": "...",
+    "technology": "...",
+    "features": ["..."]
+  },
+  "mechanics": [
+    {
+      "name": "...",
+      "description": "...",
+      "actions": ["click", "drag", etc.],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "uiElements": [
+    {
+      "name": "...",
+      "type": "button|canvas|input",
+      "selector": "text or percentage coordinate",
+      "location": {"x": "50%", "y": "80%"}
+    }
+  ],
+  "userFlows": [
+    {
+      "name": "...",
+      "description": "...",
+      "steps": ["step 1", "step 2"],
+      "expected": "...",
+      "priority": "high|medium|low"
+    }
+  ],
+  "edgeCases": [
+    {
+      "name": "...",
+      "description": "...",
+      "scenario": "...",
+      "expected": "..."
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "...",
+      "description": "...",
+      "type": "happy-path|edge-case|failure",
+      "steps": [
+        {
+          "action": "launch|click|input|wait|assert",
+          "target": "description of target",
+          "value": "",
+          "expected": "what should happen",
+          "coordinates": {"x": "50%", "y": "80%"}
+        }
+      ],
+      "priority": "high|medium|low",
+      "tags": ["smoke", "regression"]
+    }
+  ]`
+
+	if modules.UIUX {
+		prompt += `,
+  "uiuxAnalysis": [
+    {
+      "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
+      "description": "...",
+      "severity": "critical|major|minor|suggestion",
+      "location": "where in the UI",
+      "suggestion": "recommended fix"
+    }
+  ]`
+	}
+	if modules.Wording {
+		prompt += `,
+  "wordingCheck": [
+    {
+      "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
+      "text": "the problematic text",
+      "description": "what is wrong",
+      "severity": "critical|major|minor",
+      "location": "where this text appears",
+      "suggestion": "corrected text"
+    }
+  ]`
+	}
+	if modules.GameDesign {
+		prompt += `,
+  "gameDesign": [
+    {
+      "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
+      "description": "...",
+      "severity": "critical|major|minor|positive",
+      "impact": "how this affects player experience",
+      "suggestion": "recommended improvement"
+    }
+  ]`
+	}
+
+	prompt += `
+}
+
+IMPORTANT: Base your analysis on what you actually observed during exploration. Include specific coordinates you discovered. Respond with valid JSON only.`
+
+	return prompt
+}
+
 // AgentStep records a single step in the agent exploration loop.
 type AgentStep struct {
 	StepNumber    int    `json:"stepNumber"`

@@ -17,18 +17,22 @@ import (
 
 func newScoutCmd() *cobra.Command {
 	var (
-		gameURL      string
-		output       string
-		jsonOutput   bool
-		saveFlows    bool
-		configPath   string
-		headless     bool
-		timeout      int
-		agentMode    bool
-		agentSteps   int
-		modelFlag    string
-		maxTokens    int
-		temperature  float64
+		gameURL       string
+		output        string
+		jsonOutput    bool
+		saveFlows     bool
+		configPath    string
+		headless      bool
+		timeout       int
+		agentMode     bool
+		agentSteps    int
+		modelFlag     string
+		maxTokens     int
+		temperature   float64
+		noUIUX        bool
+		noWording     bool
+		noGameDesign  bool
+		noTestFlows   bool
 	)
 
 	cmd := &cobra.Command{
@@ -128,6 +132,13 @@ Example:
 			analyzer, err := newAnalyzer(cfg, modelFlag, maxTokens, temperature)
 			if err != nil {
 				return err
+			}
+
+			modules := ai.AnalysisModules{
+				UIUX:       !noUIUX,
+				Wording:    !noWording,
+				GameDesign: !noGameDesign,
+				TestFlows:  !noTestFlows,
 			}
 
 			// Emit scouting progress for --json mode
@@ -250,14 +261,14 @@ Example:
 				}
 
 				_, result, flows, agentStepsResult, err = analyzer.AnalyzeFromURLWithAgent(
-					ctx, browserPage, pageMeta, gameURL, agentCfg, onProgress,
+					ctx, browserPage, pageMeta, gameURL, agentCfg, modules, onProgress,
 				)
 				if err != nil {
 					return fmt.Errorf("agent analysis failed: %w", err)
 				}
 			} else {
-				// Standard 2-call pipeline (unchanged)
-				_, result, flows, err = analyzer.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, onProgress)
+				// Standard 2-call pipeline
+				_, result, flows, err = analyzer.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, modules, onProgress)
 				if err != nil {
 					return fmt.Errorf("analysis failed: %w", err)
 				}
@@ -338,6 +349,10 @@ Example:
 	cmd.Flags().StringVar(&modelFlag, "model", "", "Override AI model (e.g. claude-sonnet-4-5-20250929)")
 	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Override max tokens for AI responses")
 	cmd.Flags().Float64Var(&temperature, "temperature", -1, "Override AI temperature (0.0-1.0, unset by default)")
+	cmd.Flags().BoolVar(&noUIUX, "no-uiux", false, "Disable UI/UX analysis module")
+	cmd.Flags().BoolVar(&noWording, "no-wording", false, "Disable wording/translation check module")
+	cmd.Flags().BoolVar(&noGameDesign, "no-game-design", false, "Disable game design analysis module")
+	cmd.Flags().BoolVar(&noTestFlows, "no-test-flows", false, "Disable test flow generation module")
 
 	cmd.MarkFlagRequired("game")
 

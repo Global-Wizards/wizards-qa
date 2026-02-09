@@ -5,6 +5,24 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-02-09
+
+### Toggleable Analysis Modules & Analysis List View
+
+#### Added
+- **Toggleable analysis modules** — UI/UX Analysis, Wording Check, Game Design Analysis, and Test Flow generation can now be individually enabled/disabled before starting an analysis, reducing token usage and focusing results
+- **Analysis List view** (`/analyses`) — dedicated full-page list for browsing all past analyses with search, status filters, module badge filters, re-analyze, and delete actions
+- **Module badges** — analysis list items show colored pills indicating which modules were enabled (UI/UX, Wording, Design, Flows)
+- **CLI flags** — `--no-uiux`, `--no-wording`, `--no-game-design`, `--no-test-flows` flags for the `scout` command to disable specific analysis modules
+- **Conditional AI prompts** — `BuildAnalysisPrompt()` and `BuildSynthesisPrompt()` dynamically construct prompts with only enabled module sections, saving tokens
+- **`modules` column** in analyses DB table — persists which modules were enabled for each analysis
+
+#### Changed
+- **Sidebar navigation** — "Analyze" renamed to "Analyses" and now links to the list view; "New Analysis" button at the top of the list view navigates to the analyze page
+- **Recent analyses** on Analyze page — slimmed from 5 to 3 items with a "View All Analyses" link
+- **Analysis Detail view** — tabs for disabled modules are now hidden entirely (vs previously just disabled when empty)
+- **Back button** in Analysis Detail now navigates to `/analyses` list instead of `/analyze`
+
 ## [0.9.0] - 2026-02-09
 
 ### Dedicated Analysis Detail View with Tabbed Navigation

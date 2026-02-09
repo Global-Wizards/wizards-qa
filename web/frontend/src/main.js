@@ -12,6 +12,7 @@ const router = createRouter({
     { path: '/login', component: () => import('./views/Login.vue'), meta: { public: true } },
     { path: '/', component: () => import('./views/Dashboard.vue') },
     { path: '/analyze', component: () => import('./views/Analyze.vue') },
+    { path: '/analyses', component: () => import('./views/AnalysisList.vue') },
     { path: '/tests', component: () => import('./views/Tests.vue') },
     { path: '/tests/new', component: () => import('./views/NewTestPlan.vue') },
     { path: '/reports', component: () => import('./views/Reports.vue') },
@@ -25,6 +26,7 @@ const router = createRouter({
       children: [
         { path: '', component: () => import('./views/ProjectDashboard.vue') },
         { path: 'analyze', component: () => import('./views/Analyze.vue') },
+        { path: 'analyses', component: () => import('./views/AnalysisList.vue') },
         { path: 'tests', component: () => import('./views/Tests.vue') },
         { path: 'tests/new', component: () => import('./views/NewTestPlan.vue') },
         { path: 'reports', component: () => import('./views/Reports.vue') },

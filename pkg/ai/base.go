@@ -53,7 +53,7 @@ func NewBaseClient(apiKey, model string, temperature float64, maxTokens int, cal
 
 // Analyze sends a prompt and returns structured analysis.
 func (b *BaseClient) Analyze(prompt string, ctx map[string]interface{}) (*AnalysisResult, error) {
-	fullPrompt := BuildAnalysisPrompt(prompt, ctx)
+	fullPrompt := buildLegacyAnalysisPrompt(prompt, ctx)
 
 	response, err := b.callAPI(fullPrompt)
 	if err != nil {

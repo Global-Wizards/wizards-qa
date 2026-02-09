@@ -2,8 +2,8 @@ package ai
 
 import "strings"
 
-// BuildAnalysisPrompt constructs the prompt for game analysis.
-func BuildAnalysisPrompt(prompt string, context map[string]interface{}) string {
+// buildLegacyAnalysisPrompt constructs the prompt for game analysis (legacy path).
+func buildLegacyAnalysisPrompt(prompt string, context map[string]interface{}) string {
 	var sb strings.Builder
 
 	sb.WriteString("You are an expert QA engineer specializing in game testing.\n")

@@ -54,19 +54,19 @@
         <TabsList class="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="functional">Functional QA</TabsTrigger>
-          <TabsTrigger value="uiux" :disabled="!uiuxCount">
+          <TabsTrigger v-if="showUiuxTab" value="uiux" :disabled="!uiuxCount">
             UI/UX Analysis
             <Badge v-if="uiuxCount" variant="secondary" class="ml-1.5 text-xs px-1.5 py-0">{{ uiuxCount }}</Badge>
           </TabsTrigger>
-          <TabsTrigger value="wording" :disabled="!wordingCount">
+          <TabsTrigger v-if="showWordingTab" value="wording" :disabled="!wordingCount">
             Wording
             <Badge v-if="wordingCount" variant="secondary" class="ml-1.5 text-xs px-1.5 py-0">{{ wordingCount }}</Badge>
           </TabsTrigger>
-          <TabsTrigger value="gamedesign" :disabled="!gameDesignCount">
+          <TabsTrigger v-if="showGameDesignTab" value="gamedesign" :disabled="!gameDesignCount">
             Game Design
             <Badge v-if="gameDesignCount" variant="secondary" class="ml-1.5 text-xs px-1.5 py-0">{{ gameDesignCount }}</Badge>
           </TabsTrigger>
-          <TabsTrigger value="flows" :disabled="!flowCount">
+          <TabsTrigger v-if="showFlowsTab" value="flows" :disabled="!flowCount">
             Test Flows
             <Badge v-if="flowCount" variant="secondary" class="ml-1.5 text-xs px-1.5 py-0">{{ flowCount }}</Badge>
           </TabsTrigger>
@@ -82,16 +82,16 @@
           <TabsContent value="functional">
             <FunctionalQATab :analysis="analysis" />
           </TabsContent>
-          <TabsContent value="uiux">
+          <TabsContent v-if="showUiuxTab" value="uiux">
             <FindingsTab :findings="analysis?.uiuxAnalysis" type="uiux" />
           </TabsContent>
-          <TabsContent value="wording">
+          <TabsContent v-if="showWordingTab" value="wording">
             <FindingsTab :findings="analysis?.wordingCheck" type="wording" />
           </TabsContent>
-          <TabsContent value="gamedesign">
+          <TabsContent v-if="showGameDesignTab" value="gamedesign">
             <FindingsTab :findings="analysis?.gameDesign" type="gamedesign" />
           </TabsContent>
-          <TabsContent value="flows">
+          <TabsContent v-if="showFlowsTab" value="flows">
             <TestFlowsTab :flows="flows" :game-url="analysisData.gameUrl" />
           </TabsContent>
           <TabsContent v-if="isAgentMode" value="exploration">
@@ -141,6 +141,14 @@ const gameName = computed(() => {
   return analysis.value?.gameInfo?.name || pageMeta.value?.title || 'Analysis'
 })
 
+const enabledModules = computed(() => {
+  try { return JSON.parse(analysisData.value?.modules || '{}') } catch { return {} }
+})
+const showUiuxTab = computed(() => enabledModules.value.uiux !== false)
+const showWordingTab = computed(() => enabledModules.value.wording !== false)
+const showGameDesignTab = computed(() => enabledModules.value.gameDesign !== false)
+const showFlowsTab = computed(() => enabledModules.value.testFlows !== false)
+
 const uiuxCount = computed(() => analysis.value?.uiuxAnalysis?.length || 0)
 const wordingCount = computed(() => analysis.value?.wordingCheck?.length || 0)
 const gameDesignCount = computed(() => analysis.value?.gameDesign?.length || 0)
@@ -151,7 +159,7 @@ function goBack() {
     router.back()
   } else {
     const basePath = route.params.projectId ? `/projects/${route.params.projectId}` : ''
-    router.push(`${basePath}/analyze`)
+    router.push(`${basePath}/analyses`)
   }
 }
 

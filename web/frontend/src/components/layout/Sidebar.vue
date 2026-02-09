@@ -66,7 +66,7 @@ function truncateUrl(url) {
 
 const navItems = [
   { path: '/', label: 'Dashboard', icon: LayoutDashboard },
-  { path: '/analyze', label: 'Analyze', icon: Sparkles },
+  { path: '/analyses', label: 'Analyses', icon: Sparkles },
   { path: '/tests', label: 'Tests', icon: FlaskConical },
   { path: '/reports', label: 'Reports', icon: FileText },
   { path: '/flows', label: 'Flows', icon: GitBranch },
@@ -77,7 +77,7 @@ const projectNavItems = computed(() => {
   const base = `/projects/${currentProject.value.id}`
   return [
     { path: base, label: 'Dashboard', icon: LayoutDashboard, exact: true },
-    { path: `${base}/analyze`, label: 'Analyze', icon: Sparkles },
+    { path: `${base}/analyses`, label: 'Analyses', icon: Sparkles },
     { path: `${base}/tests`, label: 'Tests', icon: FlaskConical },
     { path: `${base}/reports`, label: 'Reports', icon: FileText },
     { path: `${base}/flows`, label: 'Flows', icon: GitBranch },
