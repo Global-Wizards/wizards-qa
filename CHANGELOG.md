@@ -5,6 +5,14 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.6] - 2026-02-09
+
+### Fix Analysis Failures — SQLite Locking & OOM Kills
+
+#### Fixed
+- **SQLITE_BUSY errors during agent analysis** — Go's `database/sql` connection pool created multiple connections to SQLite, but PRAGMAs (including `busy_timeout=5000`) are per-connection; new pool connections had no timeout and failed immediately on contention. Fixed with `SetMaxOpenConns(1)` which serializes all DB access through a single connection where PRAGMAs persist.
+- **Chrome processes OOM-killed during agent analysis** — headless Chrome with SwiftShader WebGL rendering exceeded the 1GB VM memory limit, causing SIGKILL of all Chrome child processes mid-analysis. Bumped Fly.io VM to 2GB RAM / 2 shared CPUs.
+
 ## [0.4.5] - 2026-02-09
 
 ### Headless Chrome Hardening for Phaser/WebGL Game Testing

@@ -28,9 +28,9 @@ primary_region = "iad"
   PORT = "8080"
 
 [vm]
-  memory = "1gb"
+  memory = "2gb"
   cpu_kind = "shared"
-  cpus = 1
+  cpus = 2
 
 [mounts]
   source = "wizards_data"

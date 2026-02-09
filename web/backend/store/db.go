@@ -25,6 +25,12 @@ func InitDB(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("opening database: %w", err)
 	}
 
+	// SQLite only supports one writer at a time. Limiting the pool to a single
+	// connection ensures PRAGMAs (which are per-connection) persist across all
+	// operations and eliminates SQLITE_BUSY errors from concurrent goroutines
+	// getting separate pool connections without busy_timeout set.
+	db.SetMaxOpenConns(1)
+
 	// Set pragmas for performance and correctness
 	pragmas := []string{
 		"PRAGMA journal_mode=WAL",
