@@ -130,18 +130,33 @@ type TestPlansFile struct {
 }
 
 type AnalysisRecord struct {
-	ID        string      `json:"id"`
-	GameURL   string      `json:"gameUrl"`
-	Status    string      `json:"status"`
-	Step      string      `json:"step,omitempty"`
-	UpdatedAt string      `json:"updatedAt,omitempty"`
-	Framework string      `json:"framework"`
-	GameName  string      `json:"gameName"`
-	FlowCount int         `json:"flowCount"`
-	CreatedAt string      `json:"createdAt"`
-	Result    interface{} `json:"result,omitempty"`
-	CreatedBy string      `json:"createdBy,omitempty"`
-	ProjectID string      `json:"projectId,omitempty"`
+	ID           string      `json:"id"`
+	GameURL      string      `json:"gameUrl"`
+	Status       string      `json:"status"`
+	Step         string      `json:"step,omitempty"`
+	UpdatedAt    string      `json:"updatedAt,omitempty"`
+	Framework    string      `json:"framework"`
+	GameName     string      `json:"gameName"`
+	FlowCount    int         `json:"flowCount"`
+	CreatedAt    string      `json:"createdAt"`
+	Result       interface{} `json:"result,omitempty"`
+	CreatedBy    string      `json:"createdBy,omitempty"`
+	ProjectID    string      `json:"projectId,omitempty"`
+	ErrorMessage string      `json:"errorMessage,omitempty"`
+}
+
+type AgentStepRecord struct {
+	ID             int    `json:"id"`
+	AnalysisID     string `json:"analysisId"`
+	StepNumber     int    `json:"stepNumber"`
+	ToolName       string `json:"toolName"`
+	Input          string `json:"input"`
+	Result         string `json:"result"`
+	ScreenshotPath string `json:"screenshotPath,omitempty"`
+	DurationMs     int    `json:"durationMs"`
+	Error          string `json:"error,omitempty"`
+	Reasoning      string `json:"reasoning,omitempty"`
+	CreatedAt      string `json:"createdAt"`
 }
 
 type AnalysesFile struct {

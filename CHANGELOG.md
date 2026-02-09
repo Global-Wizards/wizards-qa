@@ -5,6 +5,28 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-02-08
+
+### Persist Agent Steps, Fix Errors, Enhanced Logging & Step Navigator
+
+#### Added
+- **Agent steps persistence** — agent exploration steps are now saved to the `agent_steps` database table as they arrive, surviving analysis failures and server restarts
+- **Step Navigator UI** — new `AgentStepNavigator` component with left panel step list, right panel detail view, prev/next navigation, and full-screen screenshot dialog
+- **Persisted screenshots** — agent screenshots are saved to `/app/data/screenshots/{analysisID}/` and served via REST API instead of ephemeral base64
+- **New API endpoints** — `GET /api/analyses/{id}/steps` returns all persisted agent steps; `GET /api/analyses/{id}/steps/{stepNumber}/screenshot` serves screenshot JPEGs
+- **Enhanced debug log** — "Copy Full Log" now includes agent step details (tool name, input, result, reasoning, duration, errors) and last agent reasoning text
+- **Retry Analysis button** — error state now shows a "Retry Analysis" button that re-runs with the same URL and agent mode setting
+- **Agent steps visible on failure** — error state shows the step navigator so users can see what the agent did before the failure occurred
+
+#### Fixed
+- **Error classification** — analysis errors now show concise messages ("Analysis timed out after 5 minutes", "CLI exited with code N") instead of dumping raw agent reasoning text from stderr
+- **Full stderr preserved** — the complete stderr output is saved in the `error_message` database column for debugging, separate from the user-visible error
+- **Live steps preserved on failure** — `liveAgentSteps` are no longer cleared when analysis fails, keeping them available for the debug log and step navigator
+
+#### Changed
+- **Agent step reasoning tracking** — each persisted step captures the agent's latest reasoning text at the time the step was recorded
+- **Delete analysis cleanup** — deleting an analysis now also removes its persisted screenshots directory
+
 ## [0.4.6] - 2026-02-09
 
 ### Fix Analysis Failures — SQLite Locking & OOM Kills

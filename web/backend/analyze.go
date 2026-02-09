@@ -183,6 +183,11 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 		defer close(stderrDone)
 		stderrScanner := bufio.NewScanner(stderr)
 		stderrScanner.Buffer(make([]byte, 256*1024), 256*1024)
+
+		// Track latest reasoning text and last inserted step ID for screenshot association
+		var latestReasoning string
+		var lastStepDBID int64
+
 		for stderrScanner.Scan() {
 			line := stderrScanner.Text()
 			if strings.HasPrefix(line, "PROGRESS:") {
@@ -204,8 +209,28 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 							Type: "agent_step_detail",
 							Data: detailData,
 						})
+
+						// Persist step to database
+						stepRecord := store.AgentStepRecord{
+							AnalysisID: analysisID,
+							StepNumber: intFromMap(detailData, "stepNumber"),
+							ToolName:   strFromMap(detailData, "toolName"),
+							Input:      strFromMap(detailData, "input"),
+							Result:     strFromMap(detailData, "result"),
+							DurationMs: intFromMap(detailData, "durationMs"),
+							Error:      strFromMap(detailData, "error"),
+							Reasoning:  latestReasoning,
+						}
+						if dbID, saveErr := s.store.SaveAgentStep(stepRecord); saveErr != nil {
+							log.Printf("Warning: failed to save agent step %d for %s: %v", stepRecord.StepNumber, analysisID, saveErr)
+						} else {
+							lastStepDBID = dbID
+						}
+						// Clear reasoning after attaching to a step
+						latestReasoning = ""
 					}
 				case "agent_reasoning":
+					latestReasoning = message
 					s.wsHub.Broadcast(ws.Message{
 						Type: "agent_reasoning",
 						Data: map[string]string{
@@ -233,6 +258,21 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 									"filename":   filename,
 								},
 							})
+
+							// Persist screenshot to data dir
+							dataDir := s.store.DataDir()
+							if dataDir != "" {
+								dstDir := filepath.Join(dataDir, "screenshots", analysisID)
+								if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
+									dstPath := filepath.Join(dstDir, filename)
+									if cpErr := os.WriteFile(dstPath, imgData, 0644); cpErr == nil {
+										// Update the matching agent step with screenshot path
+										if lastStepDBID > 0 {
+											s.store.UpdateAgentStepScreenshot(lastStepDBID, filename)
+										}
+									}
+								}
+							}
 						}
 					}
 				case "user_hint":
@@ -284,11 +324,23 @@ func (s *Server) executeAnalysis(analysisID, gameURL, createdBy, projectID strin
 
 	err = cmd.Wait()
 	if err != nil {
-		errMsg := err.Error()
-		if len(stderrLines) > 0 {
-			errMsg = strings.Join(stderrLines, "\n")
+		// Classify error concisely for the user
+		var userMsg string
+		if ctx.Err() != nil {
+			userMsg = "Analysis timed out after 5 minutes"
+		} else if exitErr, ok := err.(*exec.ExitError); ok {
+			userMsg = fmt.Sprintf("CLI exited with code %d", exitErr.ExitCode())
+		} else {
+			userMsg = err.Error()
 		}
-		s.broadcastAnalysisError(analysisID, errMsg)
+
+		// Store full stderr in error_message column for debugging
+		fullStderr := strings.Join(stderrLines, "\n")
+		if saveErr := s.store.UpdateAnalysisError(analysisID, fullStderr); saveErr != nil {
+			log.Printf("Warning: failed to save error_message for %s: %v", analysisID, saveErr)
+		}
+
+		s.broadcastAnalysisError(analysisID, userMsg)
 		return
 	}
 
@@ -409,6 +461,33 @@ func (s *Server) handleSendAgentMessage(w http.ResponseWriter, r *http.Request) 
 	}
 
 	respondJSON(w, http.StatusOK, map[string]string{"status": "sent"})
+}
+
+func intFromMap(m map[string]interface{}, key string) int {
+	v, ok := m[key]
+	if !ok {
+		return 0
+	}
+	switch n := v.(type) {
+	case float64:
+		return int(n)
+	case int:
+		return n
+	case json.Number:
+		i, _ := n.Int64()
+		return int(i)
+	default:
+		return 0
+	}
+}
+
+func strFromMap(m map[string]interface{}, key string) string {
+	v, ok := m[key]
+	if !ok {
+		return ""
+	}
+	s, _ := v.(string)
+	return s
 }
 
 func (s *Server) broadcastAnalysisError(analysisID, errMsg string) {

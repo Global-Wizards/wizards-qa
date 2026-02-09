@@ -24,6 +24,7 @@ type Store struct {
 	flowsDir   string
 	reportsDir string
 	configPath string
+	dataDir    string
 }
 
 func New(db *sql.DB, flowsDir, reportsDir, configPath string) *Store {
@@ -33,6 +34,16 @@ func New(db *sql.DB, flowsDir, reportsDir, configPath string) *Store {
 		reportsDir: reportsDir,
 		configPath: configPath,
 	}
+}
+
+// SetDataDir sets the data directory path for screenshot storage.
+func (s *Store) SetDataDir(dir string) {
+	s.dataDir = dir
+}
+
+// DataDir returns the data directory path.
+func (s *Store) DataDir() string {
+	return s.dataDir
 }
 
 // Ping checks database connectivity.
@@ -291,11 +302,11 @@ func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, game
 
 func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 	row := s.db.QueryRow(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at FROM analyses WHERE id = ?`, id,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at, COALESCE(error_message,'') FROM analyses WHERE id = ?`, id,
 	)
 	var a AnalysisRecord
 	var resultJSON sql.NullString
-	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt)
+	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt, &a.ErrorMessage)
 	if err != nil {
 		return nil, fmt.Errorf("analysis not found: %s", id)
 	}
@@ -341,6 +352,13 @@ func (s *Store) DeleteAnalysis(id string) error {
 	if err := os.RemoveAll(generatedDir); err != nil && !os.IsNotExist(err) {
 		log.Printf("Warning: failed to clean up generated flows for %s: %v", id, err)
 	}
+	// Clean up persisted screenshots
+	if s.dataDir != "" {
+		screenshotDir := filepath.Join(s.dataDir, "screenshots", id)
+		if err := os.RemoveAll(screenshotDir); err != nil && !os.IsNotExist(err) {
+			log.Printf("Warning: failed to clean up screenshots for %s: %v", id, err)
+		}
+	}
 	return nil
 }
 
@@ -350,6 +368,57 @@ func (s *Store) CountAnalyses() int {
 		log.Printf("Warning: failed to count analyses: %v", err)
 	}
 	return count
+}
+
+// --- Agent Steps ---
+
+func (s *Store) SaveAgentStep(step AgentStepRecord) (int64, error) {
+	if step.CreatedAt == "" {
+		step.CreatedAt = time.Now().Format(time.RFC3339)
+	}
+	res, err := s.db.Exec(
+		`INSERT INTO agent_steps (analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, error, reasoning, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		step.AnalysisID, step.StepNumber, step.ToolName, step.Input, step.Result,
+		step.ScreenshotPath, step.DurationMs, step.Error, step.Reasoning, step.CreatedAt,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return res.LastInsertId()
+}
+
+func (s *Store) UpdateAgentStepScreenshot(id int64, screenshotPath string) error {
+	_, err := s.db.Exec(`UPDATE agent_steps SET screenshot_path = ? WHERE id = ?`, screenshotPath, id)
+	return err
+}
+
+func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
+	rows, err := s.db.Query(
+		`SELECT id, analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, error, reasoning, created_at
+		 FROM agent_steps WHERE analysis_id = ? ORDER BY step_number ASC`, analysisID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var steps []AgentStepRecord
+	for rows.Next() {
+		var step AgentStepRecord
+		if err := rows.Scan(&step.ID, &step.AnalysisID, &step.StepNumber, &step.ToolName, &step.Input,
+			&step.Result, &step.ScreenshotPath, &step.DurationMs, &step.Error, &step.Reasoning, &step.CreatedAt); err != nil {
+			continue
+		}
+		steps = append(steps, step)
+	}
+	return steps, rows.Err()
+}
+
+func (s *Store) UpdateAnalysisError(id, errorMessage string) error {
+	now := time.Now().Format(time.RFC3339)
+	_, err := s.db.Exec(`UPDATE analyses SET error_message = ?, updated_at = ? WHERE id = ?`, errorMessage, now, id)
+	return err
 }
 
 // --- Test Results (SQLite) ---

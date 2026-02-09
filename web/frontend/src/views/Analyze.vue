@@ -302,30 +302,14 @@
           </details>
 
           <!-- Agent Exploration (agent mode only) -->
-          <details v-if="agentStepsList.length" class="group">
-            <summary class="cursor-pointer text-sm font-medium">Agent Exploration ({{ agentStepsList.length }} steps)</summary>
-            <div class="mt-2 space-y-2">
-              <div
-                v-for="step in agentStepsList"
-                :key="step.stepNumber + '-' + step.toolName"
-                class="flex items-start gap-3 p-2 rounded-md border text-sm"
-              >
-                <Badge variant="outline" class="shrink-0 mt-0.5">{{ step.stepNumber }}</Badge>
-                <div class="min-w-0 flex-1">
-                  <div class="font-medium">{{ step.toolName }}</div>
-                  <div class="text-xs text-muted-foreground font-mono truncate" :title="step.input">{{ step.input }}</div>
-                  <div v-if="step.error" class="text-xs text-destructive mt-1">{{ step.error }}</div>
-                  <div v-else class="text-xs text-muted-foreground mt-1 truncate" :title="step.result">{{ step.result }}</div>
-                  <div class="text-xs text-muted-foreground">{{ step.durationMs }}ms</div>
-                </div>
-                <img
-                  v-if="step.screenshotB64"
-                  :src="'data:image/jpeg;base64,' + step.screenshotB64"
-                  class="w-24 h-auto rounded border cursor-pointer shrink-0"
-                  alt="Step screenshot"
-                  @click="expandAgentScreenshot(step)"
-                />
-              </div>
+          <details v-if="navigatorSteps.length" class="group" open>
+            <summary class="cursor-pointer text-sm font-medium">Agent Exploration ({{ navigatorSteps.length }} steps)</summary>
+            <div class="mt-2">
+              <AgentStepNavigator
+                v-if="currentAnalysisId"
+                :analysis-id="currentAnalysisId"
+                :initial-steps="navigatorSteps"
+              />
             </div>
           </details>
 
@@ -502,13 +486,27 @@
           </div>
         </div>
 
+        <!-- Agent steps before failure -->
+        <div v-if="navigatorSteps.length" class="mt-4">
+          <p class="text-sm font-medium mb-2">Agent Steps Before Failure ({{ navigatorSteps.length }})</p>
+          <AgentStepNavigator
+            v-if="currentAnalysisId || analysisId"
+            :analysis-id="currentAnalysisId || analysisId"
+            :initial-steps="navigatorSteps"
+          />
+        </div>
+
         <!-- Elapsed time at failure -->
         <p v-if="elapsedSeconds > 0" class="mt-2 text-xs text-muted-foreground">
           Failed after {{ formatElapsed(elapsedSeconds) }}
         </p>
 
         <div class="mt-4 flex gap-2">
-          <Button variant="outline" @click="handleReset">Try Again</Button>
+          <Button @click="retryAnalysis">
+            <RefreshCw class="h-4 w-4 mr-1" />
+            Retry Analysis
+          </Button>
+          <Button variant="outline" @click="handleReset">Start Over</Button>
         </div>
       </CardContent>
     </Card>
@@ -572,6 +570,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import ProgressStep from '@/components/ProgressStep.vue'
+import AgentStepNavigator from '@/components/AgentStepNavigator.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -624,6 +623,9 @@ const {
   agentStepCurrent,
   agentStepTotal,
   sendHint,
+  // Persisted agent steps
+  persistedAgentSteps,
+  loadPersistedSteps,
 } = useAnalysis()
 
 // Hint input state
@@ -758,6 +760,15 @@ const flowsDetail = computed(() => {
     return `${flowList.value.length} flow(s) generated${dur ? ` in ${dur}s` : ''}`
   }
   return dur ? `Working... (${dur}s)` : ''
+})
+
+// Prefer persisted steps (have screenshots via URL), fall back to live or agentStepsList
+const navigatorSteps = computed(() => {
+  if (persistedAgentSteps.value.length) return persistedAgentSteps.value
+  if (liveAgentSteps.value.length) {
+    return liveAgentSteps.value.filter(s => s.type === 'tool')
+  }
+  return agentStepsList.value || []
 })
 
 const agentExplorationStatus = computed(() => {
@@ -917,6 +928,16 @@ async function runFlowsNow() {
   }
 }
 
+function retryAnalysis() {
+  const url = gameUrl.value
+  const agent = agentMode.value
+  reset()
+  analyzing.value = false
+  gameUrl.value = url
+  useAgentMode.value = agent
+  nextTick(() => handleAnalyze())
+}
+
 function reAnalyze(item) {
   gameUrl.value = item.gameUrl
   handleAnalyze()
@@ -1029,6 +1050,41 @@ function buildDebugLogText() {
     lines.push('')
   }
 
+  // Agent steps
+  const stepsSource = persistedAgentSteps.value.length
+    ? persistedAgentSteps.value
+    : liveAgentSteps.value.filter(s => s.type === 'tool')
+  if (stepsSource.length) {
+    lines.push(`--- Agent Steps (${stepsSource.length}) ---`)
+    stepsSource.forEach((step) => {
+      const num = step.stepNumber || '?'
+      const tool = step.toolName || 'unknown'
+      const dur = step.durationMs != null ? `${step.durationMs}ms` : ''
+      const err = step.error ? ` [ERROR: ${step.error}]` : ''
+      lines.push(`  Step ${num}: ${tool} ${dur}${err}`)
+      if (step.input) {
+        const inputTrunc = step.input.length > 200 ? step.input.slice(0, 200) + '...' : step.input
+        lines.push(`    Input: ${inputTrunc}`)
+      }
+      if (step.result) {
+        const resultTrunc = step.result.length > 200 ? step.result.slice(0, 200) + '...' : step.result
+        lines.push(`    Result: ${resultTrunc}`)
+      }
+      if (step.reasoning) {
+        const reasoningTrunc = step.reasoning.length > 150 ? step.reasoning.slice(0, 150) + '...' : step.reasoning
+        lines.push(`    Reasoning: ${reasoningTrunc}`)
+      }
+    })
+    lines.push('')
+  }
+
+  // Last agent reasoning
+  if (agentReasoning.value) {
+    lines.push('--- Last Agent Reasoning ---')
+    lines.push(agentReasoning.value.length > 500 ? agentReasoning.value.slice(0, 500) + '...' : agentReasoning.value)
+    lines.push('')
+  }
+
   // Flow names + command counts
   if (flowList.value.length) {
     lines.push('--- Generated Flows ---')
@@ -1065,6 +1121,8 @@ async function viewAnalysis(item) {
       gameUrl.value = data.gameUrl || ''
       currentAnalysisId.value = data.id
       status.value = 'complete'
+      // Load persisted agent steps
+      loadPersistedSteps(data.id)
     }
   } catch (err) {
     console.error('Failed to load analysis:', err)

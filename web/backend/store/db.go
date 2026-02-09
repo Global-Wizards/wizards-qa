@@ -126,6 +126,19 @@ func createTables(db *sql.DB) error {
 			created_by TEXT REFERENCES users(id),
 			created_at TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS agent_steps (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			analysis_id TEXT NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+			step_number INTEGER NOT NULL,
+			tool_name TEXT NOT NULL,
+			input TEXT DEFAULT '',
+			result TEXT DEFAULT '',
+			screenshot_path TEXT DEFAULT '',
+			duration_ms INTEGER DEFAULT 0,
+			error TEXT DEFAULT '',
+			reasoning TEXT DEFAULT '',
+			created_at TEXT NOT NULL
+		)`,
 	}
 
 	for _, s := range stmts {
@@ -143,6 +156,7 @@ func runMigrations(db *sql.DB) error {
 		`ALTER TABLE analyses ADD COLUMN project_id TEXT DEFAULT ''`,
 		`ALTER TABLE test_plans ADD COLUMN project_id TEXT DEFAULT ''`,
 		`ALTER TABLE test_results ADD COLUMN project_id TEXT DEFAULT ''`,
+		`ALTER TABLE analyses ADD COLUMN error_message TEXT DEFAULT ''`,
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {
@@ -159,6 +173,7 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_test_plans_project ON test_plans(project_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_results_project ON test_results(project_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_agent_steps_analysis ON agent_steps(analysis_id)`,
 	}
 	for _, stmt := range indexes {
 		if _, err := db.Exec(stmt); err != nil {

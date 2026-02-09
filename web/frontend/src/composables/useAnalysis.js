@@ -2,6 +2,8 @@ import { ref, onUnmounted } from 'vue'
 import { analyzeApi, analysesApi } from '@/lib/api'
 import { getWebSocket } from '@/lib/websocket'
 
+const MAX_PERSISTED_STEPS_LOAD = 200
+
 const MAX_LOGS = 500
 const MAX_LIVE_STEPS = 50
 const LS_KEY = 'wizards-qa-running-analysis'
@@ -56,6 +58,9 @@ export function useAnalysis() {
   const agentStepCurrent = ref(0)
   const agentStepTotal = ref(0)
 
+  // Persisted agent steps (loaded from API after completion/failure)
+  const persistedAgentSteps = ref([])
+
   let hintCooldownTimer = null
 
   let cleanups = []
@@ -95,6 +100,16 @@ export function useAnalysis() {
     } catch {
       // 410/404 = analysis ended, just disable
       hintCooldown.value = false
+    }
+  }
+
+  async function loadPersistedSteps(id) {
+    if (!id) return
+    try {
+      const data = await analysesApi.steps(id)
+      persistedAgentSteps.value = (data.steps || []).slice(0, MAX_PERSISTED_STEPS_LOAD)
+    } catch {
+      // API may not be available yet — ignore
     }
   }
 
@@ -218,12 +233,13 @@ export function useAnalysis() {
       agentMode.value = result.mode === 'agent'
       status.value = 'complete'
       currentStep.value = 'complete'
-      // Clear live state — final agentSteps in result replaces them
-      liveAgentSteps.value = []
       latestScreenshot.value = null
       agentReasoning.value = ''
       stopElapsedTimer()
       clearLocalStorage()
+
+      // Load persisted steps from API (has screenshots, reasoning, etc.)
+      loadPersistedSteps(data.analysisId)
     })
 
     const offFailed = ws.on('analysis_failed', (data) => {
@@ -239,6 +255,10 @@ export function useAnalysis() {
       status.value = 'error'
       stopElapsedTimer()
       clearLocalStorage()
+
+      // Keep liveAgentSteps for debug — do NOT clear them
+      // Load persisted steps from API
+      loadPersistedSteps(data.analysisId)
     })
 
     cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offCompleted, offFailed]
@@ -350,6 +370,9 @@ export function useAnalysis() {
         currentStep.value = 'complete'
         clearLocalStorage()
 
+        // Load persisted agent steps
+        loadPersistedSteps(parsed.analysisId)
+
         return { recovered: true, status: 'completed', gameUrl: parsed.gameUrl }
       }
 
@@ -386,6 +409,7 @@ export function useAnalysis() {
     hintCooldown.value = false
     agentStepCurrent.value = 0
     agentStepTotal.value = 0
+    persistedAgentSteps.value = []
     if (hintCooldownTimer) {
       clearTimeout(hintCooldownTimer)
       hintCooldownTimer = null
@@ -430,5 +454,8 @@ export function useAnalysis() {
     agentStepCurrent,
     agentStepTotal,
     sendHint,
+    // Persisted agent steps
+    persistedAgentSteps,
+    loadPersistedSteps,
   }
 }
