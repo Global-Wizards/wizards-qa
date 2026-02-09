@@ -139,13 +139,16 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Launch headless Chrome with container-safe flags
+	// Launch headless Chrome with WebGL support via SwiftShader (software rendering).
+	// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL,
+	// which Phaser 4 (and many Phaser 3 games) require for rendering.
 	l := launcher.New().
 		Headless(true).
 		NoSandbox(true).
-		Set("disable-gpu").
-		Set("disable-dev-shm-usage").
-		Set("disable-software-rasterizer")
+		Set("use-gl", "angle").
+		Set("use-angle", "swiftshader").
+		Set("enable-unsafe-swiftshader").
+		Set("disable-dev-shm-usage")
 
 	if bin := lookupChromeBin(); bin != "" {
 		l = l.Bin(bin)
@@ -327,13 +330,16 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Launch headless Chrome with container-safe flags
+	// Launch headless Chrome with WebGL support via SwiftShader (software rendering).
+	// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL,
+	// which Phaser 4 (and many Phaser 3 games) require for rendering.
 	l := launcher.New().
 		Headless(true).
 		NoSandbox(true).
-		Set("disable-gpu").
-		Set("disable-dev-shm-usage").
-		Set("disable-software-rasterizer")
+		Set("use-gl", "angle").
+		Set("use-angle", "swiftshader").
+		Set("enable-unsafe-swiftshader").
+		Set("disable-dev-shm-usage")
 
 	if bin := lookupChromeBin(); bin != "" {
 		l = l.Bin(bin)

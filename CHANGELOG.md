@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.4] - 2026-02-09
+
+### WebGL Support for Phaser 4 Games
+
+#### Fixed
+- **WebGL completely broken in headless Chrome** (CRITICAL) — the combination of `--disable-gpu` + `--disable-software-rasterizer` flags eliminated all WebGL rendering paths, causing Phaser 4 games (and Phaser 3 WebGL games) to render black or fail entirely
+- **Replaced with SwiftShader software rendering** — now uses `--use-gl=angle --use-angle=swiftshader --enable-unsafe-swiftshader` for CPU-based WebGL in both `ScoutURLHeadlessKeepAlive` and `ScoutURLHeadless`
+- **Added missing OpenGL/EGL libraries to Docker image** — `mesa-egl`, `mesa-gl`, `libxcomposite`, `libxdamage` for reliable SwiftShader operation
+
 ## [0.4.3] - 2026-02-09
 
 ### WebSocket Fix & Project Rules
