@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.3] - 2026-02-09
+
+### WebSocket Fix & Project Rules
+
+#### Fixed
+- **WebSocket connections failing in production** — the logging middleware's `statusWriter` wrapper did not implement `http.Hijacker`, causing gorilla/websocket to reject every `/ws` upgrade with "response does not implement http.Hijacker"
+
+#### Added
+- **CLAUDE.md** — project rules for Claude Code (always update VERSION + CHANGELOG on functional commits)
+
 ## [0.4.2] - 2026-02-08
 
 ### JWT Token Expiration Detection & Session-Gated Game Handling
