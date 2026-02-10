@@ -5,6 +5,13 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.1] - 2026-02-10
+
+### Fixed
+- **Agent steps lost on reconnect to running analysis** — when navigating away from the Analyze page and returning during a running analysis, the UI now loads all persisted agent steps from the server, restoring the exploration timeline, screenshots, and step counter. Previously, `tryRecover` only reconnected the WebSocket for future events, leaving the timeline empty.
+- **Duplicate agent steps on reconnect** — incoming WebSocket `agent_step_detail` events are now deduplicated against steps already loaded from the database, preventing duplicate entries in the timeline after reconnect.
+- **Recovered step screenshots not displaying** — `AgentExplorationPanel` thumbnails and the full-size screenshot dialog now accept URL-based screenshots (`screenshotUrl`) in addition to base64 (`screenshotB64`), so screenshots loaded from the API render correctly.
+
 ## [0.16.0] - 2026-02-10
 
 ### Performance Optimization — Faster Screenshots, Prompt Caching, Auto-Screenshots, Device Viewports & Reduced Latency

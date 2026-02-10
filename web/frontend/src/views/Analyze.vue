@@ -573,8 +573,10 @@
         </DialogHeader>
         <div class="mt-4">
           <img
-            v-if="agentScreenshotStep?.screenshotB64"
-            :src="'data:image/jpeg;base64,' + agentScreenshotStep.screenshotB64"
+            v-if="agentScreenshotStep?.screenshotB64 || agentScreenshotStep?.screenshotUrl"
+            :src="agentScreenshotStep.screenshotB64
+              ? 'data:image/jpeg;base64,' + agentScreenshotStep.screenshotB64
+              : agentScreenshotStep.screenshotUrl"
             class="w-full rounded-md border"
             alt="Agent step screenshot"
           />
@@ -978,6 +980,7 @@ function expandLiveScreenshot() {
 function expandStepScreenshot(entry) {
   agentScreenshotStep.value = {
     screenshotB64: entry.screenshotB64,
+    screenshotUrl: entry.screenshotUrl,
     stepNumber: entry.stepNumber,
     toolName: entry.toolName,
     result: entry.result,

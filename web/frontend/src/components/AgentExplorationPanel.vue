@@ -144,8 +144,8 @@
 
                 <!-- Screenshot thumbnail -->
                 <img
-                  v-if="entry.screenshotB64"
-                  :src="'data:image/jpeg;base64,' + entry.screenshotB64"
+                  v-if="entry.screenshotB64 || entry.screenshotUrl"
+                  :src="entry.screenshotB64 ? 'data:image/jpeg;base64,' + entry.screenshotB64 : entry.screenshotUrl"
                   class="mt-2 max-w-[200px] h-auto rounded border cursor-pointer shrink-0 object-contain"
                   alt="Step screenshot"
                   @click.stop="$emit('expand-screenshot', entry)"

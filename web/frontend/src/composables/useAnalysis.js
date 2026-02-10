@@ -180,6 +180,8 @@ export function useAnalysis() {
     // Live agent event listeners
     const offStepDetail = ws.on('agent_step_detail', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
+      // Deduplicate: skip steps already loaded from DB on reconnect
+      if (liveAgentSteps.value.some(s => s.type === 'tool' && s.stepNumber === data.stepNumber)) return
       const newStep = {
         stepNumber: data.stepNumber,
         toolName: data.toolName,
@@ -403,6 +405,38 @@ export function useAnalysis() {
 
         logs.value = ['Reconnected to running analysis...']
         setupListeners()
+
+        // Load persisted agent steps that were saved during execution
+        try {
+          const stepsData = await analysesApi.steps(parsed.analysisId)
+          const steps = stepsData.steps || []
+          if (steps.length > 0) {
+            liveAgentSteps.value = steps.map(s => ({
+              stepNumber: s.stepNumber,
+              toolName: s.toolName,
+              input: s.input,
+              result: s.result,
+              error: s.error || '',
+              durationMs: s.durationMs,
+              type: 'tool',
+              timestamp: new Date(s.createdAt).getTime() || Date.now(),
+              reasoning: s.reasoning || '',
+              hasScreenshot: !!s.screenshotPath,
+              screenshotUrl: s.screenshotPath
+                ? analysesApi.stepScreenshotUrl(parsed.analysisId, s.stepNumber)
+                : '',
+            }))
+            agentStepCurrent.value = steps.length
+            persistedAgentSteps.value = steps
+            logs.value = [
+              'Reconnected to running analysis...',
+              `Restored ${steps.length} agent step(s) from server.`,
+              ...steps.map(s => `Step ${s.stepNumber}: ${s.toolName} (${s.durationMs}ms)`)
+            ]
+          }
+        } catch {
+          // Steps may not be available yet — continue with empty state
+        }
 
         return { recovered: true, status: 'running', gameUrl: parsed.gameUrl }
       }
