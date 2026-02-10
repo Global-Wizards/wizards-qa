@@ -36,10 +36,9 @@
           <Button :disabled="!isValidUrl(gameUrl) || analyzing" @click="handleAnalyze">
             {{ analyzing ? 'Starting...' : 'Analyze Game' }}
           </Button>
-          <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+          <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="AI explores the game interactively via browser tools">
             <input type="checkbox" v-model="useAgentMode" class="rounded border-gray-300" />
             Agent Mode
-            <span class="text-xs text-muted-foreground">(AI explores the game interactively)</span>
           </label>
         </div>
 
@@ -50,17 +49,15 @@
             <label class="text-sm font-medium">Agent Modules</label>
           </div>
           <div class="ml-7 grid gap-2 sm:grid-cols-2">
-            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="AI can request additional exploration steps when it finds unexplored areas">
               <input type="checkbox" v-model="moduleDynamicSteps" class="rounded border-gray-300" />
               <TrendingUp class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Dynamic Steps</span>
-              <span class="text-xs text-muted-foreground">(AI requests more steps as needed)</span>
             </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="AI can extend exploration time for more thorough testing">
               <input type="checkbox" v-model="moduleDynamicTimeout" class="rounded border-gray-300" />
               <Timer class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Dynamic Timeout</span>
-              <span class="text-xs text-muted-foreground">(AI extends time for thorough testing)</span>
             </label>
           </div>
         </div>
@@ -72,22 +69,22 @@
             <label class="text-sm font-medium">Analysis Modules</label>
           </div>
           <div class="ml-7 grid gap-2 sm:grid-cols-2">
-            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="Evaluate alignments, spacing, color harmony, typography, visual hierarchy, and accessibility">
               <input type="checkbox" v-model="moduleUiux" class="rounded border-gray-300" />
               <Eye class="h-3.5 w-3.5 text-muted-foreground" />
               <span>UI/UX Analysis</span>
             </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="Check for grammar, spelling, inconsistent terminology, truncation, and placeholder text">
               <input type="checkbox" v-model="moduleWording" class="rounded border-gray-300" />
               <Type class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Wording Check</span>
             </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="Analyze reward systems, balance, progression, difficulty curve, and monetization fairness">
               <input type="checkbox" v-model="moduleGameDesign" class="rounded border-gray-300" />
               <Gamepad2 class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Game Design</span>
             </label>
-            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="Generate runnable Maestro YAML test flows from the analysis">
               <input type="checkbox" v-model="moduleTestFlows" class="rounded border-gray-300" />
               <PlayCircle class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Test Flows</span>
@@ -772,8 +769,8 @@ const customAgentSteps = ref(defaultProfile.agentSteps)
 const customTemperature = ref(defaultProfile.temperature)
 const customMaxTotalSteps = ref(35)
 const customMaxTotalTimeout = ref(25)
-const moduleDynamicSteps = ref(false)
-const moduleDynamicTimeout = ref(false)
+const moduleDynamicSteps = ref(true)
+const moduleDynamicTimeout = ref(true)
 const moduleUiux = ref(true)
 const moduleWording = ref(true)
 const moduleGameDesign = ref(true)
