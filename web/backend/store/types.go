@@ -112,16 +112,18 @@ type TestPlan struct {
 	LastRunID   string            `json:"lastRunId,omitempty"`
 	CreatedBy   string            `json:"createdBy,omitempty"`
 	ProjectID   string            `json:"projectId,omitempty"`
+	AnalysisID  string            `json:"analysisId,omitempty"`
 }
 
 type TestPlanSummary struct {
-	ID        string `json:"id"`
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	FlowCount int    `json:"flowCount"`
-	CreatedAt string `json:"createdAt"`
-	LastRunID string `json:"lastRunId,omitempty"`
-	ProjectID string `json:"projectId,omitempty"`
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Status     string `json:"status"`
+	FlowCount  int    `json:"flowCount"`
+	CreatedAt  string `json:"createdAt"`
+	LastRunID  string `json:"lastRunId,omitempty"`
+	ProjectID  string `json:"projectId,omitempty"`
+	AnalysisID string `json:"analysisId,omitempty"`
 }
 
 type TestPlansFile struct {

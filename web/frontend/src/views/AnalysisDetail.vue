@@ -172,6 +172,18 @@ function exportAnalysis(format) {
 onMounted(async () => {
   try {
     const data = await analysesApi.get(route.params.id)
+
+    // Running analysis → redirect to live progress view
+    if (data.status === 'running') {
+      const basePath = route.params.projectId
+        ? `/projects/${route.params.projectId}` : ''
+      router.replace({
+        path: `${basePath}/analyze`,
+        query: { analysisId: data.id }
+      })
+      return
+    }
+
     analysisData.value = data
 
     if (data.result?.mode === 'agent') {

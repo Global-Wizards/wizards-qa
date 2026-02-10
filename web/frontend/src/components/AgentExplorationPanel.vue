@@ -23,14 +23,35 @@
           </span>
         </div>
       </div>
-      <div class="flex items-center gap-4 shrink-0">
-        <div v-if="stepCurrent" class="text-right">
-          <span class="text-sm font-mono font-semibold block">{{ stepCurrent }}/{{ stepTotal }}</span>
-          <span class="text-[10px] uppercase text-muted-foreground tracking-wider">Steps</span>
+      <div class="flex items-center gap-3 shrink-0">
+        <!-- Steps with progress ring -->
+        <div v-if="stepCurrent" class="flex items-center gap-2">
+          <div class="relative h-5 w-5 shrink-0">
+            <svg class="h-5 w-5 -rotate-90" viewBox="0 0 20 20">
+              <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" class="text-muted-foreground/15" stroke-width="2.5" />
+              <circle cx="10" cy="10" r="8" fill="none" stroke="currentColor" class="text-primary" stroke-width="2.5"
+                :stroke-dasharray="stepProgressCircumference"
+                :stroke-dashoffset="stepProgressOffset"
+                stroke-linecap="round"
+              />
+            </svg>
+          </div>
+          <div class="text-right">
+            <span class="text-sm font-mono font-semibold block leading-tight">{{ stepCurrent }}/{{ stepTotal }}</span>
+            <span class="text-[10px] uppercase text-muted-foreground tracking-wider">Steps</span>
+          </div>
         </div>
+        <!-- Elapsed timer -->
         <div v-if="elapsedSeconds > 0" class="text-right">
-          <span class="text-sm font-mono font-semibold block">{{ formatElapsed(elapsedSeconds) }}</span>
+          <span class="text-sm font-mono font-semibold text-primary block leading-tight">{{ formatElapsed(elapsedSeconds) }}</span>
           <span class="text-[10px] uppercase text-muted-foreground tracking-wider">Elapsed</span>
+        </div>
+        <!-- Avg per step -->
+        <div v-if="avgStepMs > 0" class="text-right">
+          <span class="text-sm font-mono font-semibold block leading-tight">{{ formatMs(avgStepMs) }}</span>
+          <span class="text-[10px] uppercase text-muted-foreground tracking-wider flex items-center gap-0.5 justify-end">
+            <Zap class="h-2.5 w-2.5" />Avg/Step
+          </span>
         </div>
       </div>
     </div>
@@ -53,6 +74,7 @@
           </TooltipTrigger>
           <TooltipContent side="bottom" class="text-xs">
             Step {{ entry.stepNumber }}: {{ getToolMeta(entry.toolName).label }}
+            <span v-if="entry.durationMs" class="text-muted-foreground">({{ formatMs(entry.durationMs) }})</span>
           </TooltipContent>
         </Tooltip>
         <!-- Remaining placeholder dots -->
@@ -67,7 +89,7 @@
     </div>
 
     <!-- C. Stats Strip -->
-    <div v-if="toolSteps.length >= 2" class="grid grid-cols-4 gap-px border-b bg-border">
+    <div v-if="toolSteps.length >= 2" class="grid grid-cols-5 gap-px border-b bg-border">
       <div class="bg-card px-3 py-2 text-center">
         <span class="text-lg font-mono font-semibold block leading-tight">{{ statsData.totalSteps }}</span>
         <span class="text-[10px] uppercase text-muted-foreground tracking-wider">Steps</span>
@@ -83,6 +105,10 @@
       <div class="bg-card px-3 py-2 text-center">
         <span :class="['text-lg font-mono font-semibold block leading-tight', statsData.errors > 0 ? 'text-red-500' : 'text-muted-foreground/40']">{{ statsData.errors }}</span>
         <span class="text-[10px] uppercase text-muted-foreground tracking-wider">Errors</span>
+      </div>
+      <div class="bg-card px-3 py-2 text-center">
+        <span class="text-lg font-mono font-semibold text-primary block leading-tight">{{ formatMs(totalDurationMs) }}</span>
+        <span class="text-[10px] uppercase text-muted-foreground tracking-wider">Total Time</span>
       </div>
     </div>
 
@@ -139,7 +165,19 @@
                   <Badge variant="outline" class="shrink-0 text-[10px] px-1.5 py-0 font-mono">{{ entry.stepNumber }}</Badge>
                   <component :is="getToolMeta(entry.toolName).icon" :class="['h-3 w-3 shrink-0', entry.error ? 'text-red-500' : nodeColorClasses(entry).text]" />
                   <span class="text-xs font-medium truncate">{{ getToolMeta(entry.toolName).label }}</span>
-                  <span class="text-[10px] text-muted-foreground ml-auto shrink-0 font-mono">{{ entry.durationMs }}ms</span>
+                  <!-- Gap indicator (thinking time) -->
+                  <span v-if="stepGapMs(i) != null" :class="['text-[10px] font-mono shrink-0 flex items-center gap-0.5', gapColor(stepGapMs(i))]">
+                    <Clock class="h-2.5 w-2.5" />
+                    +{{ formatMs(stepGapMs(i)) }}
+                  </span>
+                  <!-- Duration pill -->
+                  <span v-if="entry.durationMs" :class="['text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0', durationColor(entry.durationMs)]">
+                    {{ formatMs(entry.durationMs) }}
+                  </span>
+                  <!-- Cumulative timestamp -->
+                  <span v-if="cumulativeTime(i) != null" class="text-[10px] text-muted-foreground/50 font-mono shrink-0 ml-auto">
+                    @{{ formatTimestamp(cumulativeTime(i)) }}
+                  </span>
                 </div>
 
                 <!-- Screenshot thumbnail -->
@@ -201,7 +239,7 @@
       </div>
     </div>
 
-    <!-- E. Hint Input Bar -->
+    <!-- E. Hint Input Bar / Completion Footer -->
     <div class="border-t px-4 py-3">
       <div v-if="explorationStatus === 'active'" class="flex gap-2">
         <div class="flex-1 relative">
@@ -227,7 +265,13 @@
         <CheckCircle class="h-3.5 w-3.5 text-green-500" />
         <span>
           Exploration complete
-          ({{ toolSteps.length }} steps{{ elapsedSeconds > 0 ? ', ' + formatElapsed(elapsedSeconds) : '' }})
+          <template v-if="toolSteps.length > 0">
+            — {{ toolSteps.length }} steps
+            <template v-if="elapsedSeconds > 0"> in {{ formatElapsed(elapsedSeconds) }}</template>
+            <template v-if="avgStepMs > 0"> (avg {{ formatMs(avgStepMs) }}/step</template>
+            <template v-if="fastestStepMs > 0 && fastestStepMs < Infinity">, fastest {{ formatMs(fastestStepMs) }}</template>
+            <template v-if="slowestStepMs > 0">, slowest {{ formatMs(slowestStepMs) }})</template>
+          </template>
         </span>
       </div>
     </div>
@@ -239,7 +283,7 @@ import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import {
   Loader2, CheckCircle, MessageCircle, Send,
   MousePointerClick, Type, ArrowDown, Camera, Search, Terminal, Code,
-  Globe, Clock, Plus, Timer, Circle,
+  Globe, Clock, Plus, Timer, Circle, Zap,
 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -323,8 +367,85 @@ function dotColor(entry) {
   return (COLOR_MAP[meta.color] || COLOR_MAP.gray).dot
 }
 
+// --- Timing helpers ---
+function formatMs(ms) {
+  if (ms == null || ms === 0) return '0ms'
+  if (ms < 1000) return `${Math.round(ms)}ms`
+  if (ms < 60000) return `${(ms / 1000).toFixed(1)}s`
+  const m = Math.floor(ms / 60000)
+  const s = Math.round((ms % 60000) / 1000)
+  return `${m}m ${s}s`
+}
+
+function formatTimestamp(ms) {
+  if (ms == null) return ''
+  const totalSec = Math.floor(ms / 1000)
+  const m = Math.floor(totalSec / 60)
+  const s = totalSec % 60
+  return `${m}:${s.toString().padStart(2, '0')}`
+}
+
+function durationColor(ms) {
+  if (ms < 500) return 'bg-emerald-100 dark:bg-emerald-900/40 text-emerald-700 dark:text-emerald-300'
+  if (ms < 2000) return 'bg-amber-100 dark:bg-amber-900/40 text-amber-700 dark:text-amber-300'
+  return 'bg-red-100 dark:bg-red-900/40 text-red-700 dark:text-red-300'
+}
+
+function gapColor(ms) {
+  if (ms < 2000) return 'text-emerald-500'
+  if (ms < 5000) return 'text-amber-500'
+  return 'text-red-500'
+}
+
 // --- Computed ---
 const toolSteps = computed(() => props.steps.filter(s => s.type === 'tool'))
+
+const totalDurationMs = computed(() =>
+  toolSteps.value.reduce((sum, s) => sum + (s.durationMs || 0), 0)
+)
+
+const avgStepMs = computed(() =>
+  toolSteps.value.length ? Math.round(totalDurationMs.value / toolSteps.value.length) : 0
+)
+
+const fastestStepMs = computed(() =>
+  toolSteps.value.length ? Math.min(...toolSteps.value.map(s => s.durationMs || Infinity)) : 0
+)
+
+const slowestStepMs = computed(() =>
+  toolSteps.value.length ? Math.max(...toolSteps.value.map(s => s.durationMs || 0)) : 0
+)
+
+// Progress ring calculations
+const stepProgressCircumference = computed(() => 2 * Math.PI * 8) // r=8
+const stepProgressOffset = computed(() => {
+  if (!props.stepTotal) return stepProgressCircumference.value
+  const pct = props.stepCurrent / props.stepTotal
+  return stepProgressCircumference.value * (1 - pct)
+})
+
+// Gap between consecutive steps (thinking time)
+function stepGapMs(index) {
+  const step = props.steps[index]
+  if (!step || step.type === 'hint') return null
+  const toolIndex = toolSteps.value.indexOf(step)
+  if (toolIndex <= 0) return null
+  const prev = toolSteps.value[toolIndex - 1]
+  const curr = toolSteps.value[toolIndex]
+  if (!prev.timestamp || !curr.timestamp) return null
+  const gap = curr.timestamp - prev.timestamp - (prev.durationMs || 0)
+  return gap > 0 ? gap : null
+}
+
+// Cumulative time offset from start
+function cumulativeTime(index) {
+  const step = props.steps[index]
+  if (!step || step.type === 'hint' || !step.timestamp) return null
+  const firstTool = toolSteps.value[0]
+  if (!firstTool?.timestamp) return null
+  const offset = step.timestamp - firstTool.timestamp
+  return offset >= 0 ? offset : null
+}
 
 const statsData = computed(() => {
   const tools = toolSteps.value
@@ -354,7 +475,6 @@ function toggleExpanded(index) {
 }
 
 function isLatestStep(index) {
-  // Find last tool step index in the full steps array
   let lastToolIdx = -1
   for (let i = props.steps.length - 1; i >= 0; i--) {
     if (props.steps[i].type !== 'hint') { lastToolIdx = i; break }
@@ -366,7 +486,6 @@ function isLatestStep(index) {
 const timelineRef = ref(null)
 
 function scrollToStep(minimapIndex) {
-  // minimapIndex is into toolSteps; find corresponding full steps index
   const toolName = toolSteps.value[minimapIndex]
   if (!toolName) return
   let count = 0
@@ -375,8 +494,6 @@ function scrollToStep(minimapIndex) {
       if (count === minimapIndex) {
         const el = timelineRef.value
         if (!el) return
-        const children = el.querySelectorAll('[class*="relative"]')
-        // Find the step-entry divs (direct children of the TransitionGroup)
         const stepEntries = el.querySelector('.space-y-2')?.children
         if (stepEntries && stepEntries[i]) {
           stepEntries[i].scrollIntoView({ behavior: 'smooth', block: 'center' })

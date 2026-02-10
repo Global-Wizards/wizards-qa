@@ -150,6 +150,7 @@ export const analysesApi = {
   status: (id) => api.get(`/analyses/${id}/status`).then((r) => r.data),
   delete: (id) => api.delete(`/analyses/${id}`).then((r) => r.data),
   steps: (id) => api.get(`/analyses/${id}/steps`).then((r) => r.data),
+  flows: (id) => api.get(`/analyses/${id}/flows`).then((r) => r.data),
   stepScreenshotUrl: (id, stepNumber) => `/api/analyses/${id}/steps/${stepNumber}/screenshot`,
   exportUrl: (id, format = 'json') => `/api/analyses/${id}/export?format=${format}`,
   export: (id, format = 'json') =>

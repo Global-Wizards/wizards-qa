@@ -602,11 +602,15 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		log.Printf("Warning: failed to update analysis record for %s: %v", analysisID, err)
 	}
 
+	// Auto-create a test plan from generated flows
+	testPlanID := s.autoCreateTestPlan(analysisID, gameURL, gameName, req.ProjectID, createdBy, flowCount)
+
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_completed",
 		Data: map[string]interface{}{
 			"analysisId": analysisID,
 			"result":     result,
+			"testPlanId": testPlanID,
 		},
 	})
 }
@@ -785,6 +789,54 @@ func (s *Server) handleContinueAnalysis(w http.ResponseWriter, r *http.Request) 
 		"status":     "continuing",
 		"message":    fmt.Sprintf("Resuming from checkpoint (%s)", step),
 	})
+}
+
+// autoCreateTestPlan creates a test plan linked to the analysis if flows were generated.
+// Returns the plan ID or "" if skipped. Idempotent via GetTestPlanByAnalysis.
+func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, createdBy string, flowCount int) string {
+	if flowCount == 0 {
+		return ""
+	}
+
+	// Idempotency: check if a plan already exists for this analysis
+	existing, _ := s.store.GetTestPlanByAnalysis(analysisID)
+	if existing != nil {
+		return existing.ID
+	}
+
+	// Get flow filenames from the generated directory
+	flowNames, err := s.store.ListGeneratedFlowNames(analysisID)
+	if err != nil || len(flowNames) == 0 {
+		log.Printf("Warning: auto-create test plan skipped for %s: no generated flows found", analysisID)
+		return ""
+	}
+
+	planName := gameName
+	if planName == "" {
+		planName = "Analysis"
+	}
+	planName += " - Test Plan"
+
+	plan := store.TestPlan{
+		ID:         newID("plan"),
+		Name:       planName,
+		GameURL:    gameURL,
+		FlowNames:  flowNames,
+		Variables:  map[string]string{},
+		Status:     store.StatusDraft,
+		CreatedAt:  time.Now().Format(time.RFC3339),
+		CreatedBy:  createdBy,
+		ProjectID:  projectID,
+		AnalysisID: analysisID,
+	}
+
+	if err := s.store.SaveTestPlan(plan); err != nil {
+		log.Printf("Warning: failed to auto-create test plan for analysis %s: %v", analysisID, err)
+		return ""
+	}
+
+	log.Printf("Auto-created test plan %s for analysis %s (%d flows)", plan.ID, analysisID, len(flowNames))
+	return plan.ID
 }
 
 func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis *store.AnalysisRecord) {
@@ -1083,11 +1135,15 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 		log.Printf("Warning: failed to update analysis record for %s: %v", analysisID, err)
 	}
 
+	// Auto-create a test plan from generated flows
+	testPlanID := s.autoCreateTestPlan(analysisID, analysis.GameURL, gameName, analysis.ProjectID, createdBy, flowCount)
+
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_completed",
 		Data: map[string]interface{}{
 			"analysisId": analysisID,
 			"result":     result,
+			"testPlanId": testPlanID,
 		},
 	})
 }

@@ -190,7 +190,11 @@ function navigateToNewAnalysis() {
 
 function viewAnalysis(item) {
   const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${basePath}/analyses/${item.id}`)
+  if (item.status === 'running') {
+    router.push({ path: `${basePath}/analyze`, query: { analysisId: item.id } })
+  } else {
+    router.push(`${basePath}/analyses/${item.id}`)
+  }
 }
 
 function reAnalyze(item) {

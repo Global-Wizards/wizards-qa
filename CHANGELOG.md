@@ -5,6 +5,32 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.0] - 2026-02-10
+
+### Fix Test Plan Execution & Auto-Create from Analysis
+
+#### Fixed
+- **Flow name mismatch in test plans** — `prepareFlowDir()` now has a fast path for analysis-linked plans that copies flows directly from `generated/{analysisID}/` instead of matching by template name globally. This eliminates cross-analysis name collisions and ensures flows are always found when running a plan.
+- **Flow pre-selection in NewTestPlan** — when navigating from an analysis, flow names are now fetched via `GET /api/analyses/{id}/flows` (filename-based names matching `ListTemplates()`), fixing the mismatch where human-readable names were passed but filename-based names were expected.
+
+#### Added
+- **Auto-create test plan on analysis completion** — when an analysis completes with generated flows, a draft test plan is automatically created and linked to the analysis via the new `analysis_id` column on `test_plans`. Idempotent: re-running an analysis for the same game does not create duplicate plans.
+- **`analysis_id` column on test_plans** — links a test plan to its source analysis for direct flow resolution and idempotency.
+- **`GET /api/analyses/{id}/flows` endpoint** — returns generated flow filenames for an analysis.
+- **`testPlanId` in analysis responses** — `GET /api/analyses/{id}` and the `analysis_completed` WebSocket event now include the linked test plan ID when one exists.
+- **"View Test Plan" button** — on the Analyze results page, shows "View Test Plan" when an auto-created plan exists, otherwise "Create Test Plan".
+- **`GetTestPlanByAnalysis()` and `ListGeneratedFlowNames()` store methods** — support idempotency checks and flow enumeration for auto-creation.
+
+## [0.17.1] - 2026-02-10
+
+### Added
+- **Resume running analysis from analyses list** — clicking a running analysis in the Analyses list now navigates to the Analyze page with full live progress (progress panel, agent exploration timeline, WebSocket events) instead of the detail view. `tryRecover()` accepts an explicit analysis ID to fetch state from the API, and persists to localStorage for page-refresh recovery. Directly navigating to `/analyses/:id` for a running analysis also redirects to the live progress view.
+
+## [0.17.0] - 2026-02-10
+
+### Changed
+- **Redesigned agent exploration panel with rich timing display** — `AgentExplorationPanel.vue` overhauled with: SVG circular progress ring on the steps counter, primary-colored elapsed timer, computed avg/step stat in the banner; 5-column stats strip adding "Total Time" (sum of all step durations); per-step gap indicator showing AI "thinking time" between steps with color-coded thresholds (green < 2s, amber 2–5s, red > 5s), duration pills with speed-based coloring (green < 500ms, amber 500ms–2s, red > 2s), and cumulative `@M:SS` timestamps from analysis start; mini-map tooltips now include step duration; completion footer shows rich summary with avg, fastest, and slowest step times.
+
 ## [0.16.1] - 2026-02-10
 
 ### Fixed

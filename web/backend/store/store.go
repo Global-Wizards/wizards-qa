@@ -508,16 +508,16 @@ func (s *Store) SaveTestPlan(plan TestPlan) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_by, project_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		plan.ID, plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Status, plan.LastRunID, createdBy, plan.ProjectID, plan.CreatedAt,
+		`INSERT OR REPLACE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_by, project_id, analysis_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		plan.ID, plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Status, plan.LastRunID, createdBy, plan.ProjectID, plan.AnalysisID, plan.CreatedAt,
 	)
 	return err
 }
 
 func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,'') FROM test_plans ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,'') FROM test_plans ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -528,7 +528,7 @@ func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 	for rows.Next() {
 		var p TestPlanSummary
 		var flowNamesJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID); err != nil {
 			continue
 		}
 		if flowNamesJSON.Valid && flowNamesJSON.String != "" {
@@ -545,11 +545,11 @@ func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 
 func (s *Store) GetTestPlan(id string) (*TestPlan, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, description, game_url, flow_names, variables, status, last_run_id, COALESCE(created_by,''), COALESCE(project_id,''), created_at FROM test_plans WHERE id = ?`, id,
+		`SELECT id, name, description, game_url, flow_names, variables, status, last_run_id, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(analysis_id,''), created_at FROM test_plans WHERE id = ?`, id,
 	)
 	var p TestPlan
 	var flowNamesJSON, variablesJSON sql.NullString
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.GameURL, &flowNamesJSON, &variablesJSON, &p.Status, &p.LastRunID, &p.CreatedBy, &p.ProjectID, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.GameURL, &flowNamesJSON, &variablesJSON, &p.Status, &p.LastRunID, &p.CreatedBy, &p.ProjectID, &p.AnalysisID, &p.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("test plan not found: %s", id)
 	}
@@ -791,6 +791,47 @@ func (s *Store) ListTemplates() ([]TemplateInfo, error) {
 		return nil
 	})
 	return templates, err
+}
+
+// GetTestPlanByAnalysis returns the test plan linked to the given analysis, or nil if none.
+func (s *Store) GetTestPlanByAnalysis(analysisID string) (*TestPlanSummary, error) {
+	row := s.db.QueryRow(
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,'') FROM test_plans WHERE analysis_id = ? LIMIT 1`, analysisID,
+	)
+	var p TestPlanSummary
+	var flowNamesJSON sql.NullString
+	err := row.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID)
+	if err != nil {
+		return nil, nil // not found — not an error
+	}
+	if flowNamesJSON.Valid && flowNamesJSON.String != "" {
+		var names []string
+		if err := json.Unmarshal([]byte(flowNamesJSON.String), &names); err == nil {
+			p.FlowCount = len(names)
+		}
+	}
+	return &p, nil
+}
+
+// ListGeneratedFlowNames returns YAML filenames (without extension) from generated/{analysisID}/.
+func (s *Store) ListGeneratedFlowNames(analysisID string) ([]string, error) {
+	dir := filepath.Join(s.flowsDir, "generated", analysisID)
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("reading generated flows dir: %w", err)
+	}
+	var names []string
+	for _, e := range entries {
+		if e.IsDir() || !isYAMLFile(e.Name()) {
+			continue
+		}
+		ext := filepath.Ext(e.Name())
+		names = append(names, strings.TrimSuffix(e.Name(), ext))
+	}
+	return names, nil
 }
 
 func (s *Store) FlowsDir() string {
@@ -1102,7 +1143,7 @@ func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error
 
 func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,'') FROM test_plans WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,'') FROM test_plans WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
 	)
 	if err != nil {
 		return nil, err
@@ -1113,7 +1154,7 @@ func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, err
 	for rows.Next() {
 		var p TestPlanSummary
 		var flowNamesJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID); err != nil {
 			continue
 		}
 		if flowNamesJSON.Valid && flowNamesJSON.String != "" {

@@ -68,6 +68,9 @@ export function useAnalysis() {
   // Persisted agent steps (loaded from API after completion/failure)
   const persistedAgentSteps = ref([])
 
+  // Auto-created test plan ID (set on analysis completion)
+  const autoTestPlanId = ref(null)
+
   let hintCooldownTimer = null
 
   let cleanups = []
@@ -247,6 +250,7 @@ export function useAnalysis() {
       flows.value = result.flows || []
       agentSteps.value = result.agentSteps || []
       agentMode.value = result.mode === 'agent'
+      autoTestPlanId.value = data.testPlanId || null
       status.value = 'complete'
       currentStep.value = 'complete'
       latestScreenshot.value = null
@@ -301,6 +305,7 @@ export function useAnalysis() {
     hintCooldown.value = false
     agentStepCurrent.value = 0
     agentStepTotal.value = 0
+    autoTestPlanId.value = null
 
     startElapsedTimer()
     setupListeners()
@@ -361,30 +366,50 @@ export function useAnalysis() {
   }
 
   /**
-   * Try to recover a running or completed analysis from localStorage.
+   * Try to recover a running or completed analysis.
+   * If explicitAnalysisId is provided, fetches the record from the API
+   * (used when navigating from the analyses list). Otherwise uses localStorage.
    * Returns { recovered: true, status: 'running'|'completed' } or false.
    */
-  async function tryRecover() {
-    const saved = localStorage.getItem(LS_KEY)
-    if (!saved) return false
-
+  async function tryRecover(explicitAnalysisId = null) {
     let parsed
-    try {
-      parsed = JSON.parse(saved)
-    } catch {
-      clearLocalStorage()
-      return false
-    }
 
-    if (!parsed.analysisId) {
-      clearLocalStorage()
-      return false
+    if (explicitAnalysisId) {
+      // Fetch analysis record to build recovery state
+      try {
+        const fullData = await analysesApi.get(explicitAnalysisId)
+        parsed = {
+          analysisId: explicitAnalysisId,
+          gameUrl: fullData.gameUrl || '',
+          startedAt: new Date(fullData.createdAt).getTime(),
+          agentMode: fullData.agentMode || false,
+        }
+      } catch {
+        return false
+      }
+    } else {
+      const saved = localStorage.getItem(LS_KEY)
+      if (!saved) return false
+
+      try {
+        parsed = JSON.parse(saved)
+      } catch {
+        clearLocalStorage()
+        return false
+      }
+
+      if (!parsed.analysisId) {
+        clearLocalStorage()
+        return false
+      }
     }
 
     try {
       const statusData = await analysesApi.status(parsed.analysisId)
 
       if (statusData.status === 'running') {
+        // Persist to localStorage so page refresh continues to recover
+        localStorage.setItem(LS_KEY, JSON.stringify(parsed))
         // Reconnect to running analysis
         analysisId.value = parsed.analysisId
         status.value = STEP_TO_STATUS[statusData.step] || 'analyzing'
@@ -452,6 +477,7 @@ export function useAnalysis() {
           agentSteps.value = fullData.result.agentSteps || []
           agentMode.value = fullData.result.mode === 'agent'
         }
+        autoTestPlanId.value = fullData.testPlanId || null
         status.value = 'complete'
         currentStep.value = 'complete'
         clearLocalStorage()
@@ -497,6 +523,7 @@ export function useAnalysis() {
     agentStepCurrent.value = 0
     agentStepTotal.value = 0
     persistedAgentSteps.value = []
+    autoTestPlanId.value = null
     if (hintCooldownTimer) {
       clearTimeout(hintCooldownTimer)
       hintCooldownTimer = null
@@ -548,5 +575,7 @@ export function useAnalysis() {
     // Persisted agent steps
     persistedAgentSteps,
     loadPersistedSteps,
+    // Auto-created test plan
+    autoTestPlanId,
   }
 }

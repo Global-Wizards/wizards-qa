@@ -491,7 +491,8 @@
 
           <!-- Actions -->
           <div class="flex flex-wrap gap-2">
-            <Button @click="navigateToNewPlan">Create Test Plan</Button>
+            <Button v-if="autoTestPlanId" @click="navigateToTestPlan">View Test Plan</Button>
+            <Button v-else @click="navigateToNewPlan">Create Test Plan</Button>
             <Button variant="secondary" @click="runFlowsNow">Run Flows Now</Button>
             <Button variant="outline" @click="viewCurrentAnalysis">
               <ExternalLink class="h-4 w-4 mr-1" />
@@ -682,6 +683,8 @@ const {
   // Persisted agent steps
   persistedAgentSteps,
   loadPersistedSteps,
+  // Auto-created test plan
+  autoTestPlanId,
 } = useAnalysis()
 
 
@@ -1106,9 +1109,19 @@ function handleReset() {
 }
 
 function navigateToNewPlan() {
-  const flowNames = flowList.value.map((f) => f.name).join(',')
   const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push({ path: `${basePath}/tests/new`, query: { flows: flowNames, gameUrl: gameUrl.value } })
+  const query = { gameUrl: gameUrl.value }
+  if (currentAnalysisId.value) {
+    query.analysisId = currentAnalysisId.value
+  } else {
+    query.flows = flowList.value.map((f) => f.name).join(',')
+  }
+  router.push({ path: `${basePath}/tests/new`, query })
+}
+
+function navigateToTestPlan() {
+  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push(`${basePath}/tests`)
 }
 
 function navigateToFlows() {
@@ -1355,8 +1368,10 @@ onMounted(async () => {
     gameUrl.value = currentProject.value.gameUrl
   }
 
-  // Try to recover a running or completed analysis from localStorage
-  const recovery = await tryRecover()
+  // Use explicit analysisId from query param (e.g., navigated from list),
+  // or fall back to localStorage recovery
+  const explicitId = route.query.analysisId || null
+  const recovery = await tryRecover(explicitId)
   if (recovery) {
     if (recovery.gameUrl) {
       gameUrl.value = recovery.gameUrl

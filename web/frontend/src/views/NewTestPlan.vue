@@ -225,7 +225,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
-import { templatesApi, testPlansApi } from '@/lib/api'
+import { templatesApi, testPlansApi, analysesApi } from '@/lib/api'
 import { useProject } from '@/composables/useProject'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -245,6 +245,7 @@ const templates = ref([])
 const selectedFlows = ref(new Set())
 const creating = ref(false)
 const createError = ref(null)
+const analysisId = ref(route.query.analysisId || '')
 
 const plan = reactive({
   name: '',
@@ -323,6 +324,7 @@ async function createPlan() {
       flowNames: [...selectedFlows.value],
       variables: { ...plan.variables },
       projectId: projectId.value,
+      analysisId: analysisId.value || undefined,
     })
     const basePath = projectId.value ? `/projects/${projectId.value}` : ''
     router.push(`${basePath}/tests`)
@@ -343,8 +345,20 @@ onMounted(async () => {
     templatesLoading.value = false
   }
 
-  // Pre-select flows from query params (from Analyze view)
-  if (route.query.flows) {
+  // Pre-select flows from analysis (filename-based names that match ListTemplates)
+  if (route.query.analysisId) {
+    try {
+      const data = await analysesApi.flows(route.query.analysisId)
+      const flowNames = data.flowNames || []
+      if (flowNames.length) {
+        selectedFlows.value = new Set(flowNames)
+      }
+    } catch {
+      // Fall back to query.flows if analysis flow lookup fails
+    }
+  }
+  // Backward compat: pre-select from comma-separated flow names
+  if (!selectedFlows.value.size && route.query.flows) {
     const names = route.query.flows.split(',')
     selectedFlows.value = new Set(names)
   }

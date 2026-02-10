@@ -161,6 +161,7 @@ func runMigrations(db *sql.DB) error {
 		`ALTER TABLE analyses ADD COLUMN partial_result TEXT DEFAULT ''`,
 		`ALTER TABLE analyses ADD COLUMN agent_mode INTEGER DEFAULT 0`,
 		`ALTER TABLE analyses ADD COLUMN profile TEXT DEFAULT ''`,
+		`ALTER TABLE test_plans ADD COLUMN analysis_id TEXT DEFAULT ''`,
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {
@@ -180,6 +181,7 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_project_members_project ON project_members(project_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agent_steps_analysis ON agent_steps(analysis_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_test_plans_analysis ON test_plans(analysis_id)`,
 	}
 	for _, stmt := range indexes {
 		if _, err := db.Exec(stmt); err != nil {

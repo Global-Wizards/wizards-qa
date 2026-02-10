@@ -215,6 +215,38 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 		return "", fmt.Errorf("creating temp dir: %w", err)
 	}
 
+	// Fast path: analysis-linked plans copy directly from generated/{analysisID}/
+	if plan.AnalysisID != "" {
+		srcDir := filepath.Join(s.store.FlowsDir(), "generated", plan.AnalysisID)
+		entries, err := os.ReadDir(srcDir)
+		if err != nil {
+			os.RemoveAll(tmpDir)
+			return "", fmt.Errorf("reading generated flows for analysis %s: %w", plan.AnalysisID, err)
+		}
+		copied := 0
+		for _, e := range entries {
+			if e.IsDir() || !(strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml")) {
+				continue
+			}
+			content, err := os.ReadFile(filepath.Join(srcDir, e.Name()))
+			if err != nil {
+				log.Printf("Warning: could not read generated flow %s: %v", e.Name(), err)
+				continue
+			}
+			result := varSubstitute(string(content), plan.Variables)
+			if err := os.WriteFile(filepath.Join(tmpDir, e.Name()), []byte(result), 0644); err != nil {
+				os.RemoveAll(tmpDir)
+				return "", fmt.Errorf("writing flow %s: %w", e.Name(), err)
+			}
+			copied++
+		}
+		if copied == 0 {
+			os.RemoveAll(tmpDir)
+			return "", fmt.Errorf("no flow files found in generated/%s", plan.AnalysisID)
+		}
+		return tmpDir, nil
+	}
+
 	templates, err := s.store.ListTemplates()
 	if err != nil {
 		os.RemoveAll(tmpDir)
