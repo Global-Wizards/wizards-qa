@@ -196,17 +196,24 @@ export function useAnalysis() {
     const offAgentReasoning = ws.on('agent_reasoning', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
       agentReasoning.value = data.text
+      // Attach reasoning to latest step
+      if (liveAgentSteps.value.length > 0) {
+        const updated = [...liveAgentSteps.value]
+        const last = updated[updated.length - 1]
+        updated[updated.length - 1] = { ...last, reasoning: data.text }
+        liveAgentSteps.value = updated
+      }
     })
 
     const offAgentScreenshot = ws.on('agent_screenshot', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
       latestScreenshot.value = data.imageData
-      // Mark the most recent live step as having a screenshot (don't store full base64)
+      // Store screenshot on the step for inline thumbnails
       if (liveAgentSteps.value.length > 0) {
         const last = liveAgentSteps.value[liveAgentSteps.value.length - 1]
-        if (!last.hasScreenshot) {
+        if (!last.screenshotB64) {
           const updated = [...liveAgentSteps.value]
-          updated[updated.length - 1] = { ...last, hasScreenshot: true }
+          updated[updated.length - 1] = { ...last, hasScreenshot: true, screenshotB64: data.imageData }
           liveAgentSteps.value = updated
         }
       }

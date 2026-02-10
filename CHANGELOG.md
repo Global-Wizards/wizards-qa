@@ -5,6 +5,20 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - 2026-02-09
+
+### Chat-Style Agent Exploration Timeline
+
+#### Changed
+- **Live exploration panel redesigned as chat-style timeline** — the "Agent Exploring Game" panel now shows a scrollable chat-like history where each step displays its screenshot thumbnail inline, so you can scroll up and see all previous steps with their images instead of only the latest hero screenshot.
+- **Screenshots stored per step** — `agent_screenshot` events now store the full base64 image data on the corresponding step object (`screenshotB64`) instead of just a `hasScreenshot` boolean flag. This enables inline thumbnail rendering for every step.
+- **Reasoning text attached to steps** — `agent_reasoning` events now attach the reasoning text to the latest step, displayed inline below the tool name.
+- **Taller timeline area** — timeline max height increased from 192px to 500px for comfortable scrolling through step history.
+- **Click-to-expand thumbnails** — clicking any step's inline screenshot thumbnail opens the existing full-screen screenshot dialog with step details.
+
+#### Removed
+- **Hero screenshot + reasoning row** — the separate large screenshot and "Latest thinking" area above the timeline has been removed in favor of inline per-step display.
+
 ## [0.13.0] - 2026-02-09
 
 ### Agent Modules UI, Dynamic Timeout & Branching Test Flows
