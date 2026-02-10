@@ -543,9 +543,13 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 				return pageMeta, result, nil, nil, nil
 			}
 
-			progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
+			scenarioNames := make([]string, 0, len(scenarios))
+			for _, s := range scenarios {
+				scenarioNames = append(scenarioNames, s.Name)
+			}
+			progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows: %s", len(scenarios), strings.Join(scenarioNames, ", ")))
 			// Flow generation without screenshots (text-only fallback)
-			flows, flowErr := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, nil)
+			flows, flowErr := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, nil, progress)
 			if flowErr != nil {
 				return pageMeta, result, nil, nil, fmt.Errorf("flow generation failed: %w", flowErr)
 			}
@@ -615,7 +619,11 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 		flowScreenshots = append(flowScreenshots, pageMeta.ScreenshotB64)
 	}
 
-	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
+	scenarioNames := make([]string, 0, len(scenarios))
+	for _, s := range scenarios {
+		scenarioNames = append(scenarioNames, s.Name)
+	}
+	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows: %s", len(scenarios), strings.Join(scenarioNames, ", ")))
 
 	// Retry flow generation up to 3 times with backoff
 	var flows []*MaestroFlow
@@ -632,7 +640,7 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 			progress("flows_retry", fmt.Sprintf("Retrying flow generation (attempt %d/%d)...", flowAttempt, flowRetryCfg.MaxAttempts))
 		}
 		var err error
-		flows, err = a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, flowScreenshots)
+		flows, err = a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, flowScreenshots, progress)
 		return err
 	})
 	if flowErr != nil {

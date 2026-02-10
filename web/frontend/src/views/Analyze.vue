@@ -683,6 +683,8 @@ const {
   // Persisted agent steps
   persistedAgentSteps,
   loadPersistedSteps,
+  // Live step message
+  latestStepMessage,
   // Auto-created test plan
   autoTestPlanId,
 } = useAnalysis()
@@ -876,11 +878,34 @@ const scenariosDetail = computed(() => {
 })
 
 const flowsDetail = computed(() => {
-  const dur = stepDuration('flows')
   if (flowList.value.length) {
+    const dur = stepDuration('flows')
     return `${flowList.value.length} flow(s) generated${dur ? ` in ${dur}s` : ''}`
   }
+  const flowSteps = ['flows', 'flows_prompt', 'flows_calling', 'flows_parsing', 'flows_validating', 'flows_retry']
+  if (flowSteps.includes(currentStep.value) && latestStepMessage.value) {
+    return latestStepMessage.value
+  }
+  const dur = stepDuration('flows')
   return dur ? `Working... (${dur}s)` : ''
+})
+
+const flowsSubDetails = computed(() => {
+  const details = []
+  if (analysis.value?.scenarios?.length) {
+    details.push({ label: 'Scenarios', value: `${analysis.value.scenarios.length}` })
+  }
+  const flowsLog = logs.value.find(l => l.startsWith('Converting') && l.includes('scenarios'))
+  if (flowsLog) {
+    const match = flowsLog.match(/scenarios to Maestro flows: (.+)/)
+    if (match) {
+      const names = match[1].split(', ')
+      names.forEach(name => {
+        details.push({ label: 'Flow', value: name.trim() })
+      })
+    }
+  }
+  return details
 })
 
 // Prefer persisted steps (have screenshots via URL), fall back to live or agentStepsList
@@ -914,6 +939,10 @@ const failedPhaseLabel = computed(() => {
     analyzing: 'Analysis',
     analyzed: 'Analysis',
     flows: 'Flow Generation',
+    flows_prompt: 'Flow Generation',
+    flows_calling: 'Flow Generation',
+    flows_parsing: 'Flow Generation',
+    flows_validating: 'Flow Generation',
     flows_retry: 'Flow Generation',
     flows_done: 'Flow Generation',
     scouting: 'Page Scouting',
@@ -949,7 +978,7 @@ const progressPhases = computed(() => {
       durationSeconds: stepDuration('scenarios'), subDetails: [] },
     { id: 'flows', label: 'Generating test flows', icon: 'PlayCircle', color: 'rose',
       status: granularStepStatus('flows'), detail: flowsDetail.value,
-      durationSeconds: stepDuration('flows'), subDetails: [] },
+      durationSeconds: stepDuration('flows'), subDetails: flowsSubDetails.value },
   )
   return phases
 })
@@ -992,7 +1021,7 @@ function expandStepScreenshot(entry) {
 }
 
 // Ordered step names for granular progress
-const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_retry', 'flows_done', 'saving', 'complete']
+const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_prompt', 'flows_calling', 'flows_parsing', 'flows_validating', 'flows_retry', 'flows_done', 'saving', 'complete']
 
 function stepOrder(step) {
   const idx = STEP_ORDER.indexOf(step)

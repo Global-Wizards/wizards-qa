@@ -297,9 +297,13 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 				return pageMeta, result, nil, nil
 			}
 
-			progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
+			scenarioNames := make([]string, 0, len(scenarios))
+			for _, s := range scenarios {
+				scenarioNames = append(scenarioNames, s.Name)
+			}
+			progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows: %s", len(scenarios), strings.Join(scenarioNames, ", ")))
 			// Flow generation without screenshots (text-only fallback)
-			flows, err := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, nil)
+			flows, err := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, nil, progress)
 			if err != nil {
 				return pageMeta, result, nil, fmt.Errorf("flow generation failed: %w", err)
 			}
@@ -496,10 +500,14 @@ Respond with structured JSON matching the ComprehensiveAnalysisResult format (ga
 		return pageMeta, result, nil, nil
 	}
 
-	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
+	scenarioNames := make([]string, 0, len(scenarios))
+	for _, s := range scenarios {
+		scenarioNames = append(scenarioNames, s.Name)
+	}
+	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows: %s", len(scenarios), strings.Join(scenarioNames, ", ")))
 
 	// --- AI Call #2: Flow generation (multimodal with screenshots + full structured JSON) ---
-	flows, err := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, screenshots)
+	flows, err := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, screenshots, progress)
 	if err != nil {
 		return pageMeta, result, nil, fmt.Errorf("flow generation failed: %w", err)
 	}
@@ -521,7 +529,13 @@ Respond with structured JSON matching the ComprehensiveAnalysisResult format (ga
 
 // generateFlowsStructured generates Maestro flows using structured JSON input and multimodal screenshots.
 // This replaces the old GenerateFlows which used lossy text conversion and YAML output.
-func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *AnalysisResult, scenarios []TestScenario, screenshots []string) ([]*MaestroFlow, error) {
+func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *AnalysisResult, scenarios []TestScenario, screenshots []string, onProgress ProgressFunc) ([]*MaestroFlow, error) {
+	progress := func(step, message string) {
+		if onProgress != nil {
+			onProgress(step, message)
+		}
+	}
+
 	// Build the full analysis JSON to pass to the flow generation prompt
 	analysisForFlow := struct {
 		GameInfo   GameInfo       `json:"gameInfo"`
@@ -557,11 +571,14 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 		"screenshotSection": screenshotSection,
 	})
 
+	progress("flows_prompt", fmt.Sprintf("Built prompt from %d scenarios and %d screenshots", len(scenarios), len(screenshots)))
+
 	var response string
 
 	// Prefer multimodal with screenshots for flow generation too
 	if len(screenshots) > 0 {
 		if imgAnalyzer, ok := a.Client.(ImageAnalyzer); ok {
+			progress("flows_calling", "Sending to AI for flow generation (this may take 30-60s)...")
 			var err error
 			response, err = imgAnalyzer.AnalyzeWithImages(AnalysisSystemPrompt, prompt, screenshots)
 			if err != nil {
@@ -572,6 +589,7 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 
 	// Fallback to text-only
 	if response == "" {
+		progress("flows_calling", "Sending to AI for flow generation (this may take 30-60s)...")
 		var err error
 		response, err = a.Client.Generate(prompt, map[string]interface{}{
 			"analysisJSON": string(analysisJSON),
@@ -581,14 +599,19 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 		}
 	}
 
+	progress("flows_parsing", fmt.Sprintf("Parsing AI response (%d chars)...", len(response)))
+
 	// Try parsing as structured JSON first (preferred)
 	flows := parseFlowsJSON(response)
 	if len(flows) > 0 {
+		progress("flows_validating", fmt.Sprintf("Validated %d flows from structured JSON", len(flows)))
 		return flows, nil
 	}
 
 	// Fallback to YAML parsing for backward compatibility
+	progress("flows_parsing", "Trying YAML fallback parser...")
 	yamlFlows := a.parseFlowsFromResponse(response, scenarios)
+	progress("flows_validating", fmt.Sprintf("Parsed %d flows via YAML fallback", len(yamlFlows)))
 	return yamlFlows, nil
 }
 

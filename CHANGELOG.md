@@ -5,6 +5,13 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.1] - 2026-02-10
+
+### Added
+- **Detailed progress during flow generation** — the "Generating test flows" phase now emits granular sub-step progress events (`flows_prompt`, `flows_calling`, `flows_parsing`, `flows_validating`) instead of showing only "Working..." until completion. Users see live messages like "Built prompt from N scenarios", "Sending to AI for flow generation", "Parsing AI response", and "Validated N flows from structured JSON".
+- **Scenario names in flow generation message** — the initial "Converting N scenarios to Maestro flows" progress message now lists scenario names (e.g., "Converting 5 scenarios to Maestro flows: Login, Tutorial, Combat, Inventory, Settings").
+- **Flow generation sub-detail chips** — the progress panel shows scenario count and individual scenario names as sub-detail chips during the flows phase.
+
 ## [0.18.0] - 2026-02-10
 
 ### Fix Test Plan Execution & Auto-Create from Analysis

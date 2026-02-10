@@ -20,6 +20,10 @@ const STEP_TO_STATUS = {
   scenarios: 'analyzing',
   scenarios_done: 'analyzing',
   flows: 'generating',
+  flows_prompt: 'generating',
+  flows_calling: 'generating',
+  flows_parsing: 'generating',
+  flows_validating: 'generating',
   flows_done: 'generating',
   saving: 'generating',
   // Agent mode steps
@@ -67,6 +71,9 @@ export function useAnalysis() {
 
   // Persisted agent steps (loaded from API after completion/failure)
   const persistedAgentSteps = ref([])
+
+  // Latest progress step message (for showing live detail during flow generation, etc.)
+  const latestStepMessage = ref('')
 
   // Auto-created test plan ID (set on analysis completion)
   const autoTestPlanId = ref(null)
@@ -143,6 +150,7 @@ export function useAnalysis() {
 
       if (progress.message) {
         logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), progress.message]
+        latestStepMessage.value = progress.message
       }
 
       // Extract partial data from progress events when available
@@ -305,6 +313,7 @@ export function useAnalysis() {
     hintCooldown.value = false
     agentStepCurrent.value = 0
     agentStepTotal.value = 0
+    latestStepMessage.value = ''
     autoTestPlanId.value = null
 
     startElapsedTimer()
@@ -522,6 +531,7 @@ export function useAnalysis() {
     hintCooldown.value = false
     agentStepCurrent.value = 0
     agentStepTotal.value = 0
+    latestStepMessage.value = ''
     persistedAgentSteps.value = []
     autoTestPlanId.value = null
     if (hintCooldownTimer) {
@@ -575,6 +585,8 @@ export function useAnalysis() {
     // Persisted agent steps
     persistedAgentSteps,
     loadPersistedSteps,
+    // Live step message
+    latestStepMessage,
     // Auto-created test plan
     autoTestPlanId,
   }
