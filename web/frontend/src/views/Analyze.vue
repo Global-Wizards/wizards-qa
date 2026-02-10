@@ -69,15 +69,22 @@
             <div class="flex items-center gap-2 flex-1">
               <label class="text-sm font-medium whitespace-nowrap">Device</label>
               <Select :model-value="selectedViewport" @update:model-value="selectedViewport = $event">
-                <SelectTrigger class="w-[200px]">
+                <SelectTrigger class="w-[220px]">
                   <SelectValue placeholder="Select device" />
                 </SelectTrigger>
                 <SelectContent>
-                  <template v-for="cat in getViewportCategories()" :key="cat.name">
+                  <SelectGroup>
+                    <SelectLabel>Recommended</SelectLabel>
+                    <SelectItem v-for="p in getRecommendedViewports()" :key="p.name" :value="p.name">
+                      {{ p.label }}
+                    </SelectItem>
+                  </SelectGroup>
+                  <SelectGroup v-for="cat in getViewportCategories()" :key="cat.name">
+                    <SelectLabel>{{ cat.name }}</SelectLabel>
                     <SelectItem v-for="p in cat.presets" :key="p.name" :value="p.name">
                       {{ p.label }}
                     </SelectItem>
-                  </template>
+                  </SelectGroup>
                 </SelectContent>
               </Select>
               <span v-if="activeViewport" class="text-xs text-muted-foreground">
@@ -583,7 +590,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAnalysis } from '@/composables/useAnalysis'
 import { truncateUrl, isValidUrl, severityVariant } from '@/lib/utils'
 import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
-import { VIEWPORT_PRESETS, DEFAULT_VIEWPORT, getViewportByName, getViewportCategories } from '@/lib/viewports'
+import { DEFAULT_VIEWPORT, getViewportByName, getViewportCategories, getRecommendedViewports } from '@/lib/viewports'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@/composables/useClipboard'
@@ -597,7 +604,7 @@ import { Separator } from '@/components/ui/separator'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
-import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGroup, SelectLabel } from '@/components/ui/select'
 import AnalysisProgressPanel from '@/components/AnalysisProgressPanel.vue'
 import AgentStepNavigator from '@/components/AgentStepNavigator.vue'
 import AgentExplorationPanel from '@/components/AgentExplorationPanel.vue'

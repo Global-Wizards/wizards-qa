@@ -22,21 +22,21 @@ var viewportPresets = []ViewportPreset{
 	{Name: "macbook-air", Label: "MacBook Air", Category: "Desktop", Width: 1440, Height: 900, DevicePixelRatio: 2},
 	{Name: "macbook-pro-16", Label: "MacBook Pro 16\"", Category: "Desktop", Width: 1728, Height: 1117, DevicePixelRatio: 2},
 
-	// iOS — iPhone
-	{Name: "iphone-16-pro-max", Label: "iPhone 16 Pro Max", Category: "iOS", Width: 440, Height: 956, DevicePixelRatio: 3},
-	{Name: "iphone-16-pro", Label: "iPhone 16 Pro", Category: "iOS", Width: 402, Height: 874, DevicePixelRatio: 3},
-	{Name: "iphone-16", Label: "iPhone 16", Category: "iOS", Width: 393, Height: 852, DevicePixelRatio: 3},
-	{Name: "iphone-15", Label: "iPhone 15", Category: "iOS", Width: 393, Height: 852, DevicePixelRatio: 3},
-	{Name: "iphone-se", Label: "iPhone SE", Category: "iOS", Width: 375, Height: 667, DevicePixelRatio: 2},
-	{Name: "iphone-14-plus", Label: "iPhone 14 Plus", Category: "iOS", Width: 428, Height: 926, DevicePixelRatio: 3},
-	{Name: "iphone-13-mini", Label: "iPhone 13 Mini", Category: "iOS", Width: 375, Height: 812, DevicePixelRatio: 3},
+	// iPhone
+	{Name: "iphone-16-pro-max", Label: "iPhone 16 Pro Max", Category: "iPhone", Width: 440, Height: 956, DevicePixelRatio: 3},
+	{Name: "iphone-16-pro", Label: "iPhone 16 Pro", Category: "iPhone", Width: 402, Height: 874, DevicePixelRatio: 3},
+	{Name: "iphone-16", Label: "iPhone 16", Category: "iPhone", Width: 393, Height: 852, DevicePixelRatio: 3},
+	{Name: "iphone-15", Label: "iPhone 15", Category: "iPhone", Width: 393, Height: 852, DevicePixelRatio: 3},
+	{Name: "iphone-se", Label: "iPhone SE", Category: "iPhone", Width: 375, Height: 667, DevicePixelRatio: 2},
+	{Name: "iphone-14-plus", Label: "iPhone 14 Plus", Category: "iPhone", Width: 428, Height: 926, DevicePixelRatio: 3},
+	{Name: "iphone-13-mini", Label: "iPhone 13 Mini", Category: "iPhone", Width: 375, Height: 812, DevicePixelRatio: 3},
 
-	// iOS — iPad
-	{Name: "ipad-pro-12", Label: "iPad Pro 12.9\"", Category: "iOS", Width: 1024, Height: 1366, DevicePixelRatio: 2},
-	{Name: "ipad-pro-11", Label: "iPad Pro 11\"", Category: "iOS", Width: 834, Height: 1194, DevicePixelRatio: 2},
-	{Name: "ipad-air", Label: "iPad Air", Category: "iOS", Width: 820, Height: 1180, DevicePixelRatio: 2},
-	{Name: "ipad-mini", Label: "iPad Mini", Category: "iOS", Width: 744, Height: 1133, DevicePixelRatio: 2},
-	{Name: "ipad-10th", Label: "iPad 10th Gen", Category: "iOS", Width: 810, Height: 1080, DevicePixelRatio: 2},
+	// iPad
+	{Name: "ipad-pro-12", Label: "iPad Pro 12.9\"", Category: "iPad", Width: 1024, Height: 1366, DevicePixelRatio: 2},
+	{Name: "ipad-pro-11", Label: "iPad Pro 11\"", Category: "iPad", Width: 834, Height: 1194, DevicePixelRatio: 2},
+	{Name: "ipad-air", Label: "iPad Air", Category: "iPad", Width: 820, Height: 1180, DevicePixelRatio: 2},
+	{Name: "ipad-mini", Label: "iPad Mini", Category: "iPad", Width: 744, Height: 1133, DevicePixelRatio: 2},
+	{Name: "ipad-10th", Label: "iPad 10th Gen", Category: "iPad", Width: 810, Height: 1080, DevicePixelRatio: 2},
 
 	// Android — Phones
 	{Name: "pixel-9-pro", Label: "Pixel 9 Pro", Category: "Android", Width: 412, Height: 892, DevicePixelRatio: 2.625},
@@ -47,8 +47,8 @@ var viewportPresets = []ViewportPreset{
 	{Name: "oneplus-12", Label: "OnePlus 12", Category: "Android", Width: 412, Height: 915, DevicePixelRatio: 3.5},
 
 	// Android — Tablets
-	{Name: "samsung-tab-s9", Label: "Samsung Tab S9", Category: "Android", Width: 800, Height: 1280, DevicePixelRatio: 2},
-	{Name: "pixel-tablet", Label: "Pixel Tablet", Category: "Android", Width: 800, Height: 1280, DevicePixelRatio: 2},
+	{Name: "samsung-tab-s9", Label: "Samsung Tab S9", Category: "Android Tablet", Width: 800, Height: 1280, DevicePixelRatio: 2},
+	{Name: "pixel-tablet", Label: "Pixel Tablet", Category: "Android Tablet", Width: 800, Height: 1280, DevicePixelRatio: 2},
 }
 
 // DefaultViewportName is the default viewport preset name.
