@@ -99,6 +99,9 @@
               / {{ activeProfile.maxTokens }} tokens
               / {{ activeProfile.agentSteps }} steps
             </span>
+            <span v-if="activeProfile.adaptive" class="text-muted-foreground/70">
+              (adaptive, up to {{ activeProfile.maxTotalSteps }})
+            </span>
             <span v-if="activeProfile.cost" class="text-muted-foreground/70">
               &middot; {{ activeProfile.cost }} cost &middot; ~{{ activeProfile.time }}
             </span>
@@ -121,6 +124,17 @@
             <div class="space-y-1">
               <label class="text-xs font-medium">Temperature</label>
               <Input v-model.number="customTemperature" type="number" :min="0" :max="1" step="0.1" class="text-sm" />
+            </div>
+            <div class="space-y-1 sm:col-span-2">
+              <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
+                <input type="checkbox" v-model="customAdaptive" class="rounded border-gray-300" />
+                Adaptive Exploration
+                <span class="text-xs text-muted-foreground font-normal">(AI can request more steps)</span>
+              </label>
+            </div>
+            <div v-if="customAdaptive" class="space-y-1">
+              <label class="text-xs font-medium">Max Total Steps</label>
+              <Input v-model.number="customMaxTotalSteps" type="number" :min="customAgentSteps || 5" :max="100" class="text-sm" />
             </div>
           </div>
         </div>
@@ -646,7 +660,11 @@
         </p>
 
         <div class="mt-4 flex gap-2">
-          <Button @click="retryAnalysis">
+          <Button v-if="canContinue" @click="handleContinueAnalysis">
+            <PlayCircle class="h-4 w-4 mr-1" />
+            Continue Analysis
+          </Button>
+          <Button @click="retryAnalysis" :variant="canContinue ? 'secondary' : 'default'">
             <RefreshCw class="h-4 w-4 mr-1" />
             Retry Analysis
           </Button>
@@ -733,6 +751,8 @@ const customModel = ref(defaultProfile.model)
 const customMaxTokens = ref(defaultProfile.maxTokens)
 const customAgentSteps = ref(defaultProfile.agentSteps)
 const customTemperature = ref(defaultProfile.temperature)
+const customAdaptive = ref(false)
+const customMaxTotalSteps = ref(35)
 const moduleUiux = ref(true)
 const moduleWording = ref(true)
 const moduleGameDesign = ref(true)
@@ -779,6 +799,8 @@ const {
   agentStepCurrent,
   agentStepTotal,
   sendHint,
+  // Continue from checkpoint
+  continueAnalysis,
   // Failed step tracking
   failedStep,
   // Persisted agent steps
@@ -817,6 +839,10 @@ const profileParams = computed(() => {
     }
     if (useAgentMode.value) {
       params.agentSteps = customAgentSteps.value || undefined
+      if (customAdaptive.value) {
+        params.adaptive = true
+        params.maxTotalSteps = customMaxTotalSteps.value || undefined
+      }
     }
     return params
   }
@@ -829,6 +855,10 @@ const profileParams = computed(() => {
   }
   if (useAgentMode.value) {
     params.agentSteps = p.agentSteps
+    if (p.adaptive) {
+      params.adaptive = true
+      params.maxTotalSteps = p.maxTotalSteps
+    }
   }
   return params
 })
@@ -843,6 +873,8 @@ function onProfileChange(val) {
       customMaxTokens.value = p.maxTokens
       customAgentSteps.value = p.agentSteps
       customTemperature.value = p.temperature
+      customAdaptive.value = p.adaptive || false
+      customMaxTotalSteps.value = p.maxTotalSteps || 35
     }
   }
 }
@@ -983,7 +1015,7 @@ const navigatorSteps = computed(() => {
 })
 
 const agentExplorationStatus = computed(() => {
-  const agentSteps = ['agent_start', 'agent_step', 'agent_action']
+  const agentSteps = ['agent_start', 'agent_step', 'agent_action', 'agent_adaptive']
   const doneSteps = ['agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'flows', 'flows_retry', 'flows_done', 'complete']
   if (doneSteps.includes(currentStep.value)) return 'complete'
   if (agentSteps.includes(currentStep.value)) return 'active'
@@ -997,6 +1029,7 @@ const failedPhaseLabel = computed(() => {
     agent_step: 'Exploration',
     agent_action: 'Exploration',
     agent_start: 'Exploration',
+    agent_adaptive: 'Exploration',
     agent_synthesize: 'Synthesis',
     synthesis_retry: 'Synthesis',
     analyzing: 'Analysis',
@@ -1038,7 +1071,7 @@ function expandLiveScreenshot() {
 }
 
 // Ordered step names for granular progress
-const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_retry', 'flows_done', 'saving', 'complete']
+const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_retry', 'flows_done', 'saving', 'complete']
 
 function stepOrder(step) {
   const idx = STEP_ORDER.indexOf(step)
@@ -1133,6 +1166,9 @@ watch(status, (val) => {
   if (val !== 'idle') {
     analyzing.value = false
   }
+  if (val === 'error') {
+    checkCanContinue()
+  }
 })
 
 function handleReset() {
@@ -1167,9 +1203,32 @@ async function runFlowsNow() {
   }
 }
 
+const canContinue = ref(false)
+
+// Check if a failed analysis has checkpoint data for resume
+async function checkCanContinue() {
+  canContinue.value = false
+  const id = currentAnalysisId.value || analysisId.value
+  if (!id) return
+  try {
+    const data = await analysesApi.get(id)
+    canContinue.value = !!(data.partialResult)
+  } catch {
+    // ignore
+  }
+}
+
+async function handleContinueAnalysis() {
+  const id = currentAnalysisId.value || analysisId.value
+  if (!id) return
+  canContinue.value = false
+  await continueAnalysis(id)
+}
+
 function retryAnalysis() {
   const url = gameUrl.value
   const agent = agentMode.value
+  canContinue.value = false
   reset()
   analyzing.value = false
   gameUrl.value = url

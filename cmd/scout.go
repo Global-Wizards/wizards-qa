@@ -17,22 +17,26 @@ import (
 
 func newScoutCmd() *cobra.Command {
 	var (
-		gameURL       string
-		output        string
-		jsonOutput    bool
-		saveFlows     bool
-		configPath    string
-		headless      bool
-		timeout       int
-		agentMode     bool
-		agentSteps    int
-		modelFlag     string
-		maxTokens     int
-		temperature   float64
-		noUIUX        bool
-		noWording     bool
-		noGameDesign  bool
-		noTestFlows   bool
+		gameURL        string
+		output         string
+		jsonOutput     bool
+		saveFlows      bool
+		configPath     string
+		headless       bool
+		timeout        int
+		agentMode      bool
+		agentSteps     int
+		modelFlag      string
+		maxTokens      int
+		temperature    float64
+		noUIUX         bool
+		noWording      bool
+		noGameDesign   bool
+		noTestFlows    bool
+		resumeFrom     string
+		resumeDataPath string
+		adaptive       bool
+		maxTotalSteps  int
 	)
 
 	cmd := &cobra.Command{
@@ -181,7 +185,46 @@ Example:
 			var flows []*ai.MaestroFlow
 			var agentStepsResult []ai.AgentStep
 
-			if agentMode {
+			// --- Resume path: skip completed steps ---
+			if resumeFrom != "" && resumeDataPath != "" {
+				checkpoint, cpErr := ai.ReadResumeData(resumeDataPath)
+				if cpErr != nil {
+					return fmt.Errorf("failed to read resume data: %w", cpErr)
+				}
+
+				// Reconstruct pageMeta from checkpoint
+				if len(checkpoint.PageMeta) > 0 {
+					pageMeta = &scout.PageMeta{}
+					if err := json.Unmarshal(checkpoint.PageMeta, pageMeta); err != nil {
+						return fmt.Errorf("failed to unmarshal checkpoint pageMeta: %w", err)
+					}
+				}
+
+				if jsonOutput {
+					fmt.Fprintf(os.Stderr, "PROGRESS:resuming:Resuming from checkpoint (%s)\n", checkpoint.Step)
+				} else {
+					fmt.Printf("   Resuming from checkpoint (%s)\n", checkpoint.Step)
+				}
+
+				analyzeOpts := []ai.AnalyzeOption{ai.WithResumeData(checkpoint), ai.WithCheckpointDir(output)}
+
+				if checkpoint.AgentMode {
+					// Agent resume: skip exploration+synthesis, just generate flows
+					_, result, flows, _, err = analyzer.AnalyzeFromURLWithAgent(
+						ctx, nil, pageMeta, gameURL, ai.AgentConfig{}, modules, onProgress,
+						analyzeOpts...,
+					)
+				} else {
+					// Standard resume: skip analysis, just generate flows
+					_, result, flows, err = analyzer.AnalyzeFromURLWithMetaProgress(
+						ctx, gameURL, pageMeta, modules, onProgress,
+						analyzeOpts...,
+					)
+				}
+				if err != nil {
+					return fmt.Errorf("resumed analysis failed: %w", err)
+				}
+			} else if agentMode {
 				// Agent mode: use ScoutURLHeadlessKeepAlive + agentic exploration
 				agentPageMeta, browserPage, cleanup, agentErr := scout.ScoutURLHeadlessKeepAlive(ctx, gameURL, scout.HeadlessConfig{
 					Enabled: true,
@@ -207,13 +250,21 @@ Example:
 					fmt.Println()
 				}
 
-				// Scale exploration timeout: steps × 30s avg + 5min buffer, clamped 5-20min
-				explorationTimeout := time.Duration(agentSteps)*30*time.Second + 5*time.Minute
+				// Scale exploration timeout: steps × 30s avg + 5min buffer, clamped 5-20min (or 5-30min for adaptive)
+				timeoutSteps := agentSteps
+				if adaptive && maxTotalSteps > agentSteps {
+					timeoutSteps = maxTotalSteps
+				}
+				explorationTimeout := time.Duration(timeoutSteps)*30*time.Second + 5*time.Minute
 				if explorationTimeout < 5*time.Minute {
 					explorationTimeout = 5 * time.Minute
 				}
-				if explorationTimeout > 20*time.Minute {
-					explorationTimeout = 20 * time.Minute
+				maxClamp := 20 * time.Minute
+				if adaptive {
+					maxClamp = 30 * time.Minute
+				}
+				if explorationTimeout > maxClamp {
+					explorationTimeout = maxClamp
 				}
 
 				// Synthesis needs at least 16384 tokens for full JSON; ensure low-token profiles don't truncate
@@ -223,10 +274,12 @@ Example:
 				}
 
 				agentCfg := ai.AgentConfig{
-					MaxSteps:           agentSteps,
-					StepTimeout:        30 * time.Second,
-					TotalTimeout:       explorationTimeout,
-					SynthesisMaxTokens: synthTokens,
+					MaxSteps:            agentSteps,
+					StepTimeout:         30 * time.Second,
+					TotalTimeout:        explorationTimeout,
+					SynthesisMaxTokens:  synthTokens,
+					AdaptiveExploration: adaptive,
+					MaxTotalSteps:       maxTotalSteps,
 				}
 
 				// When launched by the backend (--json + --agent), read user hints from stdin
@@ -262,13 +315,14 @@ Example:
 
 				_, result, flows, agentStepsResult, err = analyzer.AnalyzeFromURLWithAgent(
 					ctx, browserPage, pageMeta, gameURL, agentCfg, modules, onProgress,
+					ai.WithCheckpointDir(output),
 				)
 				if err != nil {
 					return fmt.Errorf("agent analysis failed: %w", err)
 				}
 			} else {
 				// Standard 2-call pipeline
-				_, result, flows, err = analyzer.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, modules, onProgress)
+				_, result, flows, err = analyzer.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, modules, onProgress, ai.WithCheckpointDir(output))
 				if err != nil {
 					return fmt.Errorf("analysis failed: %w", err)
 				}
@@ -346,6 +400,8 @@ Example:
 	cmd.Flags().IntVar(&timeout, "timeout", 10, "HTTP fetch timeout in seconds")
 	cmd.Flags().BoolVar(&agentMode, "agent", false, "Enable agent mode: AI actively explores the game via browser tools")
 	cmd.Flags().IntVar(&agentSteps, "agent-steps", 20, "Max exploration steps in agent mode")
+	cmd.Flags().BoolVar(&adaptive, "adaptive", false, "Enable adaptive exploration: AI can dynamically request more steps")
+	cmd.Flags().IntVar(&maxTotalSteps, "max-total-steps", 0, "Hard cap on total exploration steps when adaptive mode is enabled")
 	cmd.Flags().StringVar(&modelFlag, "model", "", "Override AI model (e.g. claude-sonnet-4-5-20250929)")
 	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Override max tokens for AI responses")
 	cmd.Flags().Float64Var(&temperature, "temperature", -1, "Override AI temperature (0.0-1.0, unset by default)")
@@ -353,6 +409,8 @@ Example:
 	cmd.Flags().BoolVar(&noWording, "no-wording", false, "Disable wording/translation check module")
 	cmd.Flags().BoolVar(&noGameDesign, "no-game-design", false, "Disable game design analysis module")
 	cmd.Flags().BoolVar(&noTestFlows, "no-test-flows", false, "Disable test flow generation module")
+	cmd.Flags().StringVar(&resumeFrom, "resume-from", "", "Resume from checkpoint step (internal)")
+	cmd.Flags().StringVar(&resumeDataPath, "resume-data", "", "Path to checkpoint data file (internal)")
 
 	cmd.MarkFlagRequired("game")
 

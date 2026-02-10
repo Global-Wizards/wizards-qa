@@ -38,7 +38,7 @@ func CheckPassword(hash, password string) bool {
 	return bcrypt.CompareHashAndPassword([]byte(hash), []byte(password)) == nil
 }
 
-// GenerateTokens creates an access token (15 min) and refresh token (7 days).
+// GenerateTokens creates an access token (24 hours) and refresh token (7 days).
 func GenerateTokens(user *store.User, secret string) (accessToken, refreshToken string, err error) {
 	now := time.Now()
 
@@ -47,7 +47,7 @@ func GenerateTokens(user *store.User, secret string) (accessToken, refreshToken 
 		Email:  user.Email,
 		Role:   user.Role,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(now.Add(15 * time.Minute)),
+			ExpiresAt: jwt.NewNumericDate(now.Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(now),
 			Issuer:    "access",
 			Subject:   user.ID,

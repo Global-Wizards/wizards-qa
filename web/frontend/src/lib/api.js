@@ -140,6 +140,8 @@ export const analyzeApi = {
     api.post('/analyze', { gameUrl, projectId: projectId || '', agentMode, modules, ...profileParams }).then((r) => r.data),
   sendHint: (analysisId, message) =>
     api.post(`/analyses/${analysisId}/message`, { message }).then((r) => r.data),
+  continue: (analysisId) =>
+    api.post(`/analyses/${analysisId}/continue`).then((r) => r.data),
 }
 
 export const analysesApi = {

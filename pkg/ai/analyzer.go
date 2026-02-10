@@ -194,10 +194,28 @@ func (a *Analyzer) AnalyzeFromURL(ctx context.Context, gameURL string, timeout t
 // ProgressFunc is a callback for reporting analysis progress.
 type ProgressFunc func(step, message string)
 
+// AnalyzeOption configures the analysis pipeline (checkpoint writing, resume).
+type AnalyzeOption func(*analyzeOptions)
+
+type analyzeOptions struct {
+	resumeData    *CheckpointData
+	checkpointDir string
+}
+
+// WithResumeData attaches checkpoint data to resume from.
+func WithResumeData(rd *CheckpointData) AnalyzeOption {
+	return func(o *analyzeOptions) { o.resumeData = rd }
+}
+
+// WithCheckpointDir enables checkpoint writing to the given directory.
+func WithCheckpointDir(dir string) AnalyzeOption {
+	return func(o *analyzeOptions) { o.checkpointDir = dir }
+}
+
 // AnalyzeFromURLWithMeta performs analysis and flow generation using pre-fetched page metadata.
 // Use this to avoid double-fetching when the caller already has PageMeta.
 func (a *Analyzer) AnalyzeFromURLWithMeta(ctx context.Context, gameURL string, pageMeta *scout.PageMeta) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
-	return a.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, DefaultAnalysisModules(), nil)
+	return a.AnalyzeFromURLWithMetaProgress(ctx, gameURL, pageMeta, DefaultAnalysisModules(), nil /* no options */)
 }
 
 // collectScreenshots gathers all available screenshots from PageMeta.
@@ -250,10 +268,49 @@ func buildPageMetaJSON(pageMeta *scout.PageMeta) []byte {
 func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 	ctx context.Context, gameURL string, pageMeta *scout.PageMeta,
 	modules AnalysisModules, onProgress ProgressFunc,
+	optFns ...AnalyzeOption,
 ) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, error) {
+	var opts analyzeOptions
+	for _, fn := range optFns {
+		if fn != nil {
+			fn(&opts)
+		}
+	}
+
 	progress := func(step, message string) {
 		if onProgress != nil {
 			onProgress(step, message)
+		}
+	}
+
+	// --- Resume path: skip AI Call #1 if checkpoint has analysis ---
+	if opts.resumeData != nil && opts.resumeData.Step == "analyzed" && len(opts.resumeData.Analysis) > 0 {
+		var comprehensiveResult ComprehensiveAnalysisResult
+		if err := json.Unmarshal(opts.resumeData.Analysis, &comprehensiveResult); err == nil {
+			progress("analyzed", "Resumed from checkpoint — skipping analysis")
+			result := comprehensiveResult.ToAnalysisResult()
+			scenarios := comprehensiveResult.Scenarios
+
+			if !modules.TestFlows {
+				progress("flows_done", "Test flow generation skipped (module disabled)")
+				return pageMeta, result, nil, nil
+			}
+
+			progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
+			// Flow generation without screenshots (text-only fallback)
+			flows, err := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, nil)
+			if err != nil {
+				return pageMeta, result, nil, fmt.Errorf("flow generation failed: %w", err)
+			}
+			for _, flow := range flows {
+				flow.URL = gameURL
+			}
+			totalCommands := 0
+			for _, f := range flows {
+				totalCommands += len(f.Commands)
+			}
+			progress("flows_done", fmt.Sprintf("Generated %d flows with %d total commands", len(flows), totalCommands))
+			return pageMeta, result, flows, nil
 		}
 	}
 
@@ -375,6 +432,20 @@ Respond with structured JSON matching the ComprehensiveAnalysisResult format (ga
 		analysisDetail = fmt.Sprintf("%s — %s (%s)", result.GameInfo.Name, result.GameInfo.Genre, analysisDetail)
 	}
 	progress("analyzed", analysisDetail)
+
+	// Write checkpoint after analysis succeeds
+	if opts.checkpointDir != "" && comprehensiveResult != nil {
+		pageMetaJSON, _ := json.Marshal(pageMeta)
+		analysisJSON, _ := json.Marshal(comprehensiveResult)
+		if cpErr := WriteCheckpoint(opts.checkpointDir, CheckpointData{
+			Step:     "analyzed",
+			PageMeta: pageMetaJSON,
+			Analysis: analysisJSON,
+			Modules:  modules,
+		}); cpErr != nil {
+			progress("checkpoint", fmt.Sprintf("Warning: failed to write checkpoint: %v", cpErr))
+		}
+	}
 
 	// If comprehensive call produced scenarios, report them
 	if len(scenarios) > 0 {

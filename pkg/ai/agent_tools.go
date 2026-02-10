@@ -144,6 +144,32 @@ func BrowserTools() []ToolDefinition {
 	}
 }
 
+// AgentTools returns browser tools, optionally including request_more_steps for adaptive exploration.
+func AgentTools(adaptive bool) []ToolDefinition {
+	tools := BrowserTools()
+	if adaptive {
+		tools = append(tools, ToolDefinition{
+			Name:        "request_more_steps",
+			Description: "Request additional exploration steps when you determine there are significant unexplored areas of the game. Call this before you run out of steps. Provide a reason explaining what remains to explore and how many additional steps you need.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"reason": map[string]interface{}{
+						"type":        "string",
+						"description": "Why more steps are needed — what areas remain unexplored",
+					},
+					"additional_steps": map[string]interface{}{
+						"type":        "integer",
+						"description": "Number of additional steps requested (will be capped at the maximum)",
+					},
+				},
+				"required": []string{"reason", "additional_steps"},
+			},
+		})
+	}
+	return tools
+}
+
 // BrowserToolExecutor executes browser tool calls against a BrowserPage.
 type BrowserToolExecutor struct {
 	Page BrowserPage

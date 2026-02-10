@@ -1,6 +1,12 @@
 package ai
 
-import "time"
+import (
+	"encoding/json"
+	"fmt"
+	"os"
+	"path/filepath"
+	"time"
+)
 
 // AnalysisResult represents the result of analyzing a game
 type AnalysisResult struct {
@@ -475,12 +481,62 @@ type AgentStep struct {
 
 // AgentConfig controls the agent exploration loop.
 type AgentConfig struct {
-	MaxSteps           int
-	StepTimeout        time.Duration
-	TotalTimeout       time.Duration
-	UserMessages       <-chan string // Optional channel for user hints injected during exploration
-	ScreenshotDir      string       // Optional directory to write screenshots for live streaming
-	SynthesisMaxTokens int          // Override maxTokens for synthesis call (0 = use client default)
+	MaxSteps            int
+	StepTimeout         time.Duration
+	TotalTimeout        time.Duration
+	UserMessages        <-chan string // Optional channel for user hints injected during exploration
+	ScreenshotDir       string       // Optional directory to write screenshots for live streaming
+	SynthesisMaxTokens  int          // Override maxTokens for synthesis call (0 = use client default)
+	AdaptiveExploration bool         // Enable request_more_steps tool for dynamic step extension
+	MaxTotalSteps       int          // Hard cap on total steps after adaptive extensions
+}
+
+// CheckpointData wraps the state written to checkpoint files after each pipeline step.
+type CheckpointData struct {
+	Step      string          `json:"step"`
+	AgentMode bool            `json:"agentMode"`
+	PageMeta  json.RawMessage `json:"pageMeta,omitempty"`
+	Analysis  json.RawMessage `json:"analysis,omitempty"` // ComprehensiveAnalysisResult
+	Modules   AnalysisModules `json:"modules"`
+	Timestamp string          `json:"timestamp"`
+}
+
+// WriteCheckpoint serialises checkpoint data to a file in dir.
+func WriteCheckpoint(dir string, data CheckpointData) error {
+	data.Timestamp = time.Now().Format(time.RFC3339)
+	b, err := json.Marshal(data)
+	if err != nil {
+		return fmt.Errorf("marshal checkpoint: %w", err)
+	}
+	return os.WriteFile(filepath.Join(dir, fmt.Sprintf("checkpoint_%s.json", data.Step)), b, 0644)
+}
+
+// ReadLatestCheckpoint returns the most-advanced checkpoint found in dir, or nil.
+func ReadLatestCheckpoint(dir string) (*CheckpointData, error) {
+	for _, step := range []string{"synthesized", "analyzed", "scouted"} {
+		data, err := os.ReadFile(filepath.Join(dir, fmt.Sprintf("checkpoint_%s.json", step)))
+		if err != nil {
+			continue
+		}
+		var cp CheckpointData
+		if json.Unmarshal(data, &cp) == nil {
+			return &cp, nil
+		}
+	}
+	return nil, nil
+}
+
+// ReadResumeData reads a checkpoint from the given path.
+func ReadResumeData(path string) (*CheckpointData, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var cp CheckpointData
+	if err := json.Unmarshal(data, &cp); err != nil {
+		return nil, err
+	}
+	return &cp, nil
 }
 
 // DefaultAgentConfig returns sensible defaults for agent exploration.
@@ -549,6 +605,31 @@ RULES:
 6. Focus on discovering testable behaviors through active interaction, not passive observation.
 
 COORDINATE SYSTEM: The viewport is 1920x1080. Use absolute pixel coordinates for click and type_text tools.`
+
+// AdaptiveExplorationPromptSuffix returns the system prompt addition for adaptive exploration mode.
+func AdaptiveExplorationPromptSuffix(maxTotalSteps int) string {
+	return fmt.Sprintf(`
+
+ADAPTIVE EXPLORATION:
+You have access to the request_more_steps tool. Periodically (every 3-5 interactions), assess your exploration coverage:
+- What percentage of visible UI elements have you interacted with?
+- Have you explored all accessible game states (menus, settings, game modes)?
+- Are there buttons, links, or interactive areas you haven't tried yet?
+
+If significant parts of the game remain unexplored and you're approaching your step limit, call request_more_steps with a reason and the number of additional steps you need. Your exploration can extend up to %d total steps.
+
+Be thorough: do NOT output EXPLORATION_COMPLETE until you are confident you've explored at least 80%% of the game's interactive elements and triggered its major state transitions.`, maxTotalSteps)
+}
+
+// BuildAgentSystemPrompt constructs the agent system prompt, optionally appending
+// adaptive exploration instructions when the feature is enabled.
+func BuildAgentSystemPrompt(cfg AgentConfig) string {
+	prompt := AgentSystemPrompt
+	if cfg.AdaptiveExploration && cfg.MaxTotalSteps > 0 {
+		prompt += AdaptiveExplorationPromptSuffix(cfg.MaxTotalSteps)
+	}
+	return prompt
+}
 
 // AnalysisSystemPrompt is the system prompt used for all analysis AI calls.
 // It establishes the AI's role and enforces grounding constraints.

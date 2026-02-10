@@ -37,8 +37,9 @@ func (a *Analyzer) AgentExplore(
 		return nil, nil, fmt.Errorf("AI client does not support tool use (agent mode requires Claude)")
 	}
 
-	tools := BrowserTools()
+	tools := AgentTools(cfg.AdaptiveExploration)
 	executor := &BrowserToolExecutor{Page: browserPage}
+	systemPrompt := BuildAgentSystemPrompt(cfg)
 
 	progress("agent_start", fmt.Sprintf("Starting agent exploration of %s (max %d steps)", gameURL, cfg.MaxSteps))
 
@@ -148,7 +149,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
 
-		resp, err := agent.CallWithTools(AgentSystemPrompt, messages, tools)
+		resp, err := agent.CallWithTools(systemPrompt, messages, tools)
 		if err != nil {
 			return nil, steps, fmt.Errorf("agent step %d API call failed: %w", step, err)
 		}
@@ -197,6 +198,64 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		var toolResults []interface{}
 		for _, block := range resp.Content {
 			if block.Type != "tool_use" {
+				continue
+			}
+
+			// Handle request_more_steps pseudo-tool (no browser action)
+			if block.Name == "request_more_steps" {
+				var params struct {
+					Reason          string `json:"reason"`
+					AdditionalSteps int    `json:"additional_steps"`
+				}
+				if parseErr := json.Unmarshal(block.Input, &params); parseErr != nil {
+					toolResults = append(toolResults, ToolResultBlock{
+						Type: "tool_result", ToolUseID: block.ID,
+						Content: "Error: invalid parameters", IsError: true,
+					})
+					continue
+				}
+
+				granted := params.AdditionalSteps
+				if cfg.MaxTotalSteps > 0 {
+					headroom := cfg.MaxTotalSteps - cfg.MaxSteps
+					if granted > headroom {
+						granted = headroom
+					}
+				}
+				if granted < 0 {
+					granted = 0
+				}
+
+				oldMax := cfg.MaxSteps
+				cfg.MaxSteps += granted
+
+				var resultMsg string
+				if granted > 0 {
+					resultMsg = fmt.Sprintf("Granted %d additional steps (was %d, now %d out of %d max). Continue exploring.", granted, oldMax, cfg.MaxSteps, cfg.MaxTotalSteps)
+				} else {
+					resultMsg = fmt.Sprintf("Cannot grant more steps — already at maximum (%d/%d). Wrap up and output EXPLORATION_COMPLETE.", cfg.MaxSteps, cfg.MaxTotalSteps)
+				}
+
+				progress("agent_adaptive", fmt.Sprintf("Adaptive extension +%d steps (now %d/%d): %s", granted, cfg.MaxSteps, cfg.MaxTotalSteps, truncate(params.Reason, 80)))
+
+				steps = append(steps, AgentStep{
+					StepNumber: step, ToolName: "request_more_steps",
+					Input: string(block.Input), Result: resultMsg,
+				})
+
+				// Emit step detail for live streaming
+				detail := map[string]interface{}{
+					"stepNumber": step, "toolName": "request_more_steps",
+					"input": string(block.Input), "result": resultMsg,
+					"error": "", "durationMs": 0,
+				}
+				if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
+					progress("agent_step_detail", string(detailJSON))
+				}
+
+				toolResults = append(toolResults, ToolResultBlock{
+					Type: "tool_result", ToolUseID: block.ID, Content: resultMsg,
+				})
 				continue
 			}
 
@@ -386,10 +445,48 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 	agentCfg AgentConfig,
 	modules AnalysisModules,
 	onProgress ProgressFunc,
+	optFns ...AnalyzeOption,
 ) (*scout.PageMeta, *AnalysisResult, []*MaestroFlow, []AgentStep, error) {
+	var opts analyzeOptions
+	for _, fn := range optFns {
+		if fn != nil {
+			fn(&opts)
+		}
+	}
 	progress := func(step, message string) {
 		if onProgress != nil {
 			onProgress(step, message)
+		}
+	}
+
+	// --- Resume path: skip exploration + synthesis if checkpoint has analysis ---
+	if opts.resumeData != nil && opts.resumeData.Step == "synthesized" && len(opts.resumeData.Analysis) > 0 {
+		var comprehensiveResult ComprehensiveAnalysisResult
+		if err := json.Unmarshal(opts.resumeData.Analysis, &comprehensiveResult); err == nil {
+			progress("analyzed", "Resumed from checkpoint — skipping exploration + synthesis")
+			result := comprehensiveResult.ToAnalysisResult()
+			scenarios := comprehensiveResult.Scenarios
+
+			if !modules.TestFlows {
+				progress("flows_done", "Test flow generation skipped (module disabled)")
+				return pageMeta, result, nil, nil, nil
+			}
+
+			progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows...", len(scenarios)))
+			// Flow generation without screenshots (text-only fallback)
+			flows, flowErr := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, nil)
+			if flowErr != nil {
+				return pageMeta, result, nil, nil, fmt.Errorf("flow generation failed: %w", flowErr)
+			}
+			for _, flow := range flows {
+				flow.URL = gameURL
+			}
+			totalCommands := 0
+			for _, f := range flows {
+				totalCommands += len(f.Commands)
+			}
+			progress("flows_done", fmt.Sprintf("Generated %d flows with %d total commands", len(flows), totalCommands))
+			return pageMeta, result, flows, nil, nil
 		}
 	}
 
@@ -412,6 +509,21 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 
 	if len(scenarios) > 0 {
 		progress("scenarios_done", fmt.Sprintf("Generated %d scenarios from agent exploration", len(scenarios)))
+	}
+
+	// Write checkpoint after synthesis succeeds
+	if opts.checkpointDir != "" {
+		pageMetaJSON, _ := json.Marshal(pageMeta)
+		analysisJSON, _ := json.Marshal(comprehensiveResult)
+		if cpErr := WriteCheckpoint(opts.checkpointDir, CheckpointData{
+			Step:      "synthesized",
+			AgentMode: true,
+			PageMeta:  pageMetaJSON,
+			Analysis:  analysisJSON,
+			Modules:   modules,
+		}); cpErr != nil {
+			progress("checkpoint", fmt.Sprintf("Warning: failed to write checkpoint: %v", cpErr))
+		}
 	}
 
 	// Skip flow generation if test flows module is disabled
@@ -511,6 +623,13 @@ func formatToolAction(toolName string, inputJSON json.RawMessage) string {
 		var p struct{ URL string }
 		json.Unmarshal(inputJSON, &p)
 		return fmt.Sprintf("navigate to %s", truncate(p.URL, 60))
+	case "request_more_steps":
+		var p struct {
+			Reason          string `json:"reason"`
+			AdditionalSteps int    `json:"additional_steps"`
+		}
+		json.Unmarshal(inputJSON, &p)
+		return fmt.Sprintf("requesting %d more steps: %s", p.AdditionalSteps, truncate(p.Reason, 60))
 	default:
 		return toolName
 	}

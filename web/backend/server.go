@@ -188,6 +188,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/analyses/{id}/steps", s.handleListAgentSteps)
 		r.Get("/api/analyses/{id}/steps/{stepNumber}/screenshot", s.handleAgentStepScreenshot)
 		r.Post("/api/analyses/{id}/message", s.handleSendAgentMessage)
+		r.Post("/api/analyses/{id}/continue", s.handleContinueAnalysis)
 
 		// Project routes
 		r.Get("/api/projects", s.handleListProjects)

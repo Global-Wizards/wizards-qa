@@ -32,8 +32,10 @@ const STEP_TO_STATUS = {
   agent_reasoning: 'analyzing',
   agent_step_detail: 'analyzing',
   agent_screenshot: 'analyzing',
+  agent_adaptive: 'analyzing',
   user_hint: 'analyzing',
   flows_retry: 'generating',
+  resuming: 'scouting',
 }
 
 export function useAnalysis() {
@@ -312,6 +314,42 @@ export function useAnalysis() {
     }
   }
 
+  async function continueAnalysis(failedAnalysisId) {
+    // Partially reset state — keep analysisId, clear error/logs
+    error.value = null
+    failedStep.value = null
+    logs.value = ['Resuming from checkpoint...']
+    status.value = 'scouting'
+    currentStep.value = 'resuming'
+    analysisId.value = failedAnalysisId
+    stepTimings.value = {}
+    liveAgentSteps.value = []
+    latestScreenshot.value = null
+    agentReasoning.value = ''
+
+    startElapsedTimer()
+    setupListeners()
+
+    try {
+      const response = await analyzeApi.continue(failedAnalysisId)
+
+      // Persist to localStorage for reconnect
+      localStorage.setItem(LS_KEY, JSON.stringify({
+        analysisId: failedAnalysisId,
+        gameUrl: '',
+        startedAt: startTime.value || Date.now(),
+        agentMode: agentMode.value,
+      }))
+
+      return response
+    } catch (err) {
+      error.value = err.message || 'Failed to continue analysis'
+      status.value = 'error'
+      stopElapsedTimer()
+      clearLocalStorage()
+    }
+  }
+
   /**
    * Try to recover a running or completed analysis from localStorage.
    * Returns { recovered: true, status: 'running'|'completed' } or false.
@@ -343,7 +381,7 @@ export function useAnalysis() {
         currentStep.value = statusData.step || ''
 
         // Restore agent mode from persisted state or infer from step name
-        const agentStepNames = ['agent_start', 'agent_step', 'agent_action', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'agent_reasoning', 'agent_step_detail', 'agent_screenshot']
+        const agentStepNames = ['agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'agent_reasoning', 'agent_step_detail', 'agent_screenshot']
         if (parsed.agentMode || agentStepNames.includes(statusData.step)) {
           agentMode.value = true
         }
@@ -461,6 +499,8 @@ export function useAnalysis() {
     agentStepCurrent,
     agentStepTotal,
     sendHint,
+    // Continue from checkpoint
+    continueAnalysis,
     // Failed step tracking
     failedStep,
     // Persisted agent steps

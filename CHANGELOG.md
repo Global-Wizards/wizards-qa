@@ -5,6 +5,44 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-02-09
+
+### Adaptive Exploration — Dynamic Step Extension
+
+#### Added
+- **Adaptive exploration mode** — the AI agent can now dynamically request more exploration steps when it discovers a game needs more thorough testing, via a new `request_more_steps` pseudo-tool
+- **`--adaptive` CLI flag** — enables adaptive exploration where the agent self-assesses coverage and can extend its step budget
+- **`--max-total-steps` CLI flag** — hard cap on total exploration steps after adaptive extensions (prevents runaway exploration)
+- **`AdaptiveExploration` and `MaxTotalSteps` fields** in `AgentConfig` — configurable adaptive exploration at the AI package level
+- **`BuildAgentSystemPrompt()` function** — dynamically constructs the agent system prompt with adaptive exploration instructions when enabled
+- **`AgentTools()` wrapper** — returns browser tools plus the `request_more_steps` tool when adaptive mode is active
+- **`agent_adaptive` progress event** — streams adaptive extension decisions to the frontend live timeline
+- **Frontend adaptive toggle** — custom profile mode exposes "Adaptive Exploration" checkbox and "Max Total Steps" field
+- **Profile-level adaptive defaults** — Thorough (adaptive, up to 35 steps) and Maximum (adaptive, up to 50 steps) profiles now use adaptive exploration by default
+
+#### Changed
+- **Timeout calculation** — when adaptive mode is enabled, backend and CLI compute timeouts based on `maxTotalSteps` instead of `agentSteps`, with raised upper clamp (30min CLI, 45min backend)
+- **Thorough profile description** updated to mention adaptive exploration
+- **Maximum profile description** updated to mention adaptive exploration
+
+## [0.11.0] - 2026-02-09
+
+### Resumable Analyses — Continue from Timeout
+
+#### Added
+- **Checkpoint persistence** — the CLI writes checkpoint files after each major pipeline step (scouting, analysis/synthesis), enabling resume on failure
+- **Continue Analysis button** — when an analysis times out or fails after completing intermediate steps, a "Continue Analysis" button appears that resumes from the last checkpoint instead of restarting from scratch
+- **`POST /api/analyses/:id/continue` endpoint** — backend endpoint that reads stored checkpoint data, spawns a new CLI process with `--resume-from`/`--resume-data` flags, and completes the remaining pipeline steps
+- **`--resume-from` / `--resume-data` CLI flags** — internal flags for the `scout` command to skip completed pipeline steps and resume from a checkpoint file
+- **`partial_result` DB column** — stores checkpoint JSON on analysis failure for later resume
+- **`agent_mode` and `profile` DB columns** — persist analysis configuration for accurate reconstruction on continue
+- **`AnalyzeOption` pattern** in AI package — functional options (`WithResumeData`, `WithCheckpointDir`) for flexible pipeline configuration
+
+#### Changed
+- **Error handling** — on CLI failure/timeout, the backend now reads checkpoint files from tmpDir before cleanup and stores them as `partial_result`
+- **Analysis list queries** — now include `partial_result` field so the frontend can determine continue eligibility
+- **Retry vs Continue** — "Retry Analysis" button becomes secondary when "Continue Analysis" is available
+
 ## [0.10.0] - 2026-02-09
 
 ### Toggleable Analysis Modules & Analysis List View

@@ -142,8 +142,11 @@ type AnalysisRecord struct {
 	Result       interface{} `json:"result,omitempty"`
 	CreatedBy    string      `json:"createdBy,omitempty"`
 	ProjectID    string      `json:"projectId,omitempty"`
-	ErrorMessage string      `json:"errorMessage,omitempty"`
-	Modules      string      `json:"modules,omitempty"`
+	ErrorMessage  string      `json:"errorMessage,omitempty"`
+	Modules       string      `json:"modules,omitempty"`
+	PartialResult string      `json:"partialResult,omitempty"`
+	AgentMode     bool        `json:"agentMode"`
+	Profile       string      `json:"profile,omitempty"`
 }
 
 type AgentStepRecord struct {
