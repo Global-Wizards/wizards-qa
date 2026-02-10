@@ -233,7 +233,7 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 				log.Printf("Warning: could not read generated flow %s: %v", e.Name(), err)
 				continue
 			}
-			result := varSubstitute(string(content), plan.Variables)
+			result := normalizeFlowYAML(varSubstitute(string(content), plan.Variables))
 			if err := os.WriteFile(filepath.Join(tmpDir, e.Name()), []byte(result), 0644); err != nil {
 				os.RemoveAll(tmpDir)
 				return "", fmt.Errorf("writing flow %s: %w", e.Name(), err)
@@ -272,8 +272,8 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 			continue
 		}
 
-		// Single-pass variable substitution using regex
-		result := varSubstitute(string(content), plan.Variables)
+		// Variable substitution + normalize openBrowser syntax
+		result := normalizeFlowYAML(varSubstitute(string(content), plan.Variables))
 
 		dstPath := filepath.Join(tmpDir, filepath.Base(tmpl.Path))
 		if err := os.WriteFile(dstPath, []byte(result), 0644); err != nil {
@@ -283,6 +283,21 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 	}
 
 	return tmpDir, nil
+}
+
+// normalizeFlowYAML fixes openBrowser object syntax to simple string syntax.
+// Converts:
+//
+//	- openBrowser:
+//	    url: "https://..."
+//
+// To:
+//
+//	- openBrowser: "https://..."
+var openBrowserObjRegex = regexp.MustCompile(`(?m)^(\s*- openBrowser):\s*\n\s+url:\s*"?([^"\n]+)"?\s*$`)
+
+func normalizeFlowYAML(content string) string {
+	return openBrowserObjRegex.ReplaceAllString(content, `$1: "$2"`)
 }
 
 // varSubstitute replaces {{VAR}} patterns in a single pass.

@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.4] - 2026-02-10
+
+### Fixed
+- **Maestro flows fail with invalid YAML syntax** — `openBrowser` was generated as an object (`openBrowser: {url: "..."}`) but Maestro expects a simple string (`openBrowser: "..."`). Fixed the AI prompt, the `commandToYAML()` serializer, and added runtime normalization in `prepareFlowDir()` to fix existing flows on disk.
+
 ## [0.18.3] - 2026-02-10
 
 ### Fixed

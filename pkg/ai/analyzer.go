@@ -1067,6 +1067,14 @@ func commandToYAML(cmd map[string]interface{}, indent int) string {
 				sb.WriteString(fmt.Sprintf("%s- %s: %s\n", prefix, key, v))
 			}
 		case map[string]interface{}:
+			// Flatten openBrowser: {url: "..."} → openBrowser: "..."
+			if key == "openBrowser" {
+				if urlVal, ok := v["url"]; ok {
+					urlStr := fmt.Sprintf("%v", urlVal)
+					sb.WriteString(fmt.Sprintf("%s- %s: \"%s\"\n", prefix, key, urlStr))
+					continue
+				}
+			}
 			sb.WriteString(fmt.Sprintf("%s- %s:\n", prefix, key))
 			for subKey, subValue := range v {
 				subStr := fmt.Sprintf("%v", subValue)

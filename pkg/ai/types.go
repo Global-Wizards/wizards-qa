@@ -877,7 +877,7 @@ Full analysis (JSON):
 Generate Maestro flows as a JSON array. Each flow should be a complete, runnable test.
 
 Maestro command reference:
-- openBrowser: {url: "..."} — navigate to the game URL
+- openBrowser: "..." — navigate to the game URL (string value, NOT an object)
 - waitFor: {visible: "text", timeout: 5000} — wait for element
 - tapOn: "text" — tap on visible text element
 - tapOn: {point: "50%,80%"} — tap at percentage coordinates on screen
@@ -903,7 +903,7 @@ Respond with a JSON array of flows:
     "name": "setup",
     "tags": ["setup"],
     "commands": [
-      {"openBrowser": {"url": "{{url}}"}},
+      {"openBrowser": "{{url}}"},
       {"waitFor": {"visible": "Play", "timeout": 10000}},
       {"tapOn": "OK"},
       {"tapOn": "Play"},
