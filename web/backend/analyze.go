@@ -43,6 +43,7 @@ type AnalysisRequest struct {
 	MaxTotalSteps   int             `json:"maxTotalSteps,omitempty"`
 	AdaptiveTimeout bool            `json:"adaptiveTimeout,omitempty"`
 	MaxTotalTimeout int             `json:"maxTotalTimeout,omitempty"` // minutes
+	Viewport        string          `json:"viewport,omitempty"`       // viewport preset name
 }
 
 type AnalysisProgress struct {
@@ -189,6 +190,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		if req.MaxTotalTimeout > 0 {
 			p["maxTotalTimeout"] = req.MaxTotalTimeout
 		}
+		if req.Viewport != "" {
+			p["viewport"] = req.Viewport
+		}
 		if len(p) > 0 {
 			if b, err := json.Marshal(p); err == nil {
 				profileJSON = string(b)
@@ -232,9 +236,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		if req.Adaptive && req.MaxTotalSteps > steps {
 			steps = req.MaxTotalSteps
 		}
-		// Base: exploration budget (steps × 40s avg) + 8min buffer for synthesis + flow gen (with retries)
-		explorationBudget := time.Duration(steps) * 40 * time.Second
-		timeout = explorationBudget + 8*time.Minute
+		// Base: exploration budget (steps × 75s avg) + 10min buffer for synthesis + flow gen (with retries)
+		explorationBudget := time.Duration(steps) * 75 * time.Second
+		timeout = explorationBudget + 10*time.Minute
 		// When adaptive timeout is enabled, use maxTotalTimeout + buffer if it's larger
 		if req.AdaptiveTimeout && req.MaxTotalTimeout > 0 {
 			timeoutFromMinutes := time.Duration(req.MaxTotalTimeout)*time.Minute + 8*time.Minute
@@ -242,13 +246,13 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 				timeout = timeoutFromMinutes
 			}
 		}
-		// Clamp between 10min and 30min (45min for adaptive, 60min for adaptive timeout)
+		// Clamp between 10min and 45min (60min for adaptive/adaptive-timeout)
 		if timeout < 10*time.Minute {
 			timeout = 10 * time.Minute
 		}
-		maxClamp := 30 * time.Minute
+		maxClamp := 45 * time.Minute
 		if req.Adaptive || req.AdaptiveTimeout {
-			maxClamp = 45 * time.Minute
+			maxClamp = 60 * time.Minute
 		}
 		if req.AdaptiveTimeout && req.MaxTotalTimeout > 0 {
 			maxClamp = 60 * time.Minute
@@ -287,6 +291,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	}
 	if req.Temperature != nil {
 		args = append(args, "--temperature", fmt.Sprintf("%g", *req.Temperature))
+	}
+	if req.Viewport != "" {
+		args = append(args, "--viewport", req.Viewport)
 	}
 	if req.Modules.UIUX != nil && !*req.Modules.UIUX {
 		args = append(args, "--no-uiux")
@@ -874,6 +881,9 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 			}
 			if mtt, ok := profile["maxTotalTimeout"].(float64); ok && mtt > 0 {
 				args = append(args, "--max-total-timeout", fmt.Sprintf("%d", int(mtt)))
+			}
+			if vp, ok := profile["viewport"].(string); ok && vp != "" {
+				args = append(args, "--viewport", vp)
 			}
 		}
 	}

@@ -32,11 +32,12 @@ type PageMeta struct {
 
 // HeadlessConfig configures headless browser scouting.
 type HeadlessConfig struct {
-	Enabled        bool
-	Width          int
-	Height         int
-	Timeout        time.Duration
-	ScreenshotPath string // if non-empty, save screenshot PNG here
+	Enabled          bool
+	Width            int
+	Height           int
+	DevicePixelRatio float64
+	Timeout          time.Duration
+	ScreenshotPath   string // if non-empty, save screenshot PNG here
 }
 
 const (

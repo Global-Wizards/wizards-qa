@@ -8,11 +8,12 @@ import (
 )
 
 // BrowserTools returns the tool definitions for browser interaction in agent mode.
-func BrowserTools() []ToolDefinition {
+// viewportWidth/viewportHeight are used in tool descriptions so the AI knows the coordinate space.
+func BrowserTools(viewportWidth, viewportHeight int) []ToolDefinition {
 	return []ToolDefinition{
 		{
 			Name:        "screenshot",
-			Description: "Capture a screenshot of the current page state. Use this after interactions to see the result.",
+			Description: "Capture a screenshot of the current page state. The click, type_text, scroll, and navigate tools already return screenshots automatically — use this tool only when you need to observe the page without interacting.",
 			InputSchema: map[string]interface{}{
 				"type":       "object",
 				"properties": map[string]interface{}{},
@@ -21,17 +22,17 @@ func BrowserTools() []ToolDefinition {
 		},
 		{
 			Name:        "click",
-			Description: "Click at the given pixel coordinates on the page. The viewport is 1920x1080.",
+			Description: fmt.Sprintf("Click at the given pixel coordinates on the page. The viewport is %dx%d. Returns a screenshot of the result.", viewportWidth, viewportHeight),
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
 					"x": map[string]interface{}{
 						"type":        "integer",
-						"description": "X coordinate in pixels (0-1920)",
+						"description": fmt.Sprintf("X coordinate in pixels (0-%d)", viewportWidth),
 					},
 					"y": map[string]interface{}{
 						"type":        "integer",
-						"description": "Y coordinate in pixels (0-1080)",
+						"description": fmt.Sprintf("Y coordinate in pixels (0-%d)", viewportHeight),
 					},
 				},
 				"required": []string{"x", "y"},
@@ -39,7 +40,7 @@ func BrowserTools() []ToolDefinition {
 		},
 		{
 			Name:        "type_text",
-			Description: "Type text using the keyboard. Optionally click at coordinates first to focus an element.",
+			Description: "Type text using the keyboard. Optionally click at coordinates first to focus an element. Returns a screenshot of the result.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -61,7 +62,7 @@ func BrowserTools() []ToolDefinition {
 		},
 		{
 			Name:        "scroll",
-			Description: "Scroll the page in a given direction.",
+			Description: "Scroll the page in a given direction. Returns a screenshot of the result.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -147,7 +148,7 @@ func BrowserTools() []ToolDefinition {
 // AgentTools returns browser tools, optionally including request_more_steps and request_more_time
 // for adaptive exploration and dynamic timeout.
 func AgentTools(cfg AgentConfig) []ToolDefinition {
-	tools := BrowserTools()
+	tools := BrowserTools(cfg.ViewportWidth, cfg.ViewportHeight)
 	if cfg.AdaptiveExploration {
 		tools = append(tools, ToolDefinition{
 			Name:        "request_more_steps",
@@ -218,8 +219,13 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 			return "", "", fmt.Errorf("click: %w", err)
 		}
 		// Brief pause for the page to react
-		time.Sleep(500 * time.Millisecond)
-		return fmt.Sprintf("Clicked at (%d, %d).", params.X, params.Y), "", nil
+		time.Sleep(250 * time.Millisecond)
+		// Auto-capture screenshot after click
+		b64, ssErr := e.Page.CaptureScreenshot()
+		if ssErr != nil {
+			return fmt.Sprintf("Clicked at (%d, %d). (screenshot failed)", params.X, params.Y), "", nil
+		}
+		return fmt.Sprintf("Clicked at (%d, %d).", params.X, params.Y), b64, nil
 
 	case "type_text":
 		var params struct {
@@ -235,12 +241,17 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 			if err := e.Page.Click(*params.X, *params.Y); err != nil {
 				return "", "", fmt.Errorf("type_text click: %w", err)
 			}
-			time.Sleep(200 * time.Millisecond)
+			time.Sleep(100 * time.Millisecond)
 		}
 		if err := e.Page.TypeText(params.Text); err != nil {
 			return "", "", fmt.Errorf("type_text: %w", err)
 		}
-		return fmt.Sprintf("Typed %q.", params.Text), "", nil
+		// Auto-capture screenshot after typing
+		b64, ssErr := e.Page.CaptureScreenshot()
+		if ssErr != nil {
+			return fmt.Sprintf("Typed %q. (screenshot failed)", params.Text), "", nil
+		}
+		return fmt.Sprintf("Typed %q.", params.Text), b64, nil
 
 	case "scroll":
 		var params struct {
@@ -270,8 +281,13 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 		if err := e.Page.Scroll(dx, dy); err != nil {
 			return "", "", fmt.Errorf("scroll: %w", err)
 		}
-		time.Sleep(300 * time.Millisecond)
-		return fmt.Sprintf("Scrolled %s by %.0f pixels.", params.Direction, amount), "", nil
+		time.Sleep(150 * time.Millisecond)
+		// Auto-capture screenshot after scroll
+		b64, ssErr := e.Page.CaptureScreenshot()
+		if ssErr != nil {
+			return fmt.Sprintf("Scrolled %s by %.0f pixels. (screenshot failed)", params.Direction, amount), "", nil
+		}
+		return fmt.Sprintf("Scrolled %s by %.0f pixels.", params.Direction, amount), b64, nil
 
 	case "evaluate_js":
 		var params struct {

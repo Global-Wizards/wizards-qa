@@ -26,12 +26,13 @@ func NewRodBrowserPage(page *rod.Page) *RodBrowserPage {
 	return &RodBrowserPage{page: page}
 }
 
-// CaptureScreenshot takes a JPEG screenshot and returns it as base64.
+// CaptureScreenshot takes a WebP screenshot and returns it as base64.
 func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
-	quality := 80
-	data, err := r.page.Screenshot(true, &proto.PageCaptureScreenshot{
-		Format:  proto.PageCaptureScreenshotFormatJpeg,
-		Quality: &quality,
+	quality := 40
+	data, err := r.page.Screenshot(false, &proto.PageCaptureScreenshot{
+		Format:           proto.PageCaptureScreenshotFormatWebp,
+		Quality:          &quality,
+		OptimizeForSpeed: true,
 	})
 	if err != nil {
 		return "", fmt.Errorf("screenshot failed: %w", err)
@@ -125,7 +126,7 @@ func (r *RodBrowserPage) Navigate(url string) error {
 	if err := r.page.WaitLoad(); err != nil {
 		return fmt.Errorf("wait load after navigate: %w", err)
 	}
-	r.page.WaitIdle(5 * time.Second)
+	r.page.WaitIdle(3 * time.Second)
 	return nil
 }
 
@@ -190,7 +191,11 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		return nil, nil, nil, fmt.Errorf("creating page: %w", err)
 	}
 
-	page.MustSetViewport(width, height, 1, false)
+	dpr := cfg.DevicePixelRatio
+	if dpr <= 0 {
+		dpr = 1
+	}
+	page.MustSetViewport(width, height, dpr, false)
 
 	browserPage := &RodBrowserPage{page: page}
 
@@ -222,11 +227,12 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		return nil, nil, nil, fmt.Errorf("waiting for page load: %w", err)
 	}
 
-	page.Context(ctx).WaitIdle(5 * time.Second)
+	page.Context(ctx).WaitIdle(3 * time.Second)
 
-	// Wait up to 20s for canvas + game framework readiness
+	// Wait for canvas + game framework readiness with exponential backoff polling
 	canvasFound := false
-	for i := 0; i < 40; i++ {
+	pollInterval := 100 * time.Millisecond
+	for i := 0; i < 30; i++ {
 		ready, evalErr := page.Eval(`() => {
 			const canvas = document.querySelector('canvas');
 			if (!canvas) return 'no_canvas';
@@ -246,12 +252,15 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 				canvasFound = true
 				break
 			}
-			if state == "no_canvas" && i > 20 {
-				// Give up after 10s if no canvas at all
+			if state == "no_canvas" && i > 15 {
+				// Give up if no canvas at all
 				break
 			}
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(pollInterval)
+		if pollInterval < 500*time.Millisecond {
+			pollInterval = pollInterval * 3 / 2 // 100→150→225→337→500
+		}
 	}
 
 	// Extract rendered HTML
@@ -303,10 +312,11 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	}
 
 	// Take initial screenshot
-	quality := 80
-	data, ssErr := page.Screenshot(true, &proto.PageCaptureScreenshot{
-		Format:  proto.PageCaptureScreenshotFormatJpeg,
-		Quality: &quality,
+	quality := 60
+	data, ssErr := page.Screenshot(false, &proto.PageCaptureScreenshot{
+		Format:           proto.PageCaptureScreenshotFormatWebp,
+		Quality:          &quality,
+		OptimizeForSpeed: true,
 	})
 	if ssErr == nil && len(data) > 0 {
 		shot := base64.StdEncoding.EncodeToString(data)
@@ -384,7 +394,11 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	}
 	defer page.Close()
 
-	page.MustSetViewport(width, height, 1, false)
+	dpr2 := cfg.DevicePixelRatio
+	if dpr2 <= 0 {
+		dpr2 = 1
+	}
+	page.MustSetViewport(width, height, dpr2, false)
 
 	// Collect console logs for framework clues
 	var consoleLogs strings.Builder
@@ -410,17 +424,21 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	}
 
 	// Extended wait for JS frameworks to initialize
-	page.Context(ctx).WaitIdle(5 * time.Second)
+	page.Context(ctx).WaitIdle(3 * time.Second)
 
-	// Wait up to 5s for canvas to appear
+	// Wait for canvas to appear with exponential backoff polling
 	canvasFound := false
-	for i := 0; i < 10; i++ {
+	canvasPollInterval := 100 * time.Millisecond
+	for i := 0; i < 15; i++ {
 		hasCanvas, evalErr := page.Eval(`() => document.querySelector('canvas') !== null`)
 		if evalErr == nil && hasCanvas.Value.Bool() {
 			canvasFound = true
 			break
 		}
-		time.Sleep(500 * time.Millisecond)
+		time.Sleep(canvasPollInterval)
+		if canvasPollInterval < 500*time.Millisecond {
+			canvasPollInterval = canvasPollInterval * 3 / 2
+		}
 	}
 
 	// Extract rendered HTML
@@ -485,13 +503,14 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 
 	// --- Multi-screenshot capture ---
 	// Capture screenshots of multiple game states to give the AI visibility
-	// beyond just the loading screen. Use JPEG at quality 80 to keep base64
-	// size manageable for the multimodal AI API (~50-150 KB per shot).
-	jpegQuality := 80
+	// beyond just the loading screen. Use WebP at quality 60 to keep base64
+	// size manageable for the multimodal AI API (~30-100 KB per shot).
+	imgQuality := 60
 	captureScreenshot := func() string {
-		data, err := page.Screenshot(true, &proto.PageCaptureScreenshot{
-			Format:  proto.PageCaptureScreenshotFormatJpeg,
-			Quality: &jpegQuality,
+		data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
+			Format:           proto.PageCaptureScreenshotFormatWebp,
+			Quality:          &imgQuality,
+			OptimizeForSpeed: true,
 		})
 		if err != nil || len(data) == 0 {
 			return ""

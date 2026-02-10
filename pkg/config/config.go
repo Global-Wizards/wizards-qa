@@ -97,8 +97,8 @@ func DefaultConfig() *Config {
 				Width  int `yaml:"width"`
 				Height int `yaml:"height"`
 			}{
-				Width:  1920,
-				Height: 1080,
+				Width:  1280,
+				Height: 720,
 			},
 			Timeout: 30 * time.Second,
 		},

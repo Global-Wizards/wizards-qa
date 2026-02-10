@@ -764,7 +764,12 @@ func (s *Server) handleAgentStepScreenshot(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	w.Header().Set("Content-Type", "image/jpeg")
+	// Detect content type from file extension (backward compat with existing .jpg screenshots)
+	if strings.HasSuffix(screenshotPath, ".webp") {
+		w.Header().Set("Content-Type", "image/webp")
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(imgData)
 }

@@ -39,6 +39,7 @@ func newScoutCmd() *cobra.Command {
 		maxTotalSteps    int
 		adaptiveTimeout  bool
 		maxTotalTimeout  int // minutes
+		viewport         string
 	)
 
 	cmd := &cobra.Command{
@@ -67,6 +68,18 @@ Example:
 				return err
 			}
 
+			// Resolve viewport preset
+			var viewportDPR float64
+			if viewport != "" {
+				vp := scout.GetViewportByName(viewport)
+				if vp == nil {
+					return fmt.Errorf("unknown viewport preset: %q (use e.g. desktop-std, iphone-16-pro, samsung-s24)", viewport)
+				}
+				cfg.Browser.Viewport.Width = vp.Width
+				cfg.Browser.Viewport.Height = vp.Height
+				viewportDPR = vp.DevicePixelRatio
+			}
+
 			if !jsonOutput {
 				fmt.Printf("%s Scouting %s...\n", util.EmojiTarget, gameURL)
 			}
@@ -82,10 +95,11 @@ Example:
 			if !agentMode {
 				if headless {
 					pageMeta, err = scout.ScoutURLHeadless(ctx, gameURL, scout.HeadlessConfig{
-						Enabled: true,
-						Width:   cfg.Browser.Viewport.Width,
-						Height:  cfg.Browser.Viewport.Height,
-						Timeout: timeoutDur,
+						Enabled:          true,
+						Width:            cfg.Browser.Viewport.Width,
+						Height:           cfg.Browser.Viewport.Height,
+						DevicePixelRatio: viewportDPR,
+						Timeout:          timeoutDur,
 					})
 				} else {
 					pageMeta, err = scout.ScoutURL(ctx, gameURL, timeoutDur)
@@ -102,10 +116,11 @@ Example:
 						fmt.Fprintf(os.Stderr, "PROGRESS:fallback:Minimal page detected, retrying with headless Chrome...\n")
 					}
 					headlessMeta, headlessErr := scout.ScoutURLHeadless(ctx, gameURL, scout.HeadlessConfig{
-						Enabled: true,
-						Width:   cfg.Browser.Viewport.Width,
-						Height:  cfg.Browser.Viewport.Height,
-						Timeout: timeoutDur,
+						Enabled:          true,
+						Width:            cfg.Browser.Viewport.Width,
+						Height:           cfg.Browser.Viewport.Height,
+						DevicePixelRatio: viewportDPR,
+						Timeout:          timeoutDur,
 					})
 					if headlessErr == nil {
 						pageMeta = headlessMeta
@@ -229,10 +244,11 @@ Example:
 			} else if agentMode {
 				// Agent mode: use ScoutURLHeadlessKeepAlive + agentic exploration
 				agentPageMeta, browserPage, cleanup, agentErr := scout.ScoutURLHeadlessKeepAlive(ctx, gameURL, scout.HeadlessConfig{
-					Enabled: true,
-					Width:   cfg.Browser.Viewport.Width,
-					Height:  cfg.Browser.Viewport.Height,
-					Timeout: timeoutDur,
+					Enabled:          true,
+					Width:            cfg.Browser.Viewport.Width,
+					Height:           cfg.Browser.Viewport.Height,
+					DevicePixelRatio: viewportDPR,
+					Timeout:          timeoutDur,
 				})
 				if agentErr != nil {
 					return fmt.Errorf("agent scout failed: %w", agentErr)
@@ -257,13 +273,13 @@ Example:
 				if adaptive && maxTotalSteps > agentSteps {
 					timeoutSteps = maxTotalSteps
 				}
-				explorationTimeout := time.Duration(timeoutSteps)*30*time.Second + 5*time.Minute
+				explorationTimeout := time.Duration(timeoutSteps)*60*time.Second + 7*time.Minute
 				if explorationTimeout < 5*time.Minute {
 					explorationTimeout = 5 * time.Minute
 				}
-				maxClamp := 20 * time.Minute
+				maxClamp := 45 * time.Minute
 				if adaptive || adaptiveTimeout {
-					maxClamp = 30 * time.Minute
+					maxClamp = 60 * time.Minute
 				}
 				if explorationTimeout > maxClamp {
 					explorationTimeout = maxClamp
@@ -294,6 +310,8 @@ Example:
 					MaxTotalSteps:       maxTotalSteps,
 					AdaptiveTimeout:     adaptiveTimeout,
 					MaxTotalTimeout:     time.Duration(maxTotalTimeout) * time.Minute,
+					ViewportWidth:       cfg.Browser.Viewport.Width,
+					ViewportHeight:      cfg.Browser.Viewport.Height,
 				}
 
 				// When launched by the backend (--json + --agent), read user hints from stdin
@@ -427,6 +445,7 @@ Example:
 	cmd.Flags().BoolVar(&noTestFlows, "no-test-flows", false, "Disable test flow generation module")
 	cmd.Flags().StringVar(&resumeFrom, "resume-from", "", "Resume from checkpoint step (internal)")
 	cmd.Flags().StringVar(&resumeDataPath, "resume-data", "", "Path to checkpoint data file (internal)")
+	cmd.Flags().StringVar(&viewport, "viewport", "", "Device viewport preset (e.g. desktop-std, iphone-16-pro, samsung-s24)")
 
 	cmd.MarkFlagRequired("game")
 

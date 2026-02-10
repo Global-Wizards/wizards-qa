@@ -491,6 +491,8 @@ type AgentConfig struct {
 	MaxTotalSteps       int          // Hard cap on total steps after adaptive extensions
 	AdaptiveTimeout     bool         // Enable request_more_time tool for dynamic timeout extension
 	MaxTotalTimeout     time.Duration // Hard cap on total exploration time after extensions
+	ViewportWidth       int          // Browser viewport width (for tool descriptions)
+	ViewportHeight      int          // Browser viewport height (for tool descriptions)
 }
 
 // CheckpointData wraps the state written to checkpoint files after each pipeline step.
@@ -552,14 +554,14 @@ func DefaultAgentConfig() AgentConfig {
 }
 
 // agentTotalTimeout scales exploration timeout with step count:
-// steps × 30s avg + 5min buffer, clamped to [5min, 20min].
+// steps × 60s avg + 7min buffer, clamped to [5min, 30min].
 func agentTotalTimeout(steps int) time.Duration {
-	t := time.Duration(steps)*30*time.Second + 5*time.Minute
+	t := time.Duration(steps)*60*time.Second + 7*time.Minute
 	if t < 5*time.Minute {
 		t = 5 * time.Minute
 	}
-	if t > 20*time.Minute {
-		t = 20 * time.Minute
+	if t > 30*time.Minute {
+		t = 30 * time.Minute
 	}
 	return t
 }
@@ -599,28 +601,31 @@ SESSION-GATED GAMES:
 - In your synthesis, note that the game could not be analyzed due to expired session tokens and that fresh tokens are needed.
 
 RULES:
-1. Take a screenshot after each significant interaction to observe the result.
+1. The click, type_text, scroll, and navigate tools automatically return screenshots. You only need the screenshot tool for observing the page without interacting.
 2. Use get_page_info to understand the page structure when screenshots are ambiguous.
 3. Use console_logs when something seems wrong — errors often explain broken states.
 4. Be systematic: don't click the same thing twice unless testing repeated interactions.
 5. When you have thoroughly explored the game (usually 10-20 steps), output EXPLORATION_COMPLETE on its own line to signal you are done.
-6. Focus on discovering testable behaviors through active interaction, not passive observation.
-
-COORDINATE SYSTEM: The viewport is 1920x1080. Use absolute pixel coordinates for click and type_text tools.`
+6. Focus on discovering testable behaviors through active interaction, not passive observation.`
 
 // AdaptiveExplorationPromptSuffix returns the system prompt addition for adaptive exploration mode.
 func AdaptiveExplorationPromptSuffix(maxTotalSteps int) string {
 	return fmt.Sprintf(`
 
 ADAPTIVE EXPLORATION:
-You have access to the request_more_steps tool. Periodically (every 3-5 interactions), assess your exploration coverage:
-- What percentage of visible UI elements have you interacted with?
-- Have you explored all accessible game states (menus, settings, game modes)?
-- Are there buttons, links, or interactive areas you haven't tried yet?
+You MUST call request_more_steps when BOTH conditions are true:
+1. You have used 70%% or more of your current step budget
+2. You have NOT yet explored all major interactive elements (buttons, menus, game states, bonus features)
 
-If significant parts of the game remain unexplored and you're approaching your step limit, call request_more_steps with a reason and the number of additional steps you need. Your exploration can extend up to %d total steps.
+Assessment checklist — run through this every 3 steps:
+- Have I explored all visible buttons and menus?
+- Have I triggered all reachable game states (play, pause, settings, bonus, game over)?
+- Have I tested edge cases (rapid clicks, boundary values, unusual inputs)?
+- If ANY answer is "no" and I'm past 70%% of my steps, call request_more_steps immediately.
 
-Be thorough: do NOT output EXPLORATION_COMPLETE until you are confident you've explored at least 80%% of the game's interactive elements and triggered its major state transitions.`, maxTotalSteps)
+When calling request_more_steps, request at least 5-10 additional steps. Your exploration can extend up to %d total steps.
+
+IMPORTANT: Do NOT output EXPLORATION_COMPLETE until you have explored at least 80%% of the game's interactive surface. If in doubt, request more steps rather than stopping early.`, maxTotalSteps)
 }
 
 // DynamicTimeoutPromptSuffix returns the system prompt addition for adaptive timeout mode.
@@ -628,15 +633,27 @@ func DynamicTimeoutPromptSuffix(maxMinutes int) string {
 	return fmt.Sprintf(`
 
 DYNAMIC TIMEOUT:
-You have access to the request_more_time tool. If you're running low on time and significant areas remain unexplored, call request_more_time with a reason and additional minutes needed. Your exploration can extend up to %d minutes total.
+You MUST call request_more_time if you are less than 50%% through your exploration goals and more than 50%% through your time budget. The system will periodically inject [SYSTEM STATUS] messages showing your elapsed and remaining time.
 
-Call request_more_time proactively — don't wait until you're cut off.`, maxMinutes)
+When you see remaining time is under 3 minutes and you still have significant areas to explore, call request_more_time immediately with at least 5 additional minutes. Your exploration can extend up to %d minutes total.
+
+Do NOT wait until you're about to be cut off — request proactively.`, maxMinutes)
 }
 
 // BuildAgentSystemPrompt constructs the agent system prompt, optionally appending
 // adaptive exploration instructions when the feature is enabled.
 func BuildAgentSystemPrompt(cfg AgentConfig) string {
 	prompt := AgentSystemPrompt
+	// Add dynamic coordinate system based on actual viewport
+	w := cfg.ViewportWidth
+	h := cfg.ViewportHeight
+	if w <= 0 {
+		w = 1280
+	}
+	if h <= 0 {
+		h = 720
+	}
+	prompt += fmt.Sprintf("\n\nCOORDINATE SYSTEM: The viewport is %dx%d. Use absolute pixel coordinates for click and type_text tools.", w, h)
 	if cfg.AdaptiveExploration && cfg.MaxTotalSteps > 0 {
 		prompt += AdaptiveExplorationPromptSuffix(cfg.MaxTotalSteps)
 	}

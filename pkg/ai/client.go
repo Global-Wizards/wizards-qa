@@ -100,6 +100,7 @@ func (c *ClaudeClient) doRequest(reqBody []byte) ([]byte, error) {
 	httpReq.Header.Set("Content-Type", "application/json")
 	httpReq.Header.Set("x-api-key", c.APIKey)
 	httpReq.Header.Set("anthropic-version", "2023-06-01")
+	httpReq.Header.Set("anthropic-beta", "prompt-caching-2024-07-31")
 
 	resp, err := c.HTTPClient.Do(httpReq)
 	if err != nil {
@@ -156,7 +157,7 @@ func (c *ClaudeClient) AnalyzeWithImages(systemPrompt string, prompt string, ima
 	for _, imgB64 := range imagesB64 {
 		content = append(content, contentBlock{
 			Type:   "image",
-			Source: &imageSource{Type: "base64", MediaType: "image/jpeg", Data: imgB64},
+			Source: &imageSource{Type: "base64", MediaType: "image/webp", Data: imgB64},
 		})
 	}
 	content = append(content, contentBlock{Type: "text", Text: prompt})
@@ -181,11 +182,17 @@ func (c *ClaudeClient) AnalyzeWithImages(systemPrompt string, prompt string, ima
 
 // --- Tool Use types ---
 
+// CacheControl marks a content block or tool for Anthropic prompt caching.
+type CacheControl struct {
+	Type string `json:"type"` // "ephemeral"
+}
+
 // ToolDefinition defines a tool that Claude can call.
 type ToolDefinition struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	InputSchema map[string]interface{} `json:"input_schema"`
+	Name         string                 `json:"name"`
+	Description  string                 `json:"description"`
+	InputSchema  map[string]interface{} `json:"input_schema"`
+	CacheControl *CacheControl          `json:"cache_control,omitempty"`
 }
 
 // AgentMessage uses interface{} Content to support text, images, tool_use, and tool_result blocks.
@@ -226,19 +233,40 @@ type claudeToolUseRequest struct {
 	Model       string           `json:"model"`
 	MaxTokens   int              `json:"max_tokens"`
 	Temperature float64          `json:"temperature,omitempty"`
-	System      string           `json:"system,omitempty"`
+	System      interface{}      `json:"system,omitempty"` // string or []map[string]interface{} for prompt caching
 	Tools       []ToolDefinition `json:"tools,omitempty"`
 	Messages    []AgentMessage   `json:"messages"`
 }
 
 // CallWithTools sends a tool-use request to the Claude API.
 func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessage, tools []ToolDefinition) (*ToolUseResponse, error) {
+	// Wrap system prompt as cacheable content block for Anthropic prompt caching.
+	// This caches the system prompt prefix across turns, saving ~80% on cached input tokens.
+	var systemContent interface{}
+	if systemPrompt != "" {
+		systemContent = []map[string]interface{}{
+			{
+				"type":          "text",
+				"text":          systemPrompt,
+				"cache_control": map[string]string{"type": "ephemeral"},
+			},
+		}
+	}
+
+	// Add cache_control to the last tool definition to cache the tools prefix.
+	toolsCopy := tools
+	if len(tools) > 0 {
+		toolsCopy = make([]ToolDefinition, len(tools))
+		copy(toolsCopy, tools)
+		toolsCopy[len(toolsCopy)-1].CacheControl = &CacheControl{Type: "ephemeral"}
+	}
+
 	reqBody, err := json.Marshal(claudeToolUseRequest{
 		Model:       c.Model,
 		MaxTokens:   c.MaxTokens,
 		Temperature: c.Temperature,
-		System:      systemPrompt,
-		Tools:       tools,
+		System:      systemContent,
+		Tools:       toolsCopy,
 		Messages:    messages,
 	})
 	if err != nil {
@@ -272,7 +300,7 @@ func (c *ClaudeClient) AnalyzeWithImage(prompt string, imageB64 string) (string,
 		Messages: []multimodalMessage{{
 			Role: "user",
 			Content: []contentBlock{
-				{Type: "image", Source: &imageSource{Type: "base64", MediaType: "image/jpeg", Data: imageB64}},
+				{Type: "image", Source: &imageSource{Type: "base64", MediaType: "image/webp", Data: imageB64}},
 				{Type: "text", Text: prompt},
 			},
 		}},

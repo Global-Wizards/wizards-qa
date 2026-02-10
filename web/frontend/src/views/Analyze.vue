@@ -62,6 +62,31 @@
           </div>
         </div>
 
+        <!-- Device Viewport -->
+        <div class="space-y-3 pt-2 border-t">
+          <div class="flex items-center gap-3">
+            <Monitor class="h-4 w-4 text-muted-foreground shrink-0" />
+            <div class="flex items-center gap-2 flex-1">
+              <label class="text-sm font-medium whitespace-nowrap">Device</label>
+              <Select :model-value="selectedViewport" @update:model-value="selectedViewport = $event">
+                <SelectTrigger class="w-[200px]">
+                  <SelectValue placeholder="Select device" />
+                </SelectTrigger>
+                <SelectContent>
+                  <template v-for="cat in getViewportCategories()" :key="cat.name">
+                    <SelectItem v-for="p in cat.presets" :key="p.name" :value="p.name">
+                      {{ p.label }}
+                    </SelectItem>
+                  </template>
+                </SelectContent>
+              </Select>
+              <span v-if="activeViewport" class="text-xs text-muted-foreground">
+                {{ activeViewport.width }}&times;{{ activeViewport.height }}
+              </span>
+            </div>
+          </div>
+        </div>
+
         <!-- Analysis Modules -->
         <div class="space-y-3 pt-2 border-t">
           <div class="flex items-center gap-3">
@@ -558,11 +583,12 @@ import { useRouter, useRoute } from 'vue-router'
 import { useAnalysis } from '@/composables/useAnalysis'
 import { truncateUrl, isValidUrl, severityVariant } from '@/lib/utils'
 import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
+import { VIEWPORT_PRESETS, DEFAULT_VIEWPORT, getViewportByName, getViewportCategories } from '@/lib/viewports'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@/composables/useClipboard'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -598,6 +624,7 @@ const moduleUiux = ref(true)
 const moduleWording = ref(true)
 const moduleGameDesign = ref(true)
 const moduleTestFlows = ref(true)
+const selectedViewport = ref(DEFAULT_VIEWPORT)
 const recentAnalyses = ref([])
 const currentAnalysisId = ref(null)
 
@@ -648,6 +675,8 @@ const {
   loadPersistedSteps,
 } = useAnalysis()
 
+
+const activeViewport = computed(() => getViewportByName(selectedViewport.value))
 
 const activeProfile = computed(() => {
   if (selectedProfile.value === 'custom') return null
@@ -1028,8 +1057,12 @@ async function handleAnalyze() {
     gameDesign: moduleGameDesign.value,
     testFlows: moduleTestFlows.value,
   }
+  const params = { ...profileParams.value }
+  if (selectedViewport.value && selectedViewport.value !== DEFAULT_VIEWPORT) {
+    params.viewport = selectedViewport.value
+  }
   try {
-    await start(gameUrl.value, projectId.value, useAgentMode.value, profileParams.value, modules)
+    await start(gameUrl.value, projectId.value, useAgentMode.value, params, modules)
   } catch {
     analyzing.value = false
   }
@@ -1056,6 +1089,7 @@ function handleReset() {
   useAgentMode.value = false
   selectedProfile.value = 'balanced'
   showCustomFields.value = false
+  selectedViewport.value = DEFAULT_VIEWPORT
   gameUrl.value = ''
   currentAnalysisId.value = null
   loadRecentAnalyses()

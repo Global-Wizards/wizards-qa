@@ -84,7 +84,7 @@ func (a *Analyzer) AgentExplore(
 			"type": "image",
 			"source": map[string]interface{}{
 				"type":       "base64",
-				"media_type": "image/jpeg",
+				"media_type": "image/webp",
 				"data":       initialScreenshot,
 			},
 		},
@@ -114,7 +114,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	totalStart := time.Now()
 
 	// Reserve time for synthesis + flow generation (with retries) so exploration can't starve them
-	synthesisReserve := 3 * time.Minute
+	synthesisReserve := 5 * time.Minute
 	effectiveExplorationTimeout := cfg.TotalTimeout - synthesisReserve
 	if effectiveExplorationTimeout < 2*time.Minute {
 		effectiveExplorationTimeout = 2 * time.Minute
@@ -145,6 +145,19 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				})
 			default:
 			}
+		}
+
+		// Inject budget status into conversation every 5 steps so AI knows when to request extensions
+		if step > 1 && step%5 == 0 && (cfg.AdaptiveExploration || cfg.AdaptiveTimeout) {
+			elapsed := time.Since(totalStart)
+			remaining := effectiveExplorationTimeout - elapsed
+			budgetMsg := fmt.Sprintf(
+				"[SYSTEM STATUS] Step %d of %d used. Time elapsed: %s, remaining: ~%s. "+
+					"If significant areas remain unexplored, use request_more_steps or request_more_time NOW.",
+				step, cfg.MaxSteps,
+				elapsed.Truncate(time.Second), remaining.Truncate(time.Second),
+			)
+			messages = append(messages, AgentMessage{Role: "user", Content: budgetMsg})
 		}
 
 		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
@@ -357,7 +370,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 								"type": "image",
 								"source": map[string]interface{}{
 									"type":       "base64",
-									"media_type": "image/jpeg",
+									"media_type": "image/webp",
 									"data":       screenshotB64,
 								},
 							},
@@ -377,7 +390,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 			// Write screenshot to tmpDir for live streaming
 			if cfg.ScreenshotDir != "" && screenshotB64 != "" {
-				filename := fmt.Sprintf("step-%d-%s.jpg", step, block.Name)
+				filename := fmt.Sprintf("step-%d-%s.webp", step, block.Name)
 				if raw, decErr := base64.StdEncoding.DecodeString(screenshotB64); decErr == nil {
 					if err := os.WriteFile(filepath.Join(cfg.ScreenshotDir, filename), raw, 0644); err != nil {
 						progress("agent_step", fmt.Sprintf("Warning: failed to write screenshot %s: %v", filename, err))
@@ -410,7 +423,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		// Prune old screenshots from conversation to prevent unbounded context growth.
 		// Each base64 screenshot is ~100-200KB; without pruning, API calls escalate from
 		// ~10s to 70s+ as screenshots accumulate, consuming the entire timeout budget.
-		pruneOldScreenshots(messages, 4)
+		pruneOldScreenshots(messages, 2)
 	}
 
 	progress("agent_done", fmt.Sprintf("Agent exploration complete: %d steps, %d screenshots", len(steps), len(allScreenshots)))

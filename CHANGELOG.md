@@ -5,6 +5,43 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.16.0] - 2026-02-10
+
+### Performance Optimization — Faster Screenshots, Prompt Caching, Auto-Screenshots, Device Viewports & Reduced Latency
+
+#### Changed
+- **Auto-screenshots on state-changing tools** — `click`, `type_text`, and `scroll` tools now automatically capture and return a screenshot after each action, eliminating the need for the AI to call `screenshot` separately. This cuts ~30-50% of exploration steps. The `screenshot` tool remains available for passive observation.
+- **Anthropic prompt caching** — system prompt and tool definitions are now sent as cacheable content blocks with `cache_control: ephemeral`, reducing API latency by ~20% and cached token cost by ~80% on turns 2+.
+- **Halved tool execution sleeps** — `click` reduced from 500ms to 250ms, `type_text` from 200ms to 100ms, `scroll` from 300ms to 150ms, saving ~5 seconds over a 20-step exploration.
+- **Screenshot pruning reduced from 4 to 2** — with auto-screenshots providing more frequent visual feedback, keeping only the 2 most recent screenshots in conversation is sufficient, reducing API payload by ~200KB per call.
+- **Adaptive canvas polling** — replaced fixed 500ms polling intervals with exponential backoff (100ms→150ms→225ms→337ms→500ms). Most games are ready within 2-3 iterations, saving 1-2 seconds on startup.
+- **Shorter WaitIdle** — reduced from 5 seconds to 3 seconds across all three call sites (Navigate helper, ScoutURLHeadlessKeepAlive, ScoutURLHeadless).
+- **Default viewport changed to 1280x720** — smaller viewport produces ~40% smaller screenshots, reducing API transfer size and encode time. The old 1920x1080 is still available as the "Desktop HD" preset.
+- **Dynamic coordinate system in agent prompt** — the `COORDINATE SYSTEM` line in the agent system prompt now uses the actual viewport dimensions instead of hardcoded 1920x1080.
+- **Dynamic tool descriptions** — `click` tool description now shows the actual viewport dimensions (e.g., "viewport is 1280x720") instead of hardcoded values.
+
+#### Added
+- **Device viewport presets** — 30 device presets across 4 categories (Desktop, iOS, Android tablets/phones) selectable from the Analyze page. Presets include accurate viewport dimensions and devicePixelRatio for realistic device emulation.
+- **`--viewport` CLI flag** — select a device preset by name (e.g., `--viewport iphone-16-pro`) to set viewport dimensions and DPR.
+- **Frontend device selector** — dropdown on the Analyze page showing all presets grouped by category with dimensions preview.
+- **`DevicePixelRatio` in HeadlessConfig** — passed through to Chrome's `MustSetViewport` for accurate DPR emulation.
+- **`ViewportWidth`/`ViewportHeight` in AgentConfig** — used by `BrowserTools()` and `BuildAgentSystemPrompt()` for dynamic descriptions.
+- **`pkg/scout/viewports.go`** — Go-side viewport presets lookup table.
+- **`web/frontend/src/lib/viewports.js`** — frontend viewport presets with category grouping.
+
+## [0.15.0] - 2026-02-09
+
+### Optimize Agent Exploration — WebP Screenshots, Faster Capture & Smarter Adaptive Expansion
+
+#### Changed
+- **WebP screenshots** — all three screenshot call sites (agent tool, initial scout, multi-screenshot capture) switched from JPEG to WebP format. WebP delivers better quality-per-byte, reducing screenshot payload sizes by ~30-50%.
+- **Lowered screenshot quality** — agent tool screenshots reduced from quality 50 to 40, initial/multi-screenshot captures from 80 to 60. Combined with WebP, this significantly reduces encode time and API transfer size.
+- **Aggressive adaptive prompts** — `AdaptiveExplorationPromptSuffix` and `DynamicTimeoutPromptSuffix` rewritten with concrete triggers (70% step budget threshold, 50% time budget threshold) and an assessment checklist the AI must run every 3 steps, replacing vague "if approaching your limit" language.
+- **Budget status injection** — every 5 steps during adaptive exploration, a `[SYSTEM STATUS]` message is injected into the conversation with concrete step count and time remaining, enabling data-driven extension requests.
+- **Raised profile defaults** — balanced profile now starts with 20 steps (was 15) with adaptive exploration enabled (was disabled), extending up to 25 steps and 20 minutes; thorough starts at 25 steps (was 20) extending to 50 (was 35); maximum starts at 30 (was 25) extending to 70 (was 50).
+- **Raised timeout clamps** — CLI max clamp raised from 30→45 minutes (default) and 45→60 minutes (adaptive); `agentTotalTimeout` formula updated to `steps × 60s + 7min` clamped to 30 minutes (was `steps × 30s + 5min` clamped to 20 minutes).
+- **Screenshot Content-Type** — server now detects `.webp` vs `.jpg` file extension for correct Content-Type header, maintaining backward compatibility with existing JPEG screenshots.
+
 ## [0.14.4] - 2026-02-09
 
 ### Changed
