@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.3] - 2026-02-09
+
+### Changed
+- **Polished agent exploration panel** — extracted `AgentExplorationPanel.vue` from Analyze.vue with a redesigned 5-section layout: activity banner with breathing pulse animation, horizontal mini-map of color-coded step dots, live stats strip (steps/screenshots/actions/errors), vertical timeline with tool-specific icons, category-colored nodes, expandable step cards with entry animations, and a hint input bar with message icon prefix.
+- **Tool classification system** — each agent tool (click, screenshot, navigate, etc.) now maps to a specific icon, color, and category (interaction/observation/navigation/meta) for visual differentiation across the mini-map, timeline nodes, and stats.
+
 ## [0.14.2] - 2026-02-09
 
 ### Changed

@@ -213,84 +213,18 @@
               :sub-details="scoutingDetails"
             />
             <!-- Agent Live Exploration Panel -->
-            <template v-if="agentMode && (agentExplorationStatus === 'active' || liveAgentSteps.length > 0)">
-              <div class="rounded-lg border bg-card p-4 my-2">
-                <!-- Header -->
-                <div class="flex items-center justify-between mb-3">
-                  <div class="flex items-center gap-2">
-                    <Loader2 v-if="agentExplorationStatus === 'active'" class="h-4 w-4 text-primary animate-spin" />
-                    <CheckCircle v-else class="h-4 w-4 text-green-500" />
-                    <span class="text-sm font-medium">Agent Exploring Game</span>
-                  </div>
-                  <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                    <span v-if="agentStepCurrent">Step {{ agentStepCurrent }}/{{ agentStepTotal }}</span>
-                    <span v-if="elapsedSeconds > 0">{{ formatElapsed(elapsedSeconds) }}</span>
-                  </div>
-                </div>
-
-                <!-- Chat-style Step Timeline -->
-                <div v-if="liveAgentSteps.length" ref="liveTimelineRef" class="max-h-[500px] overflow-y-auto space-y-2 mb-3 rounded-md bg-muted/50 p-2">
-                  <div
-                    v-for="(entry, i) in liveAgentSteps"
-                    :key="i"
-                    :class="[
-                      'p-2 rounded text-xs',
-                      entry.type === 'hint' ? 'bg-blue-50 dark:bg-blue-950/30' : ''
-                    ]"
-                  >
-                    <template v-if="entry.type === 'hint'">
-                      <div class="flex items-start gap-2">
-                        <MessageCircle class="h-3.5 w-3.5 text-blue-500 shrink-0 mt-0.5" />
-                        <span class="text-blue-600 dark:text-blue-400">You: {{ entry.message }}</span>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <div class="flex gap-3 w-full">
-                        <img
-                          v-if="entry.screenshotB64"
-                          :src="'data:image/jpeg;base64,' + entry.screenshotB64"
-                          class="w-[120px] h-auto rounded border cursor-pointer shrink-0 object-contain"
-                          alt="Step screenshot"
-                          @click="expandStepScreenshot(entry)"
-                        />
-                        <div class="min-w-0 flex-1">
-                          <div class="flex items-center gap-2">
-                            <Badge variant="outline" class="shrink-0 text-[10px] px-1 py-0">{{ entry.stepNumber }}</Badge>
-                            <span class="font-medium">{{ entry.toolName }}</span>
-                            <span class="text-muted-foreground ml-1">{{ entry.durationMs }}ms</span>
-                          </div>
-                          <p v-if="entry.reasoning" class="text-muted-foreground mt-1 line-clamp-2">
-                            {{ entry.reasoning }}
-                          </p>
-                          <p class="text-muted-foreground truncate mt-0.5" :title="entry.result">{{ entry.result }}</p>
-                          <p v-if="entry.error" class="text-destructive">{{ entry.error }}</p>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </div>
-
-                <!-- Hint Input Bar -->
-                <div v-if="agentExplorationStatus === 'active'" class="flex gap-2">
-                  <Input
-                    v-model="hintInput"
-                    placeholder="Send a hint to the agent..."
-                    :disabled="hintCooldown"
-                    class="flex-1 text-sm"
-                    @keyup.enter="handleSendHint"
-                  />
-                  <Button
-                    size="sm"
-                    :disabled="!hintInput.trim() || hintCooldown"
-                    @click="handleSendHint"
-                  >
-                    <Send class="h-3.5 w-3.5 mr-1" />
-                    {{ hintSent ? 'Sent!' : hintCooldown ? 'Wait...' : 'Send' }}
-                  </Button>
-                </div>
-                <p v-else class="text-xs text-muted-foreground">Exploration complete ({{ liveAgentSteps.filter(s => s.type === 'tool').length }} steps)</p>
-              </div>
-            </template>
+            <AgentExplorationPanel
+              v-if="agentMode && (agentExplorationStatus === 'active' || liveAgentSteps.length > 0)"
+              :steps="liveAgentSteps"
+              :step-current="agentStepCurrent"
+              :step-total="agentStepTotal"
+              :exploration-status="agentExplorationStatus"
+              :elapsed-seconds="elapsedSeconds"
+              :hint-cooldown="hintCooldown"
+              :format-elapsed="formatElapsed"
+              @send-hint="sendHint"
+              @expand-screenshot="expandStepScreenshot"
+            />
             <!-- Fallback: simple ProgressStep when no live data yet -->
             <ProgressStep
               v-else-if="agentMode"
@@ -724,7 +658,7 @@
 </template>
 
 <script setup>
-import { ref, computed, watch, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useAnalysis } from '@/composables/useAnalysis'
 import { truncateUrl, isValidUrl, severityVariant } from '@/lib/utils'
@@ -733,7 +667,7 @@ import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@/composables/useClipboard'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -745,6 +679,7 @@ import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuIte
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import ProgressStep from '@/components/ProgressStep.vue'
 import AgentStepNavigator from '@/components/AgentStepNavigator.vue'
+import AgentExplorationPanel from '@/components/AgentExplorationPanel.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -819,22 +754,6 @@ const {
   loadPersistedSteps,
 } = useAnalysis()
 
-// Hint input state
-const hintInput = ref('')
-const hintSent = ref(false)
-let hintSentTimeout = null
-
-async function handleSendHint() {
-  if (!hintInput.value.trim()) return
-  await sendHint(hintInput.value)
-  hintInput.value = ''
-  hintSent.value = true
-  if (hintSentTimeout) clearTimeout(hintSentTimeout)
-  hintSentTimeout = setTimeout(() => { hintSent.value = false }, 2000)
-}
-
-// Auto-scroll live timeline
-const liveTimelineRef = ref(null)
 
 const activeProfile = computed(() => {
   if (selectedProfile.value === 'custom') return null
@@ -1459,9 +1378,6 @@ async function loadRecentAnalyses() {
   }
 }
 
-onUnmounted(() => {
-  if (hintSentTimeout != null) clearTimeout(hintSentTimeout)
-})
 
 // Auto-scroll log area when new logs arrive (only if near bottom)
 watch(logs, () => {
@@ -1475,17 +1391,6 @@ watch(logs, () => {
   })
 })
 
-// Auto-scroll live agent timeline when new steps arrive (only if near bottom)
-watch(liveAgentSteps, () => {
-  nextTick(() => {
-    const el = liveTimelineRef.value
-    if (!el) return
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
-    if (isNearBottom) {
-      el.scrollTop = el.scrollHeight
-    }
-  })
-})
 
 onMounted(async () => {
   // Pre-fill game URL from project context
