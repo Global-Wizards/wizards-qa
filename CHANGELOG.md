@@ -5,6 +5,23 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.2] - 2026-02-09
+
+### Changed
+- **3-tier findings display** — FindingsTab redesigned with severity grouping: green "What's Working Well" (positive), amber "Suggestions" (suggestion + minor), and red "Bugs & Issues" (critical + major) sections with colored left-border accents and tier-matched badges.
+- **Summary stat pills** — replaced flat severity badges with 3 clickable colored pills (Positive/Suggestions/Bugs) that double as tier filters.
+- **Findings filters** — added tier toggle buttons, text search (debounced, matches description/suggestion/location), and active filter count indicator alongside the existing category dropdown.
+- **Role-based action checklists** — collapsible "Action Checklist by Role" section with dynamic checkbox items for Developer, QA Engineer, Designer, and Product Manager, populated based on finding severity counts.
+- **Expanded severity values** — UI/UX and Wording findings now support `positive` and `suggestion` severity in AI prompts and Go struct comments, matching Game Design findings.
+
+## [0.14.1] - 2026-02-09
+
+### Fixed
+- **Agent screenshot performance** — switched all three screenshot call sites from full-page capture (`Screenshot(true, ...)`) to viewport-only (`Screenshot(false, ...)`) with `OptimizeForSpeed: true`. Full-page mode forced Chrome/SwiftShader to re-render the entire WebGL scene at enlarged CSS dimensions, causing each screenshot to take 60-70 seconds instead of 2-5 seconds.
+- **Agent analysis timeouts** — increased timeout formula estimates (per-step from 40s→75s backend / 30s→60s CLI) and raised max clamps (backend: 30→45min default, 45→60min adaptive; CLI: 20→30min default, 30→45min adaptive) to prevent premature timeouts on complex WebGL games.
+- **Synthesis reserve** — increased from 3 to 5 minutes to account for synthesis + flow generation retries.
+- **Agent screenshot quality** — lowered `CaptureScreenshot()` JPEG quality from 80→50 for agent tool screenshots (used only for AI understanding, not stored as artifacts) to reduce payload size.
+
 ## [0.14.0] - 2026-02-09
 
 ### Chat-Style Agent Exploration Timeline

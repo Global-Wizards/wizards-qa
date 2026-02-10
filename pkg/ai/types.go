@@ -98,7 +98,7 @@ type EdgeCase struct {
 type UIUXFinding struct {
 	Category    string `json:"category"`    // alignment, spacing, color, typography, responsive, hierarchy, accessibility, animation
 	Description string `json:"description"`
-	Severity    string `json:"severity"`    // critical, major, minor, suggestion
+	Severity    string `json:"severity"`    // critical, major, minor, suggestion, positive
 	Location    string `json:"location"`    // Where in the UI this was observed
 	Suggestion  string `json:"suggestion"`  // Recommended fix
 }
@@ -108,7 +108,7 @@ type WordingFinding struct {
 	Category    string `json:"category"`    // grammar, spelling, consistency, tone, truncation, placeholder, translation, overflow
 	Text        string `json:"text"`        // The problematic text
 	Description string `json:"description"`
-	Severity    string `json:"severity"`    // critical, major, minor
+	Severity    string `json:"severity"`    // critical, major, minor, suggestion, positive
 	Location    string `json:"location"`    // Where in the UI this text appears
 	Suggestion  string `json:"suggestion"`  // Corrected text or fix
 }
@@ -210,13 +210,13 @@ ANALYSIS INSTRUCTIONS:
 	if modules.UIUX {
 		tmpl += `
 UI/UX ANALYSIS:
-6. Evaluate visual design — alignments, layout consistency, color palette harmony, spacing, typography, visual hierarchy, accessibility (contrast ratios), animation quality. Report issues and strengths.
+6. Evaluate visual design — alignments, layout consistency, color palette harmony, spacing, typography, visual hierarchy, accessibility (contrast ratios), animation quality. Report issues and strengths. Include 'positive' severity for things done well (good alignment, strong visual hierarchy, etc.).
 `
 	}
 	if modules.Wording {
 		tmpl += `
 WORDING/TRANSLATION CHECK:
-7. Examine all visible text for grammar, spelling, inconsistent terminology, tone, truncated text, placeholder text (e.g., "Lorem ipsum"), translation completeness, text overflow.
+7. Examine all visible text for grammar, spelling, inconsistent terminology, tone, truncated text, placeholder text (e.g., "Lorem ipsum"), translation completeness, text overflow. Include 'positive' severity for well-written text, and 'suggestion' for non-bug improvements.
 `
 	}
 	if modules.GameDesign {
@@ -300,7 +300,7 @@ Respond with a single JSON object matching this exact format:
     {
       "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
       "description": "...",
-      "severity": "critical|major|minor|suggestion",
+      "severity": "critical|major|minor|suggestion|positive",
       "location": "where in the UI",
       "suggestion": "recommended fix"
     }
@@ -313,7 +313,7 @@ Respond with a single JSON object matching this exact format:
       "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
       "text": "the problematic text",
       "description": "what is wrong",
-      "severity": "critical|major|minor",
+      "severity": "critical|major|minor|suggestion|positive",
       "location": "where this text appears",
       "suggestion": "corrected text"
     }
@@ -428,7 +428,7 @@ Respond with a single JSON object matching this exact format:
     {
       "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
       "description": "...",
-      "severity": "critical|major|minor|suggestion",
+      "severity": "critical|major|minor|suggestion|positive",
       "location": "where in the UI",
       "suggestion": "recommended fix"
     }
@@ -441,7 +441,7 @@ Respond with a single JSON object matching this exact format:
       "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
       "text": "the problematic text",
       "description": "what is wrong",
-      "severity": "critical|major|minor",
+      "severity": "critical|major|minor|suggestion|positive",
       "location": "where this text appears",
       "suggestion": "corrected text"
     }
@@ -740,8 +740,8 @@ ANALYSIS INSTRUCTIONS:
 5. For UI elements, provide percentage-based coordinates from the screenshots (e.g., "50%,80%").
 
 UI/UX ANALYSIS:
-6. Evaluate visual design — alignments, layout consistency, color palette harmony, spacing, typography, visual hierarchy, accessibility (contrast ratios), animation quality. Report issues and strengths.
-7. WORDING/TRANSLATION CHECK: Examine all visible text for grammar, spelling, inconsistent terminology, tone, truncated text, placeholder text (e.g., "Lorem ipsum"), translation completeness, text overflow.
+6. Evaluate visual design — alignments, layout consistency, color palette harmony, spacing, typography, visual hierarchy, accessibility (contrast ratios), animation quality. Report issues and strengths. Include 'positive' severity for things done well (good alignment, strong visual hierarchy, etc.).
+7. WORDING/TRANSLATION CHECK: Examine all visible text for grammar, spelling, inconsistent terminology, tone, truncated text, placeholder text (e.g., "Lorem ipsum"), translation completeness, text overflow. Include 'positive' severity for well-written text, and 'suggestion' for non-bug improvements.
 8. GAME DESIGN ANALYSIS: Analyze game design — reward systems, balance, progression, player engagement, difficulty curve, monetization fairness, tutorial/onboarding quality, feedback systems.
 
 SCENARIO GENERATION INSTRUCTIONS:
@@ -814,7 +814,7 @@ Respond with a single JSON object matching this exact format:
     {
       "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
       "description": "...",
-      "severity": "critical|major|minor|suggestion",
+      "severity": "critical|major|minor|suggestion|positive",
       "location": "where in the UI",
       "suggestion": "recommended fix"
     }
@@ -824,7 +824,7 @@ Respond with a single JSON object matching this exact format:
       "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
       "text": "the problematic text",
       "description": "what is wrong",
-      "severity": "critical|major|minor",
+      "severity": "critical|major|minor|suggestion|positive",
       "location": "where this text appears",
       "suggestion": "corrected text"
     }

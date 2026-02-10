@@ -38,7 +38,17 @@ export function isValidUrl(str) {
  * Trigger a file download from in-memory content.
  */
 /**
+ * Map finding severity to a tier: 'positive', 'suggestion', or 'bug'.
+ */
+export function findingTier(severity) {
+  if (severity === 'positive') return 'positive'
+  if (severity === 'suggestion' || severity === 'minor') return 'suggestion'
+  return 'bug' // critical, major, or unknown
+}
+
+/**
  * Map finding severity to Badge variant.
+ * Note: FindingsTab uses tier-based styling directly; this is used elsewhere.
  */
 export function severityVariant(severity) {
   switch (severity) {

@@ -1,28 +1,62 @@
 <template>
   <div class="space-y-4">
-    <!-- Summary bar -->
+    <!-- Summary bar: 3 colored stat pills -->
     <div v-if="findings?.length" class="flex flex-wrap items-center gap-2">
-      <Badge v-if="counts.critical" variant="destructive">Critical: {{ counts.critical }}</Badge>
-      <Badge v-if="counts.major" variant="default">Major: {{ counts.major }}</Badge>
-      <Badge v-if="counts.minor" variant="secondary">Minor: {{ counts.minor }}</Badge>
-      <Badge v-if="counts.suggestion" variant="secondary">Suggestion: {{ counts.suggestion }}</Badge>
-      <Badge v-if="counts.positive" variant="outline">Positive: {{ counts.positive }}</Badge>
+      <button
+        :class="[
+          'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+          activeTier === 'positive'
+            ? 'bg-green-600 text-white'
+            : 'bg-green-100 text-green-800 hover:bg-green-200 dark:bg-green-900/40 dark:text-green-300 dark:hover:bg-green-900/60'
+        ]"
+        @click="activeTier = activeTier === 'positive' ? 'all' : 'positive'"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clip-rule="evenodd" /></svg>
+        {{ tierCounts.positive }} Positive
+      </button>
+      <button
+        :class="[
+          'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+          activeTier === 'suggestion'
+            ? 'bg-amber-600 text-white'
+            : 'bg-amber-100 text-amber-800 hover:bg-amber-200 dark:bg-amber-900/40 dark:text-amber-300 dark:hover:bg-amber-900/60'
+        ]"
+        @click="activeTier = activeTier === 'suggestion' ? 'all' : 'suggestion'"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clip-rule="evenodd" /></svg>
+        {{ tierCounts.suggestion }} Suggestions
+      </button>
+      <button
+        :class="[
+          'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
+          activeTier === 'bug'
+            ? 'bg-red-600 text-white'
+            : 'bg-red-100 text-red-800 hover:bg-red-200 dark:bg-red-900/40 dark:text-red-300 dark:hover:bg-red-900/60'
+        ]"
+        @click="activeTier = activeTier === 'bug' ? 'all' : 'bug'"
+      >
+        <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
+        {{ tierCounts.bug }} Bugs
+      </button>
     </div>
 
     <!-- Filter controls -->
     <div v-if="findings?.length" class="flex flex-wrap items-center gap-3">
+      <!-- Tier filter buttons -->
       <div class="flex items-center gap-1">
         <Button
-          v-for="sev in severityOptions"
-          :key="sev.value"
+          v-for="opt in tierOptions"
+          :key="opt.value"
           size="sm"
-          :variant="activeSeverity === sev.value ? 'default' : 'outline'"
-          class="h-7 text-xs"
-          @click="activeSeverity = sev.value"
+          :variant="activeTier === opt.value ? 'default' : 'outline'"
+          :class="['h-7 text-xs', opt.activeClass && activeTier === opt.value ? opt.activeClass : '']"
+          @click="activeTier = opt.value"
         >
-          {{ sev.label }}
+          {{ opt.label }}
         </Button>
       </div>
+
+      <!-- Category dropdown -->
       <Select v-if="categories.length > 1" :model-value="activeCategory" @update:model-value="activeCategory = $event">
         <SelectTrigger class="w-[180px] h-8 text-xs">
           <SelectValue placeholder="All categories" />
@@ -32,32 +66,105 @@
           <SelectItem v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</SelectItem>
         </SelectContent>
       </Select>
+
+      <!-- Text search -->
+      <Input
+        v-model="searchQuery"
+        placeholder="Search findings..."
+        class="h-8 w-[200px] text-xs"
+      />
+
+      <!-- Active filter count -->
+      <span v-if="activeFilterCount > 0" class="text-xs text-muted-foreground">
+        {{ activeFilterCount }} filter{{ activeFilterCount > 1 ? 's' : '' }} active
+      </span>
     </div>
 
-    <!-- Finding cards -->
-    <div v-if="filteredFindings.length" class="space-y-3">
-      <div v-for="(finding, i) in filteredFindings" :key="i" class="rounded-md border p-4 space-y-2">
-        <div class="flex flex-wrap items-center gap-2">
-          <Badge :variant="severityVariant(finding.severity)">{{ finding.severity }}</Badge>
-          <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
-          <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
+    <!-- Grouped findings sections -->
+    <div v-if="filteredFindings.length" class="space-y-6">
+      <!-- Section 1: What's Working Well (green) -->
+      <div v-if="groupedFindings.positive.length" class="rounded-lg border-l-4 border-green-500 bg-green-50/50 dark:bg-green-950/20 p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <h3 class="text-sm font-semibold text-green-800 dark:text-green-300">What's Working Well</h3>
+          <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">
+            {{ groupedFindings.positive.length }}
+          </span>
         </div>
-
-        <!-- Wording: show the text -->
-        <div v-if="type === 'wording' && finding.text" class="font-mono text-xs bg-muted px-3 py-2 rounded">
-          "{{ finding.text }}"
+        <div class="space-y-3">
+          <div v-for="(finding, i) in groupedFindings.positive" :key="'p-' + i" class="rounded-md border border-green-200 dark:border-green-800/40 bg-white dark:bg-green-950/30 p-4 space-y-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">positive</span>
+              <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
+              <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
+            </div>
+            <div v-if="type === 'wording' && finding.text" class="font-mono text-xs bg-muted px-3 py-2 rounded">"{{ finding.text }}"</div>
+            <p class="text-sm">{{ finding.description }}</p>
+            <p v-if="type === 'gamedesign' && finding.impact" class="text-sm">
+              <span class="text-muted-foreground font-medium">Impact:</span> {{ finding.impact }}
+            </p>
+            <p v-if="finding.suggestion" class="text-sm text-muted-foreground italic">Suggestion: {{ finding.suggestion }}</p>
+          </div>
         </div>
+      </div>
 
-        <p class="text-sm">{{ finding.description }}</p>
+      <!-- Section 2: Suggestions (amber) -->
+      <div v-if="groupedFindings.suggestion.length" class="rounded-lg border-l-4 border-amber-500 bg-amber-50/50 dark:bg-amber-950/20 p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <h3 class="text-sm font-semibold text-amber-800 dark:text-amber-300">Suggestions</h3>
+          <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+            {{ groupedFindings.suggestion.length }}
+          </span>
+        </div>
+        <div class="space-y-3">
+          <div v-for="(finding, i) in groupedFindings.suggestion" :key="'s-' + i" class="rounded-md border border-amber-200 dark:border-amber-800/40 bg-white dark:bg-amber-950/30 p-4 space-y-2">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ finding.severity }}</span>
+              <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
+              <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
+            </div>
+            <div v-if="type === 'wording' && finding.text" class="font-mono text-xs bg-muted px-3 py-2 rounded">"{{ finding.text }}"</div>
+            <p class="text-sm">{{ finding.description }}</p>
+            <p v-if="type === 'gamedesign' && finding.impact" class="text-sm">
+              <span class="text-muted-foreground font-medium">Impact:</span> {{ finding.impact }}
+            </p>
+            <p v-if="finding.suggestion" class="text-sm text-muted-foreground italic">Suggestion: {{ finding.suggestion }}</p>
+          </div>
+        </div>
+      </div>
 
-        <!-- Game design: show impact -->
-        <p v-if="type === 'gamedesign' && finding.impact" class="text-sm">
-          <span class="text-muted-foreground font-medium">Impact:</span> {{ finding.impact }}
-        </p>
-
-        <p v-if="finding.suggestion" class="text-sm text-muted-foreground">
-          Suggestion: {{ finding.suggestion }}
-        </p>
+      <!-- Section 3: Bugs & Issues (red) -->
+      <div v-if="groupedFindings.bug.length" class="rounded-lg border-l-4 border-red-500 bg-red-50/50 dark:bg-red-950/20 p-4 space-y-3">
+        <div class="flex items-center gap-2">
+          <h3 class="text-sm font-semibold text-red-800 dark:text-red-300">Bugs & Issues</h3>
+          <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/40 dark:text-red-300">
+            {{ groupedFindings.bug.length }}
+          </span>
+        </div>
+        <div class="space-y-3">
+          <div
+            v-for="(finding, i) in groupedFindings.bug"
+            :key="'b-' + i"
+            :class="[
+              'rounded-md border p-4 space-y-2',
+              finding.severity === 'critical'
+                ? 'border-red-300 dark:border-red-700/60 bg-red-50 dark:bg-red-950/40'
+                : 'border-red-200 dark:border-red-800/40 bg-white dark:bg-red-950/30'
+            ]"
+          >
+            <div class="flex flex-wrap items-center gap-2">
+              <span v-if="finding.severity === 'critical'" class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/40 dark:text-red-300">critical</span>
+              <span v-else class="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">major</span>
+              <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
+              <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
+            </div>
+            <div v-if="type === 'wording' && finding.text" class="font-mono text-xs bg-muted px-3 py-2 rounded">"{{ finding.text }}"</div>
+            <p class="text-sm">{{ finding.description }}</p>
+            <p v-if="type === 'gamedesign' && finding.impact" class="text-sm">
+              <span class="text-muted-foreground font-medium">Impact:</span> {{ finding.impact }}
+            </p>
+            <p v-if="finding.suggestion" class="text-sm text-muted-foreground italic">Suggestion: {{ finding.suggestion }}</p>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -66,14 +173,69 @@
       <p v-if="findings?.length">No findings match the current filters.</p>
       <p v-else>No findings available.</p>
     </div>
+
+    <!-- Role Checklists -->
+    <details v-if="findings?.length" class="mt-6">
+      <summary class="cursor-pointer text-sm font-semibold select-none">Action Checklist by Role</summary>
+      <div class="mt-3 grid gap-4 sm:grid-cols-2">
+        <!-- Developer -->
+        <div v-if="developerItems.length" class="rounded-md border p-3 space-y-2">
+          <div class="flex items-center gap-2 text-sm font-medium">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M6 2a1 1 0 00-1 1v1H4a2 2 0 00-2 2v10a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2h-1V3a1 1 0 10-2 0v1H7V3a1 1 0 00-1-1zm0 5a1 1 0 011 1v3a1 1 0 11-2 0V8a1 1 0 011-1zm4 0a1 1 0 011 1v3a1 1 0 11-2 0V8a1 1 0 011-1zm4 0a1 1 0 011 1v3a1 1 0 11-2 0V8a1 1 0 011-1z" clip-rule="evenodd" /></svg>
+            Developer
+          </div>
+          <label v-for="(item, i) in developerItems" :key="'dev-' + i" class="flex items-start gap-2 text-xs">
+            <input type="checkbox" v-model="checklistState['dev-' + i]" class="mt-0.5 rounded" />
+            <span>{{ item }}</span>
+          </label>
+        </div>
+
+        <!-- QA Engineer -->
+        <div v-if="qaItems.length" class="rounded-md border p-3 space-y-2">
+          <div class="flex items-center gap-2 text-sm font-medium">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M7 2a1 1 0 00-.707 1.707L7 4.414v3.758a1 1 0 01-.293.707l-4 4C1.077 14.509 2.156 17 4.414 17h11.172c2.258 0 3.337-2.49 1.707-4.121l-4-4A1 1 0 0113 8.172V4.414l.707-.707A1 1 0 0013 2H7zm2 6.172V4h2v4.172a3 3 0 00.879 2.12l1.027 1.028a4 4 0 00-2.171.102l-.47.156a4 4 0 01-2.53 0l-.563-.187 1.116-1.116A3 3 0 009 8.172z" clip-rule="evenodd" /></svg>
+            QA Engineer
+          </div>
+          <label v-for="(item, i) in qaItems" :key="'qa-' + i" class="flex items-start gap-2 text-xs">
+            <input type="checkbox" v-model="checklistState['qa-' + i]" class="mt-0.5 rounded" />
+            <span>{{ item }}</span>
+          </label>
+        </div>
+
+        <!-- Designer -->
+        <div v-if="designerItems.length" class="rounded-md border p-3 space-y-2">
+          <div class="flex items-center gap-2 text-sm font-medium">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M4 2a2 2 0 00-2 2v11a3 3 0 106 0V4a2 2 0 00-2-2H4zm1 14a1 1 0 100-2 1 1 0 000 2zm5-1.757l4.9-4.9a2 2 0 000-2.828L13.485 5.1a2 2 0 00-2.828 0L10 5.757v8.486zM16 18H9.071l6-6H16a2 2 0 012 2v2a2 2 0 01-2 2z" clip-rule="evenodd" /></svg>
+            Designer
+          </div>
+          <label v-for="(item, i) in designerItems" :key="'des-' + i" class="flex items-start gap-2 text-xs">
+            <input type="checkbox" v-model="checklistState['des-' + i]" class="mt-0.5 rounded" />
+            <span>{{ item }}</span>
+          </label>
+        </div>
+
+        <!-- Product Manager -->
+        <div v-if="pmItems.length" class="rounded-md border p-3 space-y-2">
+          <div class="flex items-center gap-2 text-sm font-medium">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-4 w-4 text-muted-foreground" viewBox="0 0 20 20" fill="currentColor"><path d="M9 2a1 1 0 000 2h2a1 1 0 100-2H9z" /><path fill-rule="evenodd" d="M4 5a2 2 0 012-2 3 3 0 003 3h2a3 3 0 003-3 2 2 0 012 2v11a2 2 0 01-2 2H6a2 2 0 01-2-2V5zm3 4a1 1 0 000 2h.01a1 1 0 100-2H7zm3 0a1 1 0 000 2h3a1 1 0 100-2h-3zm-3 4a1 1 0 100 2h.01a1 1 0 100-2H7zm3 0a1 1 0 100 2h3a1 1 0 100-2h-3z" clip-rule="evenodd" /></svg>
+            Product Manager
+          </div>
+          <label v-for="(item, i) in pmItems" :key="'pm-' + i" class="flex items-start gap-2 text-xs">
+            <input type="checkbox" v-model="checklistState['pm-' + i]" class="mt-0.5 rounded" />
+            <span>{{ item }}</span>
+          </label>
+        </div>
+      </div>
+    </details>
   </div>
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
-import { severityVariant } from '@/lib/utils'
+import { ref, computed, reactive, watch } from 'vue'
+import { findingTier } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 
 const props = defineProps({
@@ -81,21 +243,25 @@ const props = defineProps({
   type: { type: String, default: 'uiux' }, // 'uiux' | 'wording' | 'gamedesign'
 })
 
-const activeSeverity = ref('all')
+const activeTier = ref('all')
 const activeCategory = ref('all')
+const searchQuery = ref('')
+const checklistState = reactive({})
 
-const severityOptions = computed(() => {
-  const opts = [{ value: 'all', label: 'All' }]
-  if (counts.value.critical) opts.push({ value: 'critical', label: 'Critical' })
-  if (counts.value.major) opts.push({ value: 'major', label: 'Major' })
-  if (counts.value.minor) opts.push({ value: 'minor', label: 'Minor' })
-  if (props.type === 'gamedesign') {
-    if (counts.value.positive) opts.push({ value: 'positive', label: 'Positive' })
-  } else {
-    if (counts.value.suggestion) opts.push({ value: 'suggestion', label: 'Suggestion' })
-  }
-  return opts
+// Debounced search text
+let searchTimeout = null
+const debouncedSearch = ref('')
+watch(searchQuery, (val) => {
+  clearTimeout(searchTimeout)
+  searchTimeout = setTimeout(() => { debouncedSearch.value = val }, 200)
 })
+
+const tierOptions = [
+  { value: 'all', label: 'All' },
+  { value: 'positive', label: 'Positive', activeClass: 'bg-green-600 hover:bg-green-700 border-green-600' },
+  { value: 'suggestion', label: 'Suggestions', activeClass: 'bg-amber-600 hover:bg-amber-700 border-amber-600' },
+  { value: 'bug', label: 'Bugs', activeClass: 'bg-red-600 hover:bg-red-700 border-red-600' },
+]
 
 const counts = computed(() => {
   const c = { critical: 0, major: 0, minor: 0, suggestion: 0, positive: 0 }
@@ -103,6 +269,14 @@ const counts = computed(() => {
     if (f.severity in c) c[f.severity]++
   }
   return c
+})
+
+const tierCounts = computed(() => {
+  const t = { positive: 0, suggestion: 0, bug: 0 }
+  for (const f of props.findings || []) {
+    t[findingTier(f.severity)]++
+  }
+  return t
 })
 
 const categories = computed(() => {
@@ -113,14 +287,78 @@ const categories = computed(() => {
   return [...set].sort()
 })
 
+const activeFilterCount = computed(() => {
+  let n = 0
+  if (activeTier.value !== 'all') n++
+  if (activeCategory.value !== 'all') n++
+  if (debouncedSearch.value.trim()) n++
+  return n
+})
+
 const filteredFindings = computed(() => {
   let result = props.findings || []
-  if (activeSeverity.value !== 'all') {
-    result = result.filter(f => f.severity === activeSeverity.value)
+  if (activeTier.value !== 'all') {
+    result = result.filter(f => findingTier(f.severity) === activeTier.value)
   }
   if (activeCategory.value !== 'all') {
     result = result.filter(f => f.category === activeCategory.value)
   }
+  const q = debouncedSearch.value.trim().toLowerCase()
+  if (q) {
+    result = result.filter(f =>
+      (f.description || '').toLowerCase().includes(q) ||
+      (f.suggestion || '').toLowerCase().includes(q) ||
+      (f.location || '').toLowerCase().includes(q)
+    )
+  }
   return result
+})
+
+const groupedFindings = computed(() => {
+  const groups = { positive: [], suggestion: [], bug: [] }
+  for (const f of filteredFindings.value) {
+    groups[findingTier(f.severity)].push(f)
+  }
+  return groups
+})
+
+// Role checklist items — dynamic based on severity counts
+const developerItems = computed(() => {
+  const items = []
+  if (counts.value.critical) items.push(`Fix ${counts.value.critical} critical bug(s)`)
+  if (counts.value.major) items.push(`Address ${counts.value.major} major issue(s)`)
+  if (counts.value.suggestion) items.push(`Review ${counts.value.suggestion} suggestion(s) for implementation`)
+  if (counts.value.minor) items.push(`Review ${counts.value.minor} minor issue(s)`)
+  return items
+})
+
+const qaItems = computed(() => {
+  const items = []
+  const bugs = counts.value.critical + counts.value.major
+  if (bugs) items.push(`Verify and reproduce ${bugs} reported bug(s)`)
+  if (counts.value.critical) items.push('Create regression tests for critical issues')
+  const suggestions = counts.value.suggestion + counts.value.minor
+  if (suggestions) items.push(`Validate ${suggestions} suggestion(s) against requirements`)
+  return items
+})
+
+const designerItems = computed(() => {
+  const items = []
+  if (counts.value.positive) items.push(`Celebrate ${counts.value.positive} positive finding(s)`)
+  const suggestions = counts.value.suggestion + counts.value.minor
+  if (suggestions) items.push(`Review ${suggestions} UI/UX suggestion(s)`)
+  const bugs = counts.value.critical + counts.value.major
+  if (bugs) items.push(`Assess visual impact of ${bugs} bug fix(es)`)
+  return items
+})
+
+const pmItems = computed(() => {
+  const items = []
+  if (counts.value.critical) items.push(`Prioritize ${counts.value.critical} critical bug(s) for immediate fix`)
+  if (counts.value.major) items.push(`Schedule ${counts.value.major} major issue(s) in backlog`)
+  const suggestions = counts.value.suggestion + counts.value.minor
+  if (suggestions) items.push(`Evaluate ${suggestions} suggestion(s) for roadmap`)
+  if (counts.value.positive) items.push(`Share ${counts.value.positive} positive highlight(s) with stakeholders`)
+  return items
 })
 </script>
