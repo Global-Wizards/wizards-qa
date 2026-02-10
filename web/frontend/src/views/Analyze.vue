@@ -194,77 +194,33 @@
     </Card>
 
     <!-- State 2: Progress -->
-    <div v-else-if="status === 'scouting' || status === 'analyzing' || status === 'generating'" class="space-y-4">
-      <Card>
-        <CardHeader>
-          <div class="flex items-center justify-between">
-            <CardTitle class="truncate max-w-[calc(100%-6rem)]" :title="gameUrl">Analyzing: {{ truncateUrl(gameUrl) }}</CardTitle>
-            <span v-if="elapsedSeconds > 0" class="text-sm text-muted-foreground">
-              {{ formatElapsed(elapsedSeconds) }}
-            </span>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div class="space-y-1">
-            <ProgressStep
-              :status="granularStepStatus('scouting')"
-              label="Scouting page"
-              :detail="stepDuration('scouting') ? `Completed in ${stepDuration('scouting')}s` : 'Fetching page and extracting metadata...'"
-              :sub-details="scoutingDetails"
-            />
-            <!-- Agent Live Exploration Panel -->
-            <AgentExplorationPanel
-              v-if="agentMode && (agentExplorationStatus === 'active' || liveAgentSteps.length > 0)"
-              :steps="liveAgentSteps"
-              :step-current="agentStepCurrent"
-              :step-total="agentStepTotal"
-              :exploration-status="agentExplorationStatus"
-              :elapsed-seconds="elapsedSeconds"
-              :hint-cooldown="hintCooldown"
-              :format-elapsed="formatElapsed"
-              @send-hint="sendHint"
-              @expand-screenshot="expandStepScreenshot"
-            />
-            <!-- Fallback: simple ProgressStep when no live data yet -->
-            <ProgressStep
-              v-else-if="agentMode"
-              :status="agentExplorationStatus"
-              label="Agent exploring game"
-              :detail="agentExplorationDetail"
-            />
-            <ProgressStep
-              :status="granularStepStatus('analyzing')"
-              :label="agentMode ? 'Synthesizing analysis' : 'Analyzing game mechanics'"
-              :detail="analyzingDetail"
-              :sub-details="analysisDetails"
-            />
-            <ProgressStep
-              :status="granularStepStatus('scenarios')"
-              label="Generating test scenarios"
-              :detail="scenariosDetail"
-            />
-            <ProgressStep
-              :status="granularStepStatus('flows')"
-              label="Generating Maestro test flows"
-              :detail="flowsDetail"
-            />
-          </div>
-
-          <Separator class="my-4" />
-
-          <div ref="logContainer" class="max-h-40 overflow-y-auto rounded-md bg-muted p-3">
-            <p v-for="(line, i) in logs" :key="i" class="text-xs font-mono text-muted-foreground">
-              {{ line }}
-            </p>
-            <p v-if="!logs.length" class="text-xs text-muted-foreground">Waiting for output...</p>
-          </div>
-
-          <div class="flex justify-end mt-4">
-            <Button variant="outline" @click="handleReset">Cancel</Button>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
+    <AnalysisProgressPanel
+      v-else-if="status === 'scouting' || status === 'analyzing' || status === 'generating'"
+      mode="progress"
+      :game-url="gameUrl"
+      :elapsed-seconds="elapsedSeconds"
+      :format-elapsed="formatElapsed"
+      :agent-mode="agentMode"
+      :phases="progressPhases"
+      :show-agent-panel="agentMode && (agentExplorationStatus === 'active' || liveAgentSteps.length > 0)"
+      :logs="logs"
+      @cancel="handleReset"
+      @copy-log="copyDebugLog"
+    >
+      <template #agent-exploration>
+        <AgentExplorationPanel
+          :steps="liveAgentSteps"
+          :step-current="agentStepCurrent"
+          :step-total="agentStepTotal"
+          :exploration-status="agentExplorationStatus"
+          :elapsed-seconds="elapsedSeconds"
+          :hint-cooldown="hintCooldown"
+          :format-elapsed="formatElapsed"
+          @send-hint="sendHint"
+          @expand-screenshot="expandStepScreenshot"
+        />
+      </template>
+    </AnalysisProgressPanel>
 
     <!-- State 3: Results -->
     <div v-else-if="status === 'complete'" class="space-y-4">
@@ -529,92 +485,31 @@
     </div>
 
     <!-- Error State -->
-    <Card v-else-if="status === 'error'">
-      <CardContent class="pt-6">
-        <Alert variant="destructive">
-          <AlertTitle>Analysis Failed</AlertTitle>
-          <AlertDescription>
-            {{ analysisError }}
-            <span v-if="failedPhaseLabel" class="block mt-1 text-xs opacity-80">
-              Failed during: {{ failedPhaseLabel }}
-            </span>
-          </AlertDescription>
-        </Alert>
-
-        <!-- Show progress steps so user sees where it failed -->
-        <div class="mt-4 space-y-1" v-if="currentStep || Object.keys(stepTimings).length">
-          <ProgressStep
-            :status="granularStepStatus('scouting')"
-            label="Scouting page"
-            :detail="stepDuration('scouting') ? `${stepDuration('scouting')}s` : ''"
-            :sub-details="scoutingDetails"
-          />
-          <ProgressStep
-            v-if="agentMode"
-            :status="agentExplorationStatus"
-            label="Agent exploring game"
-            :detail="agentExplorationDetail"
-          />
-          <ProgressStep
-            :status="granularStepStatus('analyzing')"
-            :label="agentMode ? 'Synthesizing analysis' : 'Analyzing game mechanics'"
-            :detail="stepDuration('analyzing') ? `${stepDuration('analyzing')}s` : ''"
-            :sub-details="analysisDetails"
-          />
-          <ProgressStep
-            :status="granularStepStatus('scenarios')"
-            label="Generating test scenarios"
-            :detail="stepDuration('scenarios') ? `${stepDuration('scenarios')}s` : ''"
-          />
-          <ProgressStep
-            :status="granularStepStatus('flows')"
-            label="Generating Maestro test flows"
-            :detail="stepDuration('flows') ? `${stepDuration('flows')}s` : ''"
-          />
-        </div>
-
-        <!-- Show collected logs -->
-        <div v-if="logs.length" class="mt-4">
-          <div class="flex items-center justify-between mb-1">
-            <span class="text-sm text-muted-foreground font-medium">Log ({{ logs.length }} lines)</span>
-            <Button variant="outline" size="sm" class="h-7 text-xs gap-1" @click="copyDebugLog">
-              <Copy class="h-3 w-3" />
-              {{ logCopied ? 'Copied!' : 'Copy Full Log' }}
-            </Button>
-          </div>
-          <div class="max-h-40 overflow-y-auto rounded-md bg-muted p-3">
-            <p v-for="(line, i) in logs" :key="i" class="text-xs font-mono text-muted-foreground">{{ line }}</p>
-          </div>
-        </div>
-
-        <!-- Agent steps before failure -->
-        <div v-if="navigatorSteps.length" class="mt-4">
-          <p class="text-sm font-medium mb-2">Agent Steps Before Failure ({{ navigatorSteps.length }})</p>
-          <AgentStepNavigator
-            v-if="currentAnalysisId || analysisId"
-            :analysis-id="currentAnalysisId || analysisId"
-            :initial-steps="navigatorSteps"
-          />
-        </div>
-
-        <!-- Elapsed time at failure -->
-        <p v-if="elapsedSeconds > 0" class="mt-2 text-xs text-muted-foreground">
-          Failed after {{ formatElapsed(elapsedSeconds) }}
-        </p>
-
-        <div class="mt-4 flex gap-2">
-          <Button v-if="canContinue" @click="handleContinueAnalysis">
-            <PlayCircle class="h-4 w-4 mr-1" />
-            Continue Analysis
-          </Button>
-          <Button @click="retryAnalysis" :variant="canContinue ? 'secondary' : 'default'">
-            <RefreshCw class="h-4 w-4 mr-1" />
-            Retry Analysis
-          </Button>
-          <Button variant="outline" @click="handleReset">Start Over</Button>
-        </div>
-      </CardContent>
-    </Card>
+    <AnalysisProgressPanel
+      v-else-if="status === 'error'"
+      mode="error"
+      :game-url="gameUrl"
+      :elapsed-seconds="elapsedSeconds"
+      :format-elapsed="formatElapsed"
+      :agent-mode="agentMode"
+      :phases="progressPhases"
+      :logs="logs"
+      :error-message="analysisError"
+      :failed-phase-label="failedPhaseLabel"
+      :can-continue="canContinue"
+      @retry="retryAnalysis"
+      @continue="handleContinueAnalysis"
+      @start-over="handleReset"
+      @copy-log="copyDebugLog"
+    />
+    <!-- Agent steps navigator (stays outside component, error state only) -->
+    <div v-if="status === 'error' && navigatorSteps.length" class="mt-4">
+      <AgentStepNavigator
+        v-if="currentAnalysisId || analysisId"
+        :analysis-id="currentAnalysisId || analysisId"
+        :initial-steps="navigatorSteps"
+      />
+    </div>
 
     <!-- Flow Preview Dialog -->
     <Dialog :open="flowDialogOpen" @update:open="flowDialogOpen = $event">
@@ -667,7 +562,7 @@ import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@/composables/useClipboard'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -677,7 +572,7 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
-import ProgressStep from '@/components/ProgressStep.vue'
+import AnalysisProgressPanel from '@/components/AnalysisProgressPanel.vue'
 import AgentStepNavigator from '@/components/AgentStepNavigator.vue'
 import AgentExplorationPanel from '@/components/AgentExplorationPanel.vue'
 
@@ -704,7 +599,6 @@ const moduleWording = ref(true)
 const moduleGameDesign = ref(true)
 const moduleTestFlows = ref(true)
 const recentAnalyses = ref([])
-const logContainer = ref(null)
 const currentAnalysisId = ref(null)
 
 // Flow preview state
@@ -986,6 +880,37 @@ const failedPhaseLabel = computed(() => {
     scenarios: 'Scenario Generation',
   }
   return map[failedStep.value] || failedStep.value
+})
+
+const progressPhases = computed(() => {
+  const phases = [{
+    id: 'scouting', label: 'Scouting page', icon: 'Radar', color: 'blue',
+    status: granularStepStatus('scouting'),
+    detail: stepDuration('scouting') ? `Completed in ${stepDuration('scouting')}s` : 'Fetching page and extracting metadata...',
+    durationSeconds: stepDuration('scouting'),
+    subDetails: scoutingDetails.value,
+  }]
+  if (agentMode.value) {
+    phases.push({
+      id: 'agent', label: 'Agent exploring game', icon: 'Bot', color: 'purple',
+      status: agentExplorationStatus.value,
+      detail: agentExplorationDetail.value,
+      durationSeconds: null, subDetails: [], isAgentSlot: true,
+    })
+  }
+  phases.push(
+    { id: 'analyzing', label: agentMode.value ? 'Synthesizing analysis' : 'Analyzing game mechanics',
+      icon: 'Brain', color: 'amber', status: granularStepStatus('analyzing'),
+      detail: analyzingDetail.value, durationSeconds: stepDuration('analyzing'),
+      subDetails: analysisDetails.value },
+    { id: 'scenarios', label: 'Generating test scenarios', icon: 'ListTree', color: 'emerald',
+      status: granularStepStatus('scenarios'), detail: scenariosDetail.value,
+      durationSeconds: stepDuration('scenarios'), subDetails: [] },
+    { id: 'flows', label: 'Generating test flows', icon: 'PlayCircle', color: 'rose',
+      status: granularStepStatus('flows'), detail: flowsDetail.value,
+      durationSeconds: stepDuration('flows'), subDetails: [] },
+  )
+  return phases
 })
 
 const agentExplorationDetail = computed(() => {
@@ -1378,18 +1303,6 @@ async function loadRecentAnalyses() {
   }
 }
 
-
-// Auto-scroll log area when new logs arrive (only if near bottom)
-watch(logs, () => {
-  nextTick(() => {
-    const el = logContainer.value
-    if (!el) return
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 60
-    if (isNearBottom) {
-      el.scrollTop = el.scrollHeight
-    }
-  })
-})
 
 
 onMounted(async () => {

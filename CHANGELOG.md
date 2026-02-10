@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.4] - 2026-02-09
+
+### Changed
+- **Redesigned analysis progress panel** — extracted `AnalysisProgressPanel.vue` to replace both the progress and error states with a unified polished component featuring: gradient header banner with animated status icon and segmented progress bar, vertical timeline with colored phase-specific nodes (Radar/Bot/Brain/ListTree/PlayCircle), duration badges, sub-detail chips with expand/collapse, collapsible line-numbered log section with color-coded entries (red errors, amber warnings) and auto-scroll, and a unified footer with phase completion count. Error mode shows destructive gradient overlay, auto-expanded logs, and Continue/Retry/Start Over buttons. Agent exploration panel renders inline via named slot on the timeline.
+- **Retired `ProgressStep.vue`** — replaced by the phase timeline in `AnalysisProgressPanel.vue`.
+
 ## [0.14.3] - 2026-02-09
 
 ### Changed
