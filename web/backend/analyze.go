@@ -31,16 +31,18 @@ type AnalysisModules struct {
 }
 
 type AnalysisRequest struct {
-	GameURL       string          `json:"gameUrl"`
-	ProjectID     string          `json:"projectId"`
-	AgentMode     bool            `json:"agentMode"`
-	Modules       AnalysisModules `json:"modules"`
-	Model         string          `json:"model,omitempty"`
-	MaxTokens     int             `json:"maxTokens,omitempty"`
-	AgentSteps    int             `json:"agentSteps,omitempty"`
-	Temperature   *float64        `json:"temperature,omitempty"`
-	Adaptive      bool            `json:"adaptive,omitempty"`
-	MaxTotalSteps int             `json:"maxTotalSteps,omitempty"`
+	GameURL         string          `json:"gameUrl"`
+	ProjectID       string          `json:"projectId"`
+	AgentMode       bool            `json:"agentMode"`
+	Modules         AnalysisModules `json:"modules"`
+	Model           string          `json:"model,omitempty"`
+	MaxTokens       int             `json:"maxTokens,omitempty"`
+	AgentSteps      int             `json:"agentSteps,omitempty"`
+	Temperature     *float64        `json:"temperature,omitempty"`
+	Adaptive        bool            `json:"adaptive,omitempty"`
+	MaxTotalSteps   int             `json:"maxTotalSteps,omitempty"`
+	AdaptiveTimeout bool            `json:"adaptiveTimeout,omitempty"`
+	MaxTotalTimeout int             `json:"maxTotalTimeout,omitempty"` // minutes
 }
 
 type AnalysisProgress struct {
@@ -86,6 +88,10 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.MaxTotalSteps > 0 && req.AgentSteps > 0 && req.MaxTotalSteps < req.AgentSteps {
 		respondError(w, http.StatusBadRequest, "maxTotalSteps must be >= agentSteps")
+		return
+	}
+	if req.MaxTotalTimeout != 0 && (req.MaxTotalTimeout < 1 || req.MaxTotalTimeout > 60) {
+		respondError(w, http.StatusBadRequest, "maxTotalTimeout must be between 1 and 60 minutes")
 		return
 	}
 
@@ -177,6 +183,12 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		if req.MaxTotalSteps > 0 {
 			p["maxTotalSteps"] = req.MaxTotalSteps
 		}
+		if req.AdaptiveTimeout {
+			p["adaptiveTimeout"] = true
+		}
+		if req.MaxTotalTimeout > 0 {
+			p["maxTotalTimeout"] = req.MaxTotalTimeout
+		}
 		if len(p) > 0 {
 			if b, err := json.Marshal(p); err == nil {
 				profileJSON = string(b)
@@ -223,13 +235,23 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		// Base: exploration budget (steps × 40s avg) + 8min buffer for synthesis + flow gen (with retries)
 		explorationBudget := time.Duration(steps) * 40 * time.Second
 		timeout = explorationBudget + 8*time.Minute
-		// Clamp between 10min and 30min (45min for adaptive)
+		// When adaptive timeout is enabled, use maxTotalTimeout + buffer if it's larger
+		if req.AdaptiveTimeout && req.MaxTotalTimeout > 0 {
+			timeoutFromMinutes := time.Duration(req.MaxTotalTimeout)*time.Minute + 8*time.Minute
+			if timeoutFromMinutes > timeout {
+				timeout = timeoutFromMinutes
+			}
+		}
+		// Clamp between 10min and 30min (45min for adaptive, 60min for adaptive timeout)
 		if timeout < 10*time.Minute {
 			timeout = 10 * time.Minute
 		}
 		maxClamp := 30 * time.Minute
-		if req.Adaptive {
+		if req.Adaptive || req.AdaptiveTimeout {
 			maxClamp = 45 * time.Minute
+		}
+		if req.AdaptiveTimeout && req.MaxTotalTimeout > 0 {
+			maxClamp = 60 * time.Minute
 		}
 		if timeout > maxClamp {
 			timeout = maxClamp
@@ -249,6 +271,12 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		args = append(args, "--adaptive")
 		if req.MaxTotalSteps > 0 {
 			args = append(args, "--max-total-steps", fmt.Sprintf("%d", req.MaxTotalSteps))
+		}
+	}
+	if req.AdaptiveTimeout {
+		args = append(args, "--adaptive-timeout")
+		if req.MaxTotalTimeout > 0 {
+			args = append(args, "--max-total-timeout", fmt.Sprintf("%d", req.MaxTotalTimeout))
 		}
 	}
 	if req.Model != "" {
@@ -803,6 +831,9 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 				if adaptiveVal, ok := profile["adaptive"].(bool); ok && adaptiveVal {
 					timeout = 10 * time.Minute
 				}
+				if atVal, ok := profile["adaptiveTimeout"].(bool); ok && atVal {
+					timeout = 10 * time.Minute
+				}
 			}
 		}
 	}
@@ -837,6 +868,12 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 			}
 			if mts, ok := profile["maxTotalSteps"].(float64); ok && mts > 0 {
 				args = append(args, "--max-total-steps", fmt.Sprintf("%d", int(mts)))
+			}
+			if atVal, ok := profile["adaptiveTimeout"].(bool); ok && atVal {
+				args = append(args, "--adaptive-timeout")
+			}
+			if mtt, ok := profile["maxTotalTimeout"].(float64); ok && mtt > 0 {
+				args = append(args, "--max-total-timeout", fmt.Sprintf("%d", int(mtt)))
 			}
 		}
 	}

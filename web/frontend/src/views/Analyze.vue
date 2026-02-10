@@ -43,6 +43,28 @@
           </label>
         </div>
 
+        <!-- Agent Modules (only when Agent Mode is on) -->
+        <div v-if="useAgentMode" class="space-y-3 pt-2 border-t">
+          <div class="flex items-center gap-3">
+            <Zap class="h-4 w-4 text-muted-foreground shrink-0" />
+            <label class="text-sm font-medium">Agent Modules</label>
+          </div>
+          <div class="ml-7 grid gap-2 sm:grid-cols-2">
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" v-model="moduleDynamicSteps" class="rounded border-gray-300" />
+              <TrendingUp class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Dynamic Steps</span>
+              <span class="text-xs text-muted-foreground">(AI requests more steps as needed)</span>
+            </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none">
+              <input type="checkbox" v-model="moduleDynamicTimeout" class="rounded border-gray-300" />
+              <Timer class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Dynamic Timeout</span>
+              <span class="text-xs text-muted-foreground">(AI extends time for thorough testing)</span>
+            </label>
+          </div>
+        </div>
+
         <!-- Analysis Modules -->
         <div class="space-y-3 pt-2 border-t">
           <div class="flex items-center gap-3">
@@ -125,16 +147,13 @@
               <label class="text-xs font-medium">Temperature</label>
               <Input v-model.number="customTemperature" type="number" :min="0" :max="1" step="0.1" class="text-sm" />
             </div>
-            <div class="space-y-1 sm:col-span-2">
-              <label class="flex items-center gap-2 text-xs font-medium cursor-pointer">
-                <input type="checkbox" v-model="customAdaptive" class="rounded border-gray-300" />
-                Adaptive Exploration
-                <span class="text-xs text-muted-foreground font-normal">(AI can request more steps)</span>
-              </label>
-            </div>
-            <div v-if="customAdaptive" class="space-y-1">
+            <div v-if="moduleDynamicSteps" class="space-y-1">
               <label class="text-xs font-medium">Max Total Steps</label>
               <Input v-model.number="customMaxTotalSteps" type="number" :min="customAgentSteps || 5" :max="100" class="text-sm" />
+            </div>
+            <div v-if="moduleDynamicTimeout" class="space-y-1">
+              <label class="text-xs font-medium">Max Total Timeout (minutes)</label>
+              <Input v-model.number="customMaxTotalTimeout" type="number" :min="1" :max="60" class="text-sm" />
             </div>
           </div>
         </div>
@@ -724,7 +743,7 @@ import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@/composables/useClipboard'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, MessageCircle, Send, Loader2, CheckCircle, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -751,8 +770,10 @@ const customModel = ref(defaultProfile.model)
 const customMaxTokens = ref(defaultProfile.maxTokens)
 const customAgentSteps = ref(defaultProfile.agentSteps)
 const customTemperature = ref(defaultProfile.temperature)
-const customAdaptive = ref(false)
 const customMaxTotalSteps = ref(35)
+const customMaxTotalTimeout = ref(25)
+const moduleDynamicSteps = ref(false)
+const moduleDynamicTimeout = ref(false)
 const moduleUiux = ref(true)
 const moduleWording = ref(true)
 const moduleGameDesign = ref(true)
@@ -839,9 +860,13 @@ const profileParams = computed(() => {
     }
     if (useAgentMode.value) {
       params.agentSteps = customAgentSteps.value || undefined
-      if (customAdaptive.value) {
+      if (moduleDynamicSteps.value) {
         params.adaptive = true
         params.maxTotalSteps = customMaxTotalSteps.value || undefined
+      }
+      if (moduleDynamicTimeout.value) {
+        params.adaptiveTimeout = true
+        params.maxTotalTimeout = customMaxTotalTimeout.value || undefined
       }
     }
     return params
@@ -855,9 +880,15 @@ const profileParams = computed(() => {
   }
   if (useAgentMode.value) {
     params.agentSteps = p.agentSteps
-    if (p.adaptive) {
+    // Adaptive steps — always from agent module toggle
+    if (moduleDynamicSteps.value) {
       params.adaptive = true
-      params.maxTotalSteps = p.maxTotalSteps
+      params.maxTotalSteps = p.maxTotalSteps || 35
+    }
+    // Adaptive timeout
+    if (moduleDynamicTimeout.value) {
+      params.adaptiveTimeout = true
+      params.maxTotalTimeout = p.maxTotalTimeout || 25
     }
   }
   return params
@@ -873,8 +904,11 @@ function onProfileChange(val) {
       customMaxTokens.value = p.maxTokens
       customAgentSteps.value = p.agentSteps
       customTemperature.value = p.temperature
-      customAdaptive.value = p.adaptive || false
       customMaxTotalSteps.value = p.maxTotalSteps || 35
+      customMaxTotalTimeout.value = p.maxTotalTimeout || 25
+      // Sync agent module toggles from profile defaults
+      moduleDynamicSteps.value = p.adaptive || false
+      moduleDynamicTimeout.value = p.adaptiveTimeout || false
     }
   }
 }
@@ -1015,7 +1049,7 @@ const navigatorSteps = computed(() => {
 })
 
 const agentExplorationStatus = computed(() => {
-  const agentSteps = ['agent_start', 'agent_step', 'agent_action', 'agent_adaptive']
+  const agentSteps = ['agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend']
   const doneSteps = ['agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'flows', 'flows_retry', 'flows_done', 'complete']
   if (doneSteps.includes(currentStep.value)) return 'complete'
   if (agentSteps.includes(currentStep.value)) return 'active'
@@ -1030,6 +1064,7 @@ const failedPhaseLabel = computed(() => {
     agent_action: 'Exploration',
     agent_start: 'Exploration',
     agent_adaptive: 'Exploration',
+    agent_timeout_extend: 'Exploration',
     agent_synthesize: 'Synthesis',
     synthesis_retry: 'Synthesis',
     analyzing: 'Analysis',
@@ -1071,7 +1106,7 @@ function expandLiveScreenshot() {
 }
 
 // Ordered step names for granular progress
-const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_retry', 'flows_done', 'saving', 'complete']
+const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_retry', 'flows_done', 'saving', 'complete']
 
 function stepOrder(step) {
   const idx = STEP_ORDER.indexOf(step)

@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"os"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
@@ -955,14 +956,26 @@ func fillTemplate(template string, vars map[string]string) string {
 	return result
 }
 
-// WriteFlowsToFiles writes Maestro flows to YAML files
+// WriteFlowsToFiles writes Maestro flows to YAML files.
+// The "setup" flow (if present) is sorted first to become 00-setup.yaml,
+// matching the runFlow references in branching test flows.
 func WriteFlowsToFiles(flows []*MaestroFlow, outputDir string) error {
 	if err := os.MkdirAll(outputDir, 0755); err != nil {
 		return fmt.Errorf("failed to create output directory: %w", err)
 	}
 
+	// Sort: setup flow first, others after
+	sort.SliceStable(flows, func(i, j int) bool {
+		iSetup := strings.EqualFold(flows[i].Name, "setup")
+		jSetup := strings.EqualFold(flows[j].Name, "setup")
+		if iSetup != jSetup {
+			return iSetup
+		}
+		return false
+	})
+
 	for i, flow := range flows {
-		filename := fmt.Sprintf("%02d-%s.yaml", i+1, util.SanitizeFilename(flow.Name))
+		filename := fmt.Sprintf("%02d-%s.yaml", i, util.SanitizeFilename(flow.Name))
 		filepath := fmt.Sprintf("%s/%s", outputDir, filename)
 
 		// Convert flow to YAML

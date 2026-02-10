@@ -33,6 +33,7 @@ const STEP_TO_STATUS = {
   agent_step_detail: 'analyzing',
   agent_screenshot: 'analyzing',
   agent_adaptive: 'analyzing',
+  agent_timeout_extend: 'analyzing',
   user_hint: 'analyzing',
   flows_retry: 'generating',
   resuming: 'scouting',
@@ -381,7 +382,7 @@ export function useAnalysis() {
         currentStep.value = statusData.step || ''
 
         // Restore agent mode from persisted state or infer from step name
-        const agentStepNames = ['agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'agent_reasoning', 'agent_step_detail', 'agent_screenshot']
+        const agentStepNames = ['agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'agent_reasoning', 'agent_step_detail', 'agent_screenshot']
         if (parsed.agentMode || agentStepNames.includes(statusData.step)) {
           agentMode.value = true
         }

@@ -37,7 +37,7 @@ func (a *Analyzer) AgentExplore(
 		return nil, nil, fmt.Errorf("AI client does not support tool use (agent mode requires Claude)")
 	}
 
-	tools := AgentTools(cfg.AdaptiveExploration)
+	tools := AgentTools(cfg)
 	executor := &BrowserToolExecutor{Page: browserPage}
 	systemPrompt := BuildAgentSystemPrompt(cfg)
 
@@ -246,6 +246,64 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				// Emit step detail for live streaming
 				detail := map[string]interface{}{
 					"stepNumber": step, "toolName": "request_more_steps",
+					"input": string(block.Input), "result": resultMsg,
+					"error": "", "durationMs": 0,
+				}
+				if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
+					progress("agent_step_detail", string(detailJSON))
+				}
+
+				toolResults = append(toolResults, ToolResultBlock{
+					Type: "tool_result", ToolUseID: block.ID, Content: resultMsg,
+				})
+				continue
+			}
+
+			// Handle request_more_time pseudo-tool (no browser action)
+			if block.Name == "request_more_time" {
+				var params struct {
+					Reason            string `json:"reason"`
+					AdditionalMinutes int    `json:"additional_minutes"`
+				}
+				if parseErr := json.Unmarshal(block.Input, &params); parseErr != nil {
+					toolResults = append(toolResults, ToolResultBlock{
+						Type: "tool_result", ToolUseID: block.ID,
+						Content: "Error: invalid parameters", IsError: true,
+					})
+					continue
+				}
+
+				granted := time.Duration(params.AdditionalMinutes) * time.Minute
+				if cfg.MaxTotalTimeout > 0 {
+					maxEffective := cfg.MaxTotalTimeout - synthesisReserve
+					headroom := maxEffective - effectiveExplorationTimeout
+					if granted > headroom {
+						granted = headroom
+					}
+				}
+				if granted < 0 {
+					granted = 0
+				}
+
+				effectiveExplorationTimeout += granted
+
+				var resultMsg string
+				if granted > 0 {
+					resultMsg = fmt.Sprintf("Granted %d additional minutes. Continue exploring.", int(granted.Minutes()))
+				} else {
+					resultMsg = "Cannot grant more time — already at maximum. Wrap up and output EXPLORATION_COMPLETE."
+				}
+
+				progress("agent_timeout_extend", fmt.Sprintf("+%dm: %s", int(granted.Minutes()), truncate(params.Reason, 80)))
+
+				steps = append(steps, AgentStep{
+					StepNumber: step, ToolName: "request_more_time",
+					Input: string(block.Input), Result: resultMsg,
+				})
+
+				// Emit step detail for live streaming
+				detail := map[string]interface{}{
+					"stepNumber": step, "toolName": "request_more_time",
 					"input": string(block.Input), "result": resultMsg,
 					"error": "", "durationMs": 0,
 				}
@@ -630,6 +688,13 @@ func formatToolAction(toolName string, inputJSON json.RawMessage) string {
 		}
 		json.Unmarshal(inputJSON, &p)
 		return fmt.Sprintf("requesting %d more steps: %s", p.AdditionalSteps, truncate(p.Reason, 60))
+	case "request_more_time":
+		var p struct {
+			Reason            string `json:"reason"`
+			AdditionalMinutes int    `json:"additional_minutes"`
+		}
+		json.Unmarshal(inputJSON, &p)
+		return fmt.Sprintf("requesting %d more minutes: %s", p.AdditionalMinutes, truncate(p.Reason, 60))
 	default:
 		return toolName
 	}

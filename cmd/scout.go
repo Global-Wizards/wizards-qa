@@ -17,26 +17,28 @@ import (
 
 func newScoutCmd() *cobra.Command {
 	var (
-		gameURL        string
-		output         string
-		jsonOutput     bool
-		saveFlows      bool
-		configPath     string
-		headless       bool
-		timeout        int
-		agentMode      bool
-		agentSteps     int
-		modelFlag      string
-		maxTokens      int
-		temperature    float64
-		noUIUX         bool
-		noWording      bool
-		noGameDesign   bool
-		noTestFlows    bool
-		resumeFrom     string
-		resumeDataPath string
-		adaptive       bool
-		maxTotalSteps  int
+		gameURL          string
+		output           string
+		jsonOutput       bool
+		saveFlows        bool
+		configPath       string
+		headless         bool
+		timeout          int
+		agentMode        bool
+		agentSteps       int
+		modelFlag        string
+		maxTokens        int
+		temperature      float64
+		noUIUX           bool
+		noWording        bool
+		noGameDesign     bool
+		noTestFlows      bool
+		resumeFrom       string
+		resumeDataPath   string
+		adaptive         bool
+		maxTotalSteps    int
+		adaptiveTimeout  bool
+		maxTotalTimeout  int // minutes
 	)
 
 	cmd := &cobra.Command{
@@ -260,11 +262,21 @@ Example:
 					explorationTimeout = 5 * time.Minute
 				}
 				maxClamp := 20 * time.Minute
-				if adaptive {
+				if adaptive || adaptiveTimeout {
 					maxClamp = 30 * time.Minute
 				}
 				if explorationTimeout > maxClamp {
 					explorationTimeout = maxClamp
+				}
+				// When adaptive timeout is enabled, use maxTotalTimeout as the base if it's larger
+				if adaptiveTimeout && maxTotalTimeout > 0 {
+					timeoutFromMinutes := time.Duration(maxTotalTimeout)*time.Minute + 5*time.Minute
+					if timeoutFromMinutes > explorationTimeout {
+						explorationTimeout = timeoutFromMinutes
+					}
+					if explorationTimeout > maxClamp {
+						explorationTimeout = maxClamp
+					}
 				}
 
 				// Synthesis needs at least 16384 tokens for full JSON; ensure low-token profiles don't truncate
@@ -280,6 +292,8 @@ Example:
 					SynthesisMaxTokens:  synthTokens,
 					AdaptiveExploration: adaptive,
 					MaxTotalSteps:       maxTotalSteps,
+					AdaptiveTimeout:     adaptiveTimeout,
+					MaxTotalTimeout:     time.Duration(maxTotalTimeout) * time.Minute,
 				}
 
 				// When launched by the backend (--json + --agent), read user hints from stdin
@@ -402,6 +416,8 @@ Example:
 	cmd.Flags().IntVar(&agentSteps, "agent-steps", 20, "Max exploration steps in agent mode")
 	cmd.Flags().BoolVar(&adaptive, "adaptive", false, "Enable adaptive exploration: AI can dynamically request more steps")
 	cmd.Flags().IntVar(&maxTotalSteps, "max-total-steps", 0, "Hard cap on total exploration steps when adaptive mode is enabled")
+	cmd.Flags().BoolVar(&adaptiveTimeout, "adaptive-timeout", false, "Enable dynamic timeout: AI can request more exploration time")
+	cmd.Flags().IntVar(&maxTotalTimeout, "max-total-timeout", 0, "Hard cap on total exploration time in minutes when adaptive timeout is enabled")
 	cmd.Flags().StringVar(&modelFlag, "model", "", "Override AI model (e.g. claude-sonnet-4-5-20250929)")
 	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Override max tokens for AI responses")
 	cmd.Flags().Float64Var(&temperature, "temperature", -1, "Override AI temperature (0.0-1.0, unset by default)")

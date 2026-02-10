@@ -489,6 +489,8 @@ type AgentConfig struct {
 	SynthesisMaxTokens  int          // Override maxTokens for synthesis call (0 = use client default)
 	AdaptiveExploration bool         // Enable request_more_steps tool for dynamic step extension
 	MaxTotalSteps       int          // Hard cap on total steps after adaptive extensions
+	AdaptiveTimeout     bool         // Enable request_more_time tool for dynamic timeout extension
+	MaxTotalTimeout     time.Duration // Hard cap on total exploration time after extensions
 }
 
 // CheckpointData wraps the state written to checkpoint files after each pipeline step.
@@ -621,12 +623,25 @@ If significant parts of the game remain unexplored and you're approaching your s
 Be thorough: do NOT output EXPLORATION_COMPLETE until you are confident you've explored at least 80%% of the game's interactive elements and triggered its major state transitions.`, maxTotalSteps)
 }
 
+// DynamicTimeoutPromptSuffix returns the system prompt addition for adaptive timeout mode.
+func DynamicTimeoutPromptSuffix(maxMinutes int) string {
+	return fmt.Sprintf(`
+
+DYNAMIC TIMEOUT:
+You have access to the request_more_time tool. If you're running low on time and significant areas remain unexplored, call request_more_time with a reason and additional minutes needed. Your exploration can extend up to %d minutes total.
+
+Call request_more_time proactively — don't wait until you're cut off.`, maxMinutes)
+}
+
 // BuildAgentSystemPrompt constructs the agent system prompt, optionally appending
 // adaptive exploration instructions when the feature is enabled.
 func BuildAgentSystemPrompt(cfg AgentConfig) string {
 	prompt := AgentSystemPrompt
 	if cfg.AdaptiveExploration && cfg.MaxTotalSteps > 0 {
 		prompt += AdaptiveExplorationPromptSuffix(cfg.MaxTotalSteps)
+	}
+	if cfg.AdaptiveTimeout && cfg.MaxTotalTimeout > 0 {
+		prompt += DynamicTimeoutPromptSuffix(int(cfg.MaxTotalTimeout.Minutes()))
 	}
 	return prompt
 }
@@ -858,18 +873,33 @@ IMPORTANT RULES:
 - Always start with openBrowser and a waitFor to ensure the game loads
 - Add screenshot commands after key interactions to capture state
 - Use percentage-based coordinates that match what you see in the screenshots
-- Generate 2-5 flows covering the most important scenarios
+
+FLOW COMPOSITION — SHARED SETUP:
+- The FIRST flow MUST be a "setup" flow named exactly "setup". It contains the common steps that every test needs: opening the browser, waiting for the game to load, dismissing any splash screens, skipping tutorials, and reaching the main game state.
+- All subsequent flows MUST start with: {"runFlow": "00-setup.yaml"} as their first command, then branch into their specific test scenario.
+- Do NOT repeat setup steps in individual test flows — use runFlow instead.
+- Generate 1 setup flow + 2-4 test flows that branch from it.
 
 Respond with a JSON array of flows:
 [
   {
-    "name": "Flow name",
-    "tags": ["smoke", "happy-path"],
+    "name": "setup",
+    "tags": ["setup"],
     "commands": [
       {"openBrowser": {"url": "{{url}}"}},
-      {"waitFor": {"visible": "text", "timeout": 5000}},
-      {"tapOn": {"point": "50%,50%"}},
-      {"screenshot": "after-tap"},
+      {"waitFor": {"visible": "Play", "timeout": 10000}},
+      {"tapOn": "OK"},
+      {"tapOn": "Play"},
+      {"screenshot": "game-ready"}
+    ]
+  },
+  {
+    "name": "basic-gameplay",
+    "tags": ["smoke", "happy-path"],
+    "commands": [
+      {"runFlow": "00-setup.yaml"},
+      {"tapOn": {"point": "50%,80%"}},
+      {"screenshot": "after-action"},
       {"assertVisible": "expected text"}
     ]
   }

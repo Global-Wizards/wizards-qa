@@ -144,10 +144,11 @@ func BrowserTools() []ToolDefinition {
 	}
 }
 
-// AgentTools returns browser tools, optionally including request_more_steps for adaptive exploration.
-func AgentTools(adaptive bool) []ToolDefinition {
+// AgentTools returns browser tools, optionally including request_more_steps and request_more_time
+// for adaptive exploration and dynamic timeout.
+func AgentTools(cfg AgentConfig) []ToolDefinition {
 	tools := BrowserTools()
-	if adaptive {
+	if cfg.AdaptiveExploration {
 		tools = append(tools, ToolDefinition{
 			Name:        "request_more_steps",
 			Description: "Request additional exploration steps when you determine there are significant unexplored areas of the game. Call this before you run out of steps. Provide a reason explaining what remains to explore and how many additional steps you need.",
@@ -164,6 +165,26 @@ func AgentTools(adaptive bool) []ToolDefinition {
 					},
 				},
 				"required": []string{"reason", "additional_steps"},
+			},
+		})
+	}
+	if cfg.AdaptiveTimeout {
+		tools = append(tools, ToolDefinition{
+			Name:        "request_more_time",
+			Description: "Request additional exploration time when significant game areas remain unexplored and you're running low on time. Call this proactively before you're cut off.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"reason": map[string]interface{}{
+						"type":        "string",
+						"description": "Why more time is needed — what areas remain unexplored",
+					},
+					"additional_minutes": map[string]interface{}{
+						"type":        "integer",
+						"description": "Additional minutes requested (will be capped at the maximum)",
+					},
+				},
+				"required": []string{"reason", "additional_minutes"},
 			},
 		})
 	}

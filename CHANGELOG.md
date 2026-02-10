@@ -5,6 +5,26 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-02-09
+
+### Agent Modules UI, Dynamic Timeout & Branching Test Flows
+
+#### Added
+- **Agent Modules UI** — dedicated "Agent Modules" section (visible when Agent Mode is enabled) with two toggles: **Dynamic Steps** (AI can request more exploration steps) and **Dynamic Timeout** (AI can extend exploration time). These replace the hidden adaptive checkbox that was previously only visible in Custom profile mode.
+- **Dynamic Timeout** — new `request_more_time` pseudo-tool allows the AI agent to request additional exploration time when significant game areas remain unexplored. Controlled by `--adaptive-timeout` and `--max-total-timeout` CLI flags, with backend validation (1–60 minutes).
+- **`DynamicTimeoutPromptSuffix()`** — appended to the agent system prompt when adaptive timeout is enabled, instructing the AI to proactively request more time.
+- **`agent_timeout_extend` progress event** — streams timeout extension decisions to the frontend live timeline.
+- **Branching test flows with `runFlow`** — generated Maestro flows now use a shared setup flow (`00-setup.yaml`) that other flows reference via Maestro's native `runFlow` command, eliminating redundant setup steps in every flow.
+- **Profile-level adaptive timeout defaults** — Thorough (`adaptiveTimeout: true, maxTotalTimeout: 25`) and Maximum (`adaptiveTimeout: true, maxTotalTimeout: 40`) profiles now enable dynamic timeout by default.
+- **Custom profile timeout controls** — "Max Total Timeout (minutes)" input visible in Custom mode when Dynamic Timeout is toggled on.
+
+#### Changed
+- **`AgentTools()` signature** — now accepts `AgentConfig` instead of `bool`, enabling both `request_more_steps` and `request_more_time` tools based on config.
+- **`WriteFlowsToFiles()`** — setup flow is now sorted first (becomes `00-setup.yaml`), flows are 0-indexed instead of 1-indexed.
+- **`FlowGenerationPrompt`** — updated with FLOW COMPOSITION instructions requiring a shared setup flow and `runFlow` references.
+- **Timeout calculation** — backend process timeout accounts for `maxTotalTimeout` when adaptive timeout is enabled, with raised upper clamp (60min).
+- **Profile sync** — selecting a profile now auto-syncs both Dynamic Steps and Dynamic Timeout toggles from profile defaults.
+
 ## [0.12.0] - 2026-02-09
 
 ### Adaptive Exploration — Dynamic Step Extension
