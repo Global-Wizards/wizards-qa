@@ -23,7 +23,18 @@
           <Separator />
           <div>
             <p class="text-sm font-medium">Game URL</p>
-            <p class="text-sm text-muted-foreground">{{ currentProject?.gameUrl || 'Not set' }}</p>
+            <div v-if="editingGameUrl" class="flex items-center gap-2 mt-1">
+              <Input v-model="gameUrlDraft" placeholder="https://example.com/game" class="flex-1" @keyup.enter="saveGameUrl" />
+              <Button size="sm" @click="saveGameUrl" :disabled="savingGameUrl">{{ savingGameUrl ? 'Saving...' : 'Save' }}</Button>
+              <Button size="sm" variant="ghost" @click="editingGameUrl = false" :disabled="savingGameUrl">Cancel</Button>
+            </div>
+            <div v-else class="flex items-center gap-2 mt-1">
+              <p class="text-sm text-muted-foreground">{{ currentProject?.gameUrl || 'Not set' }}</p>
+              <Button size="sm" variant="ghost" class="h-6 px-2 text-xs" @click="startEditGameUrl">
+                <Pencil class="h-3 w-3" />
+              </Button>
+            </div>
+            <p v-if="gameUrlError" class="text-sm text-destructive mt-1">{{ gameUrlError }}</p>
           </div>
           <Separator />
           <div>
@@ -69,13 +80,40 @@ import { formatDate } from '@/lib/dateUtils'
 import { useProject } from '@/composables/useProject'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { Pencil } from 'lucide-vue-next'
 
 const route = useRoute()
 const router = useRouter()
 const { currentProject } = useProject()
 const deleting = ref(false)
 const deleteError = ref(null)
+
+const editingGameUrl = ref(false)
+const gameUrlDraft = ref('')
+const savingGameUrl = ref(false)
+const gameUrlError = ref(null)
+
+function startEditGameUrl() {
+  gameUrlDraft.value = currentProject.value?.gameUrl || ''
+  gameUrlError.value = null
+  editingGameUrl.value = true
+}
+
+async function saveGameUrl() {
+  savingGameUrl.value = true
+  gameUrlError.value = null
+  try {
+    const updated = await projectsApi.update(route.params.projectId, { gameUrl: gameUrlDraft.value })
+    currentProject.value = { ...currentProject.value, ...updated }
+    editingGameUrl.value = false
+  } catch (err) {
+    gameUrlError.value = err.message
+  } finally {
+    savingGameUrl.value = false
+  }
+}
 
 async function handleDelete() {
   if (!confirm('Are you sure you want to delete this project?')) return
