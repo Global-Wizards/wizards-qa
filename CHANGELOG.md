@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.3] - 2026-02-10
+
+### Fixed
+- **Test plans not visible after analysis** — clicking "View Test Plan" after an analysis now navigates to `/tests?tab=plans`, pre-selecting the "Test Plans" tab instead of landing on the empty "Test Results" tab. Additionally, when navigating to the Tests page without a tab parameter, the UI auto-switches to the "Test Plans" tab if no test results exist but plans are available.
+
+## [0.18.2] - 2026-02-10
+
+### Added
+- **Visible "Creating test plan" progress phase** — after flows are generated, a dedicated "Creating test plan" phase now appears in the progress timeline with sky-blue coloring and a ClipboardCheck icon. The backend emits granular sub-step progress events (`test_plan`, `test_plan_checking`, `test_plan_flows`, `test_plan_saving`, `test_plan_done`) so users see live messages like "Checking for existing test plan...", "Found N flow files: ...", "Saving test plan: GameName - Test Plan", and "Test plan created: GameName - Test Plan (N flows)". Sub-detail chips show flow count, individual flow names, and game name.
+
 ## [0.18.1] - 2026-02-10
 
 ### Added

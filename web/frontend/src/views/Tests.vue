@@ -409,6 +409,12 @@ function setupWs() {
 onMounted(async () => {
   setupWs()
 
+  // Support ?tab= query parameter to pre-select a tab
+  const initialTab = route.query.tab
+  if (initialTab === 'plans' || initialTab === 'results') {
+    activeTab.value = initialTab
+  }
+
   try {
     const data = projectId.value
       ? await projectsApi.tests(projectId.value)
@@ -421,6 +427,11 @@ onMounted(async () => {
   }
 
   await loadPlans()
+
+  // Auto-switch to plans tab when results are empty but plans exist (only when no explicit tab param)
+  if (!route.query.tab && tests.value.length === 0 && plans.value.length > 0) {
+    activeTab.value = 'plans'
+  }
 })
 
 onUnmounted(() => {

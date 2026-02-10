@@ -275,7 +275,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import {
   Loader2, AlertCircle, CheckCircle2, Terminal, Copy, ChevronDown,
   ArrowDown, RefreshCw, PlayCircle,
-  Radar, Bot, Brain, ListTree,
+  Radar, Bot, Brain, ListTree, ClipboardCheck,
 } from 'lucide-vue-next'
 import { PlayCircle as PlayCircleIcon } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -304,6 +304,7 @@ const phaseIconMap = {
   Brain,
   ListTree,
   PlayCircle: PlayCircleIcon,
+  ClipboardCheck,
 }
 
 // --- Phase color map ---
@@ -342,6 +343,13 @@ const phaseColorMap = {
     text: 'text-rose-500',
     barActive: 'bg-rose-500',
     ping: 'border-2 border-rose-400',
+  },
+  sky: {
+    border: 'border-sky-400 dark:border-sky-600',
+    bg: 'bg-sky-50 dark:bg-sky-950',
+    text: 'text-sky-500',
+    barActive: 'bg-sky-500',
+    ping: 'border-2 border-sky-400',
   },
 }
 

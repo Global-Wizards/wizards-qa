@@ -26,6 +26,12 @@ const STEP_TO_STATUS = {
   flows_validating: 'generating',
   flows_done: 'generating',
   saving: 'generating',
+  // Test plan creation steps
+  test_plan: 'creating_test_plan',
+  test_plan_checking: 'creating_test_plan',
+  test_plan_flows: 'creating_test_plan',
+  test_plan_saving: 'creating_test_plan',
+  test_plan_done: 'creating_test_plan',
   // Agent mode steps
   agent_start: 'analyzing',
   agent_step: 'analyzing',
@@ -44,7 +50,7 @@ const STEP_TO_STATUS = {
 }
 
 export function useAnalysis() {
-  const status = ref('idle') // idle, scouting, analyzing, generating, complete, error
+  const status = ref('idle') // idle, scouting, analyzing, generating, creating_test_plan, complete, error
   const currentStep = ref('') // granular step name
   const analysisId = ref(null)
   const pageMeta = ref(null)

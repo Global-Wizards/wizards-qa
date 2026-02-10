@@ -227,7 +227,7 @@
 
     <!-- State 2: Progress -->
     <AnalysisProgressPanel
-      v-else-if="status === 'scouting' || status === 'analyzing' || status === 'generating'"
+      v-else-if="status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan'"
       mode="progress"
       :game-url="gameUrl"
       :elapsed-seconds="elapsedSeconds"
@@ -908,6 +908,33 @@ const flowsSubDetails = computed(() => {
   return details
 })
 
+const testPlanDetail = computed(() => {
+  if (autoTestPlanId.value) {
+    const dur = stepDuration('test_plan')
+    return `Test plan created${dur ? ` in ${dur}s` : ''}`
+  }
+  const planSteps = ['test_plan', 'test_plan_checking', 'test_plan_flows', 'test_plan_saving', 'test_plan_done']
+  if (planSteps.includes(currentStep.value) && latestStepMessage.value) {
+    return latestStepMessage.value
+  }
+  const dur = stepDuration('test_plan')
+  return dur ? `Working... (${dur}s)` : ''
+})
+
+const testPlanSubDetails = computed(() => {
+  const details = []
+  if (flowList.value.length) {
+    details.push({ label: 'Flows', value: `${flowList.value.length} included` })
+  }
+  flowList.value.forEach(flow => {
+    details.push({ label: 'Flow', value: flow.name })
+  })
+  if (analysis.value?.gameInfo?.name) {
+    details.push({ label: 'Game', value: analysis.value.gameInfo.name })
+  }
+  return details
+})
+
 // Prefer persisted steps (have screenshots via URL), fall back to live or agentStepsList
 const navigatorSteps = computed(() => {
   if (persistedAgentSteps.value.length) return persistedAgentSteps.value
@@ -945,6 +972,12 @@ const failedPhaseLabel = computed(() => {
     flows_validating: 'Flow Generation',
     flows_retry: 'Flow Generation',
     flows_done: 'Flow Generation',
+    saving: 'Saving Flows',
+    test_plan: 'Test Plan Creation',
+    test_plan_checking: 'Test Plan Creation',
+    test_plan_flows: 'Test Plan Creation',
+    test_plan_saving: 'Test Plan Creation',
+    test_plan_done: 'Test Plan Creation',
     scouting: 'Page Scouting',
     scouted: 'Page Scouting',
     scenarios: 'Scenario Generation',
@@ -979,6 +1012,9 @@ const progressPhases = computed(() => {
     { id: 'flows', label: 'Generating test flows', icon: 'PlayCircle', color: 'rose',
       status: granularStepStatus('flows'), detail: flowsDetail.value,
       durationSeconds: stepDuration('flows'), subDetails: flowsSubDetails.value },
+    { id: 'test_plan', label: 'Creating test plan', icon: 'ClipboardCheck', color: 'sky',
+      status: granularStepStatus('test_plan'), detail: testPlanDetail.value,
+      durationSeconds: stepDuration('test_plan'), subDetails: testPlanSubDetails.value },
   )
   return phases
 })
@@ -1021,7 +1057,7 @@ function expandStepScreenshot(entry) {
 }
 
 // Ordered step names for granular progress
-const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_prompt', 'flows_calling', 'flows_parsing', 'flows_validating', 'flows_retry', 'flows_done', 'saving', 'complete']
+const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_prompt', 'flows_calling', 'flows_parsing', 'flows_validating', 'flows_retry', 'flows_done', 'saving', 'test_plan', 'test_plan_checking', 'test_plan_flows', 'test_plan_saving', 'test_plan_done', 'complete']
 
 function stepOrder(step) {
   const idx = STEP_ORDER.indexOf(step)
@@ -1041,7 +1077,8 @@ function granularStepStatus(groupStart) {
     scouting: { start: 'scouting', end: 'scouted' },
     analyzing: { start: 'analyzing', end: 'analyzed' },
     scenarios: { start: 'scenarios', end: 'scenarios_done' },
-    flows: { start: 'flows', end: 'complete' },
+    flows: { start: 'flows', end: 'saving' },
+    test_plan: { start: 'test_plan', end: 'test_plan_done' },
   }
   const group = groupMap[groupStart]
   if (!group) return 'pending'
@@ -1150,7 +1187,7 @@ function navigateToNewPlan() {
 
 function navigateToTestPlan() {
   const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${basePath}/tests`)
+  router.push({ path: `${basePath}/tests`, query: { tab: 'plans' } })
 }
 
 function navigateToFlows() {

@@ -603,7 +603,45 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	}
 
 	// Auto-create a test plan from generated flows
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_progress",
+		Data: AnalysisProgress{
+			Step:    "test_plan",
+			Message: fmt.Sprintf("Creating test plan from %d flows...", flowCount),
+			Data:    map[string]string{"analysisId": analysisID},
+		},
+	})
+
 	testPlanID := s.autoCreateTestPlan(analysisID, gameURL, gameName, req.ProjectID, createdBy, flowCount)
+
+	if testPlanID != "" {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: fmt.Sprintf("Test plan created: %s (%d flows)", gameName+" - Test Plan", flowCount),
+				Data:    map[string]string{"analysisId": analysisID, "testPlanId": testPlanID},
+			},
+		})
+	} else if flowCount > 0 {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: "Test plan already exists for this analysis",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+	} else {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: "No flows generated — test plan skipped",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+	}
 
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_completed",
@@ -799,6 +837,14 @@ func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, cr
 	}
 
 	// Idempotency: check if a plan already exists for this analysis
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_progress",
+		Data: AnalysisProgress{
+			Step:    "test_plan_checking",
+			Message: "Checking for existing test plan...",
+			Data:    map[string]string{"analysisId": analysisID},
+		},
+	})
 	existing, _ := s.store.GetTestPlanByAnalysis(analysisID)
 	if existing != nil {
 		return existing.ID
@@ -811,11 +857,29 @@ func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, cr
 		return ""
 	}
 
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_progress",
+		Data: AnalysisProgress{
+			Step:    "test_plan_flows",
+			Message: fmt.Sprintf("Found %d flow files: %s", len(flowNames), strings.Join(flowNames, ", ")),
+			Data:    map[string]string{"analysisId": analysisID},
+		},
+	})
+
 	planName := gameName
 	if planName == "" {
 		planName = "Analysis"
 	}
 	planName += " - Test Plan"
+
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_progress",
+		Data: AnalysisProgress{
+			Step:    "test_plan_saving",
+			Message: fmt.Sprintf("Saving test plan: %s", planName),
+			Data:    map[string]string{"analysisId": analysisID},
+		},
+	})
 
 	plan := store.TestPlan{
 		ID:         newID("plan"),
@@ -1136,7 +1200,45 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 	}
 
 	// Auto-create a test plan from generated flows
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_progress",
+		Data: AnalysisProgress{
+			Step:    "test_plan",
+			Message: fmt.Sprintf("Creating test plan from %d flows...", flowCount),
+			Data:    map[string]string{"analysisId": analysisID},
+		},
+	})
+
 	testPlanID := s.autoCreateTestPlan(analysisID, analysis.GameURL, gameName, analysis.ProjectID, createdBy, flowCount)
+
+	if testPlanID != "" {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: fmt.Sprintf("Test plan created: %s (%d flows)", gameName+" - Test Plan", flowCount),
+				Data:    map[string]string{"analysisId": analysisID, "testPlanId": testPlanID},
+			},
+		})
+	} else if flowCount > 0 {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: "Test plan already exists for this analysis",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+	} else {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: "No flows generated — test plan skipped",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+	}
 
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_completed",
