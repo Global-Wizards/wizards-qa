@@ -10,11 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
+	"gopkg.in/yaml.v3"
 )
 
 var safeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\s.]+$`)
@@ -220,8 +222,17 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 		srcDir := filepath.Join(s.store.FlowsDir(), "generated", plan.AnalysisID)
 		entries, err := os.ReadDir(srcDir)
 		if err != nil {
-			os.RemoveAll(tmpDir)
-			return "", fmt.Errorf("reading generated flows for analysis %s: %w", plan.AnalysisID, err)
+			// Directory missing (e.g. after container redeploy) — regenerate from DB
+			log.Printf("Generated flows dir missing for %s, regenerating from analysis result", plan.AnalysisID)
+			if rErr := s.regenerateFlowsFromAnalysis(plan.AnalysisID); rErr != nil {
+				os.RemoveAll(tmpDir)
+				return "", fmt.Errorf("generated flows missing and regeneration failed: %w (original: %v)", rErr, err)
+			}
+			entries, err = os.ReadDir(srcDir)
+			if err != nil {
+				os.RemoveAll(tmpDir)
+				return "", fmt.Errorf("reading regenerated flows for analysis %s: %w", plan.AnalysisID, err)
+			}
 		}
 		copied := 0
 		for _, e := range entries {
@@ -298,6 +309,89 @@ var openBrowserObjRegex = regexp.MustCompile(`(?m)^(\s*- openBrowser):\s*\n\s+ur
 
 func normalizeFlowYAML(content string) string {
 	return openBrowserObjRegex.ReplaceAllString(content, `$1: "$2"`)
+}
+
+// regenerateFlowsFromAnalysis reconstructs YAML flow files from the analysis
+// result stored in the database. This handles the case where the generated/
+// directory was lost (e.g. after a container redeploy with ephemeral storage).
+func (s *Server) regenerateFlowsFromAnalysis(analysisID string) error {
+	analysis, err := s.store.GetAnalysis(analysisID)
+	if err != nil {
+		return fmt.Errorf("getting analysis: %w", err)
+	}
+
+	resultMap, ok := analysis.Result.(map[string]interface{})
+	if !ok {
+		return fmt.Errorf("analysis has no structured result")
+	}
+
+	flowsRaw, ok := resultMap["flows"].([]interface{})
+	if !ok || len(flowsRaw) == 0 {
+		return fmt.Errorf("no flows in analysis result")
+	}
+
+	dstDir := filepath.Join(s.store.FlowsDir(), "generated", analysisID)
+	if err := os.MkdirAll(dstDir, 0755); err != nil {
+		return fmt.Errorf("creating generated dir: %w", err)
+	}
+
+	// Sort: setup flow first, matching the CLI's WriteFlowsToFiles behavior
+	sort.SliceStable(flowsRaw, func(i, j int) bool {
+		iMap, _ := flowsRaw[i].(map[string]interface{})
+		jMap, _ := flowsRaw[j].(map[string]interface{})
+		iName, _ := iMap["name"].(string)
+		jName, _ := jMap["name"].(string)
+		return strings.EqualFold(iName, "setup") && !strings.EqualFold(jName, "setup")
+	})
+
+	for i, flowRaw := range flowsRaw {
+		flowMap, ok := flowRaw.(map[string]interface{})
+		if !ok {
+			continue
+		}
+
+		name, _ := flowMap["name"].(string)
+		if name == "" {
+			name = fmt.Sprintf("flow-%d", i)
+		}
+
+		var sb strings.Builder
+
+		// Metadata section: tags
+		if tags, ok := flowMap["tags"].([]interface{}); ok && len(tags) > 0 {
+			sb.WriteString("tags:\n")
+			for _, tag := range tags {
+				sb.WriteString(fmt.Sprintf("  - %v\n", tag))
+			}
+			sb.WriteString("---\n")
+		}
+
+		// Commands — serialize with yaml.v3 then normalize
+		if commands, ok := flowMap["commands"].([]interface{}); ok {
+			yamlBytes, err := yaml.Marshal(commands)
+			if err == nil {
+				sb.Write(yamlBytes)
+			}
+		}
+
+		content := normalizeFlowYAML(sb.String())
+		filename := fmt.Sprintf("%02d-%s.yaml", i, sanitizeFlowName(name))
+		if err := os.WriteFile(filepath.Join(dstDir, filename), []byte(content), 0644); err != nil {
+			return fmt.Errorf("writing regenerated flow %s: %w", filename, err)
+		}
+	}
+
+	log.Printf("Regenerated %d flow files for analysis %s in %s", len(flowsRaw), analysisID, dstDir)
+	return nil
+}
+
+// sanitizeFlowName replaces unsafe characters in flow names for use as filenames.
+func sanitizeFlowName(name string) string {
+	safe := strings.ToLower(name)
+	for _, ch := range []string{"/", "\\", ":", "*", "?", "\"", "<", ">", "|", " "} {
+		safe = strings.ReplaceAll(safe, ch, "-")
+	}
+	return safe
 }
 
 // varSubstitute replaces {{VAR}} patterns in a single pass.

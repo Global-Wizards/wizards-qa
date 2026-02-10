@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.18.5] - 2026-02-10
+
+### Fixed
+- **Generated flows lost after container redeploy** — when the `generated/` directory is missing (e.g. ephemeral container storage), `prepareFlowDir()` now regenerates YAML flow files on-the-fly from the analysis result stored in the database, so test plans remain runnable without re-analyzing.
+
 ## [0.18.4] - 2026-02-10
 
 ### Fixed
