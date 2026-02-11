@@ -194,6 +194,10 @@ func (v *Validator) validateSpecificCommand(cmdName string, value interface{}, c
 				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (tapOn): empty text selector", cmdNum))
 			}
 		case map[string]interface{}:
+			// Warn on invalid visible field (only valid in extendedWaitUntil)
+			if _, hasVisible := val["visible"]; hasVisible {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (tapOn): 'visible' is not a valid tapOn selector — use tapOn: \"text\" instead", cmdNum))
+			}
 			// Check for point coordinates
 			if point, ok := val["point"]; ok {
 				if pointStr, ok := point.(string); ok {

@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.1] - 2026-02-11
+
+### Fixed
+- **All Maestro flows failing with "Not enough devices connected to run the requested number of shards"** — Maestro's `test` command defaults to sharding mode, which requires device orchestration. Added `--no-shard` flag to both `RunFlow()` and `ValidateFlow()` in `pkg/maestro/executor.go` for single-device execution.
+- **Maestro flows failing with "Unrecognized field 'visible'" on tapOn commands** — the AI sometimes generates `tapOn: {visible: "text"}` (extendedWaitUntil syntax) instead of `tapOn: "text"`. Fixed across 4 layers:
+  - **`commandToYAML()`** (`web/backend/executor.go`): flattens `tapOn: {visible: "..."}` → `tapOn: "..."` during YAML serialization, matching the existing `openLink` flattening pattern.
+  - **`normalizeFlowYAML()`** (`web/backend/executor.go`): added regex to catch multi-line `tapOn:\n  visible: "text"` in raw YAML loaded from disk.
+  - **Validator** (`pkg/flows/validator.go`): warns when `tapOn` contains a `visible` key, which is not a valid tapOn selector.
+  - **AI prompt** (`pkg/ai/types.go`): added explicit rule forbidding `{visible: "..."}` with `tapOn`.
+
 ## [0.21.0] - 2026-02-11
 
 ### Optimize Agent Analysis Step Duration

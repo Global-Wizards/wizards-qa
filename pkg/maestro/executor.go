@@ -49,7 +49,7 @@ func (e *Executor) RunFlow(flowPath string) (*TestResult, error) {
 	}
 
 	// Build Maestro command
-	cmd := exec.Command(e.MaestroPath, "test", absPath)
+	cmd := exec.Command(e.MaestroPath, "test", "--no-shard", absPath)
 
 	// Capture output
 	var stdout, stderr bytes.Buffer
@@ -207,7 +207,7 @@ func (e *Executor) ValidateFlow(flowPath string) error {
 	}
 
 	// Try to parse with Maestro (dry run)
-	cmd := exec.Command(e.MaestroPath, "test", "--dry-run", absPath)
+	cmd := exec.Command(e.MaestroPath, "test", "--no-shard", "--dry-run", absPath)
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("flow validation failed: %s", string(output))

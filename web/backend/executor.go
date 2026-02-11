@@ -367,6 +367,10 @@ var openLinkObjRegex = regexp.MustCompile(`(?m)^(\s*- openLink):\s*\n\s+url:\s*"
 // only a timeout and no visible/notVisible condition (invalid Maestro YAML).
 var extendedWaitTimeoutOnlyRegex = regexp.MustCompile(`(?m)^[ \t]*- extendedWaitUntil:\s*\n[ \t]+timeout:\s*\d+\s*$`)
 
+// tapOnVisibleRegex matches multi-line tapOn blocks using the invalid {visible: "text"} syntax.
+// tapOn: \n    visible: "text"  →  tapOn: "text"
+var tapOnVisibleRegex = regexp.MustCompile(`(?m)^(\s*- tapOn):\s*\n\s+visible:\s*"?([^"\n]+)"?\s*$`)
+
 // maestroCommandAliases maps invalid/old command names to correct Maestro names.
 var maestroCommandAliases = map[string]string{
 	"waitFor":     "extendedWaitUntil",
@@ -376,6 +380,8 @@ var maestroCommandAliases = map[string]string{
 
 func normalizeFlowYAML(content string) string {
 	result := openLinkObjRegex.ReplaceAllString(content, `$1: "$2"`)
+	// Flatten tapOn: {visible: "text"} → tapOn: "text"
+	result = tapOnVisibleRegex.ReplaceAllString(result, `$1: "$2"`)
 	// Fix invalid command names that the AI may have generated
 	for old, correct := range maestroCommandAliases {
 		result = strings.ReplaceAll(result, "- "+old+":", "- "+correct+":")
@@ -528,6 +534,15 @@ func commandToYAML(cmd map[string]interface{}) string {
 				if urlVal, ok := v["url"]; ok {
 					urlStr := fmt.Sprintf("%v", urlVal)
 					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, urlStr))
+					continue
+				}
+			}
+			// Flatten tapOn: {visible: "..."} → tapOn: "..."
+			// The AI sometimes uses extendedWaitUntil syntax for tapOn
+			if key == "tapOn" {
+				if visVal, ok := v["visible"]; ok {
+					visStr := fmt.Sprintf("%v", visVal)
+					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, visStr))
 					continue
 				}
 			}

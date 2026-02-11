@@ -895,6 +895,7 @@ IMPORTANT RULES:
 - Use percentage-based coordinates that match what you see in the screenshots
 - NEVER use extendedWaitUntil with only timeout and no condition. extendedWaitUntil REQUIRES either "visible" or "notVisible" — timeout alone is INVALID.
 - For "wait for page to load" scenarios, wait for a specific visible element (a button, heading, or game text).
+- NEVER use {visible: "..."} with tapOn. The "visible" field is ONLY for extendedWaitUntil. For tapOn, use tapOn: "text" directly.
 
 FLOW COMPOSITION — SHARED SETUP:
 - The FIRST flow MUST be a "setup" flow named exactly "setup". It contains the common steps that every test needs: opening the browser, waiting for the game to load, dismissing any splash screens, skipping tutorials, and reaching the main game state.
