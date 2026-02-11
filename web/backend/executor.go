@@ -16,8 +16,21 @@ import (
 
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
-	"gopkg.in/yaml.v3"
 )
+
+// runningTest tracks the live state of a running test execution for reconnection support.
+type runningTest struct {
+	TestID     string             `json:"testId"`
+	PlanID     string             `json:"planId"`
+	PlanName   string             `json:"planName"`
+	StartedAt  time.Time          `json:"startedAt"`
+	TotalFlows int                `json:"totalFlows"`
+	Flows      []store.FlowResult `json:"flows"`
+	Logs       []string           `json:"logs"`
+	Status     string             `json:"status"`
+}
+
+const maxRunningTestLogs = 500
 
 var safeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\s.]+$`)
 
@@ -25,6 +38,7 @@ var safeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\s.]+$`)
 // Must be called in a goroutine with panic recovery (see launchTestRun).
 func (s *Server) executeTestRun(planID, testID string, flowDir string, planName string, createdBy string) {
 	startTime := time.Now()
+	totalFlows := countFlowFiles(flowDir)
 
 	if planID != "" {
 		if err := s.store.UpdateTestPlanStatus(planID, store.StatusRunning, testID); err != nil {
@@ -32,12 +46,28 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 		}
 	}
 
+	// Track running test state for reconnection
+	rt := &runningTest{
+		TestID:     testID,
+		PlanID:     planID,
+		PlanName:   planName,
+		StartedAt:  startTime,
+		TotalFlows: totalFlows,
+		Flows:      []store.FlowResult{},
+		Logs:       []string{},
+		Status:     "running",
+	}
+	s.runningTestsMu.Lock()
+	s.runningTests[testID] = rt
+	s.runningTestsMu.Unlock()
+
 	s.wsHub.Broadcast(ws.Message{
 		Type: "test_started",
-		Data: map[string]string{
-			"testId": testID,
-			"planId": planID,
-			"name":   planName,
+		Data: map[string]interface{}{
+			"testId":     testID,
+			"planId":     planID,
+			"name":       planName,
+			"totalFlows": totalFlows,
 		},
 	})
 
@@ -74,13 +104,32 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 	for scanner.Scan() {
 		line := scanner.Text()
 
-		flowName, status := parseFlowLine(line)
+		flowName, status, duration := parseFlowLine(line)
 		if flowName != "" {
-			flowResults = append(flowResults, store.FlowResult{
-				Name:   flowName,
-				Status: status,
-			})
+			fr := store.FlowResult{
+				Name:     flowName,
+				Status:   status,
+				Duration: duration,
+			}
+			flowResults = append(flowResults, fr)
+
+			// Update running test state
+			s.runningTestsMu.Lock()
+			if rt, ok := s.runningTests[testID]; ok {
+				rt.Flows = append(rt.Flows, fr)
+			}
+			s.runningTestsMu.Unlock()
 		}
+
+		// Update running test logs
+		s.runningTestsMu.Lock()
+		if rt, ok := s.runningTests[testID]; ok {
+			if len(rt.Logs) >= maxRunningTestLogs {
+				rt.Logs = rt.Logs[1:]
+			}
+			rt.Logs = append(rt.Logs, line)
+		}
+		s.runningTestsMu.Unlock()
 
 		s.wsHub.Broadcast(ws.Message{
 			Type: "test_progress",
@@ -90,6 +139,7 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 				"line":     line,
 				"flowName": flowName,
 				"status":   status,
+				"duration": duration,
 			},
 		})
 	}
@@ -129,6 +179,11 @@ func (s *Server) launchTestRun(planID, testID, flowDir, planName string, cleanup
 
 // finishTestRun saves the result and broadcasts completion.
 func (s *Server) finishTestRun(planID, testID, planName string, startTime time.Time, flows []store.FlowResult, runErr error, createdBy string) {
+	// Remove from running tests
+	s.runningTestsMu.Lock()
+	delete(s.runningTests, testID)
+	s.runningTestsMu.Unlock()
+
 	duration := time.Since(startTime)
 	status := store.StatusPassed
 	errorOutput := ""
@@ -366,11 +421,12 @@ func (s *Server) regenerateFlowsFromAnalysis(analysisID string) error {
 			sb.WriteString("---\n")
 		}
 
-		// Commands — serialize with yaml.v3 then normalize
+		// Commands — serialize using Maestro-compatible formatting
 		if commands, ok := flowMap["commands"].([]interface{}); ok {
-			yamlBytes, err := yaml.Marshal(commands)
-			if err == nil {
-				sb.Write(yamlBytes)
+			for _, cmd := range commands {
+				if cmdMap, ok := cmd.(map[string]interface{}); ok {
+					sb.WriteString(commandToYAML(cmdMap))
+				}
 			}
 		}
 
@@ -383,6 +439,56 @@ func (s *Server) regenerateFlowsFromAnalysis(analysisID string) error {
 
 	log.Printf("Regenerated %d flow files for analysis %s in %s", len(flowsRaw), analysisID, dstDir)
 	return nil
+}
+
+// commandToYAML converts a command map to Maestro-compatible YAML string.
+// Ported from pkg/ai/analyzer.go to avoid cross-module import.
+func commandToYAML(cmd map[string]interface{}) string {
+	var sb strings.Builder
+
+	for key, value := range cmd {
+		switch v := value.(type) {
+		case string:
+			if key == "comment" {
+				sb.WriteString(fmt.Sprintf("# %s\n", v))
+			} else if v == "" {
+				sb.WriteString(fmt.Sprintf("- %s\n", key))
+			} else if strings.ContainsAny(v, ",:%{}[]") {
+				sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, v))
+			} else {
+				sb.WriteString(fmt.Sprintf("- %s: %s\n", key, v))
+			}
+		case map[string]interface{}:
+			// Flatten openBrowser: {url: "..."} → openBrowser: "..."
+			if key == "openBrowser" {
+				if urlVal, ok := v["url"]; ok {
+					urlStr := fmt.Sprintf("%v", urlVal)
+					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, urlStr))
+					continue
+				}
+			}
+			sb.WriteString(fmt.Sprintf("- %s:\n", key))
+			for subKey, subValue := range v {
+				subStr := fmt.Sprintf("%v", subValue)
+				if strings.ContainsAny(subStr, ",:%{}[]") {
+					sb.WriteString(fmt.Sprintf("    %s: \"%s\"\n", subKey, subStr))
+				} else {
+					sb.WriteString(fmt.Sprintf("    %s: %v\n", subKey, subValue))
+				}
+			}
+		case float64:
+			// JSON numbers are float64; convert to int when possible
+			if v == float64(int64(v)) {
+				sb.WriteString(fmt.Sprintf("- %s: %d\n", key, int64(v)))
+			} else {
+				sb.WriteString(fmt.Sprintf("- %s: %v\n", key, v))
+			}
+		default:
+			sb.WriteString(fmt.Sprintf("- %s: %v\n", key, v))
+		}
+	}
+
+	return sb.String()
 }
 
 // sanitizeFlowName replaces unsafe characters in flow names for use as filenames.
@@ -407,32 +513,62 @@ func varSubstitute(content string, vars map[string]string) string {
 	})
 }
 
-// parseFlowLine extracts flow name and pass/fail status from CLI output lines.
-func parseFlowLine(line string) (string, string) {
+// parseFlowLine extracts flow name, pass/fail status, and duration from CLI output lines.
+// CLI output format: "   ✅ 1. LoginFlow (234ms)"
+func parseFlowLine(line string) (name, status, duration string) {
 	trimmed := strings.TrimSpace(line)
 
 	if strings.Contains(trimmed, "✅") || strings.Contains(trimmed, "PASS") {
-		return extractFlowName(trimmed), "passed"
+		n, d := extractFlowNameAndDuration(trimmed)
+		return n, "passed", d
 	}
 	if strings.Contains(trimmed, "❌") || strings.Contains(trimmed, "FAIL") {
-		return extractFlowName(trimmed), "failed"
+		n, d := extractFlowNameAndDuration(trimmed)
+		return n, "failed", d
 	}
 
-	return "", ""
+	return "", "", ""
 }
 
-func extractFlowName(line string) string {
+var durationRegex = regexp.MustCompile(`\((\d+(?:\.\d+)?(?:ms|s))\)\s*$`)
+
+func extractFlowNameAndDuration(line string) (name, duration string) {
+	// Extract duration first
+	if m := durationRegex.FindStringSubmatch(line); len(m) == 2 {
+		duration = m[1]
+		line = line[:durationRegex.FindStringIndex(line)[0]]
+	}
+
 	line = strings.TrimSpace(line)
 	for _, prefix := range []string{"✅", "❌", "PASS", "FAIL", ":", "-", " "} {
 		line = strings.TrimPrefix(line, prefix)
 	}
 	line = strings.TrimSpace(line)
 
-	if idx := strings.IndexAny(line, "(:"); idx > 0 {
+	// Remove leading number prefix like "1. " or "1 "
+	if idx := strings.IndexAny(line, "(."); idx > 0 {
 		line = line[:idx]
 	}
 
-	return strings.TrimSpace(line)
+	return strings.TrimSpace(line), duration
+}
+
+// countFlowFiles counts .yaml/.yml files in a directory.
+func countFlowFiles(dir string) int {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return 0
+	}
+	count := 0
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		if strings.HasSuffix(e.Name(), ".yaml") || strings.HasSuffix(e.Name(), ".yml") {
+			count++
+		}
+	}
+	return count
 }
 
 func formatDuration(d time.Duration) string {

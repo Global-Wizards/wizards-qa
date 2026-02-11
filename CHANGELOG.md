@@ -5,6 +5,24 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.0] - 2026-02-10
+
+### Added
+- **Rich test execution detail page** — replaced the basic Sheet-based execution view with a full-page detail view at `/tests/run/:testId`. Features a gradient header with animated status icon and elapsed timer, a 3-phase vertical timeline (Preparing → Executing → Results) with animated nodes, per-flow result cards with duration badges, a 4-column stats strip (Total/Passed/Failed/Pass Rate), and collapsible color-coded logs. Design modeled after `AnalysisProgressPanel.vue`.
+- **Reconnection support** — navigating away from a running test and returning (or clicking a running plan row) restores full live progress via the new `GET /api/tests/:id/live` endpoint, which returns in-memory state for running tests or completed results from the database.
+- **Flow duration extraction** — `parseFlowLine()` now extracts per-flow duration from CLI output (e.g. `(234ms)`), populating `FlowResult.Duration` and including it in `test_progress` WebSocket events.
+- **Total flow count** — `test_started` WebSocket event now includes `totalFlows` (counted from flow files in the run directory), enabling the frontend to show pending flow slots and accurate progress fractions.
+- **Clickable running plan rows** — plan rows with `status === 'running'` now show a spinning indicator and are clickable, navigating to the live execution detail page. A "View" button also appears in the actions column.
+
+### Changed
+- **Test plan "Run" navigates to detail page** — clicking "Run" on a test plan now navigates to `/tests/run/:testId` instead of opening a Sheet.
+- **Removed execution Sheet** — the `TestExecutionPanel.vue` component and its Sheet wrapper in `Tests.vue` have been removed in favor of the new full-page view.
+
+## [0.18.6] - 2026-02-10
+
+### Fixed
+- **Regenerated flow YAML uses wrong format, breaking all test plans** — `regenerateFlowsFromAnalysis()` used `yaml.Marshal()` which produces standard Go YAML (unquoted special chars, float64 numbers, nested openBrowser objects, `comment:` keys instead of `#` comments). Replaced with a ported `commandToYAML()` that produces Maestro-compatible YAML matching the original serializer in `pkg/ai/analyzer.go`.
+
 ## [0.18.5] - 2026-02-10
 
 ### Fixed

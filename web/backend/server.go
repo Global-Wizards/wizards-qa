@@ -41,16 +41,18 @@ type activeAnalysis struct {
 }
 
 type Server struct {
-	router          *chi.Mux
-	port            string
-	store           *store.Store
-	wsHub           *ws.Hub
-	jwtSecret       string
-	serverCtx       context.Context
-	cancelCtx       context.CancelFunc
-	analysisSem     chan struct{} // limits concurrent analyses
-	activeAnalyses  map[string]*activeAnalysis
+	router           *chi.Mux
+	port             string
+	store            *store.Store
+	wsHub            *ws.Hub
+	jwtSecret        string
+	serverCtx        context.Context
+	cancelCtx        context.CancelFunc
+	analysisSem      chan struct{} // limits concurrent analyses
+	activeAnalyses   map[string]*activeAnalysis
 	activeAnalysesMu sync.Mutex
+	runningTests     map[string]*runningTest
+	runningTestsMu   sync.Mutex
 }
 
 func NewServer(port string) *Server {
@@ -113,6 +115,7 @@ func NewServer(port string) *Server {
 		cancelCtx:      cancel,
 		analysisSem:    make(chan struct{}, 3), // max 3 concurrent analyses
 		activeAnalyses: make(map[string]*activeAnalysis),
+		runningTests:   make(map[string]*runningTest),
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -165,6 +168,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/auth/me", s.handleMe)
 		r.Get("/api/tests", s.handleListTests)
 		r.Get("/api/tests/{id}", s.handleGetTest)
+		r.Get("/api/tests/{id}/live", s.handleGetLiveTest)
 		r.Post("/api/tests/run", s.handleRunTest)
 		r.Get("/api/reports", s.handleListReports)
 		r.Get("/api/reports/{id}", s.handleGetReport)
@@ -310,6 +314,36 @@ func (s *Server) handleGetTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, test)
+}
+
+func (s *Server) handleGetLiveTest(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	// Check running tests first
+	s.runningTestsMu.Lock()
+	rt, ok := s.runningTests[id]
+	s.runningTestsMu.Unlock()
+
+	if ok {
+		respondJSON(w, http.StatusOK, rt)
+		return
+	}
+
+	// Fall back to completed result
+	test, err := s.store.GetTestResult(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Test not found")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"testId":   test.ID,
+		"planName": test.Name,
+		"status":   test.Status,
+		"flows":    test.Flows,
+		"duration": test.Duration,
+		"successRate": test.SuccessRate,
+		"errorOutput": test.ErrorOutput,
+	})
 }
 
 func (s *Server) handleRunTest(w http.ResponseWriter, r *http.Request) {

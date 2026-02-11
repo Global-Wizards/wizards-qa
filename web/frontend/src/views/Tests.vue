@@ -147,8 +147,21 @@
                 </TableRow>
               </TableHeader>
               <TableBody>
-                <TableRow v-for="plan in plans" :key="plan.id">
-                  <TableCell class="font-medium">{{ plan.name }}</TableCell>
+                <TableRow
+                  v-for="plan in plans"
+                  :key="plan.id"
+                  :class="plan.status === 'running' ? 'cursor-pointer hover:bg-muted/50' : ''"
+                  @click="plan.status === 'running' && plan.lastRunId ? navigateToRunning(plan) : null"
+                >
+                  <TableCell class="font-medium">
+                    <div class="flex items-center gap-2">
+                      <Loader2
+                        v-if="plan.status === 'running'"
+                        class="h-3.5 w-3.5 animate-spin text-primary shrink-0"
+                      />
+                      {{ plan.name }}
+                    </div>
+                  </TableCell>
                   <TableCell><StatusBadge :status="plan.status" /></TableCell>
                   <TableCell>{{ plan.flowCount }}</TableCell>
                   <TableCell class="text-muted-foreground">
@@ -157,9 +170,18 @@
                   <TableCell class="text-right">
                     <div class="flex items-center justify-end gap-1">
                       <Button
+                        v-if="plan.status === 'running' && plan.lastRunId"
+                        size="sm"
+                        variant="outline"
+                        @click.stop="navigateToRunning(plan)"
+                      >
+                        <Eye class="h-3 w-3 mr-1" />
+                        View
+                      </Button>
+                      <Button
                         size="sm"
                         :disabled="plan.status === 'running'"
-                        @click="runPlan(plan)"
+                        @click.stop="runPlan(plan)"
                       >
                         <Play class="h-3 w-3 mr-1" />
                         Run
@@ -168,7 +190,7 @@
                         variant="ghost"
                         size="sm"
                         :disabled="plan.status === 'running'"
-                        @click="deletePlan(plan)"
+                        @click.stop="deletePlan(plan)"
                       >
                         <Trash2 class="h-3 w-3 text-destructive" />
                       </Button>
@@ -187,7 +209,7 @@
       </TabsContent>
     </Tabs>
 
-    <!-- Detail Sheet -->
+    <!-- Detail Sheet (completed test results only) -->
     <Sheet :open="sheetOpen" @update:open="sheetOpen = $event">
       <SheetContent side="right">
         <SheetHeader>
@@ -237,26 +259,13 @@
         </div>
       </SheetContent>
     </Sheet>
-
-    <!-- Execution Sheet -->
-    <Sheet :open="execSheetOpen" @update:open="execSheetOpen = $event">
-      <SheetContent side="right">
-        <SheetHeader>
-          <SheetTitle>Test Execution</SheetTitle>
-          <SheetDescription>{{ runningPlanName }}</SheetDescription>
-        </SheetHeader>
-        <div class="mt-6">
-          <TestExecutionPanel v-if="runningTestId" :test-id="runningTestId" />
-        </div>
-      </SheetContent>
-    </Sheet>
   </div>
 </template>
 
 <script setup>
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
-import { useRoute } from 'vue-router'
-import { AlertCircle, Plus, Play, Trash2 } from 'lucide-vue-next'
+import { useRoute, useRouter } from 'vue-router'
+import { AlertCircle, Plus, Play, Trash2, Eye, Loader2 } from 'lucide-vue-next'
 import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { getWebSocket } from '@/lib/websocket'
@@ -271,9 +280,9 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import StatusBadge from '@/components/StatusBadge.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
-import TestExecutionPanel from '@/components/TestExecutionPanel.vue'
 
 const route = useRoute()
+const router = useRouter()
 const projectId = computed(() => route.params.projectId || '')
 
 const activeTab = ref('results')
@@ -298,10 +307,7 @@ const plansLoading = ref(true)
 const plansError = ref(null)
 const plans = ref([])
 
-// Execution state
-const execSheetOpen = ref(false)
-const runningTestId = ref(null)
-const runningPlanName = ref('')
+// Run error
 const runError = ref(null)
 
 const filteredTests = computed(() => {
@@ -341,14 +347,22 @@ async function openDetail(test) {
   }
 }
 
+function navigateToRunning(plan) {
+  const base = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push(`${base}/tests/run/${plan.lastRunId}`)
+}
+
 async function runPlan(plan) {
   runError.value = null
   try {
     const data = await testPlansApi.run(plan.id)
-    runningTestId.value = data.testId
-    runningPlanName.value = plan.name
-    execSheetOpen.value = true
     plan.status = 'running'
+    plan.lastRunId = data.testId
+    const base = projectId.value ? `/projects/${projectId.value}` : ''
+    router.push({
+      path: `${base}/tests/run/${data.testId}`,
+      query: { fresh: '1', planId: plan.id, planName: plan.name },
+    })
   } catch (err) {
     runError.value = 'Failed to start test: ' + err.message
   }

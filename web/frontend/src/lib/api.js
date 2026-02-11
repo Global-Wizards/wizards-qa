@@ -103,6 +103,7 @@ export const statsApi = {
 export const testsApi = {
   list: () => api.get('/tests').then((r) => r.data),
   get: (id) => api.get(`/tests/${id}`).then((r) => r.data),
+  live: (id) => api.get(`/tests/${id}/live`).then((r) => r.data),
   run: (payload) => api.post('/tests/run', payload).then((r) => r.data),
 }
 
