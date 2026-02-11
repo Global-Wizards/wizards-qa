@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.4] - 2026-02-11
+
+### Fixed
+- **All Maestro flows failing with "Unknown option: '--no-shard'"** — Maestro 2.1.0 doesn't have a `--no-shard` flag; sharding is opt-in via `-s`/`--shards`, so the default already runs single-device. Removed the invalid flag from `RunFlow()` and `ValidateFlow()`.
+
 ## [0.21.3] - 2026-02-11
 
 ### Fixed
