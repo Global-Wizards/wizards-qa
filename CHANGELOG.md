@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.3] - 2026-02-11
+
+### Fixed
+- **cache_control accumulation still broken past step 4** — the v0.21.2 cleanup in `addConversationCacheBreakpoint()` only handled `map[string]interface{}` blocks inside `[]interface{}` content, but agent tool results are stored as `ToolResultBlock` value types. Added a `ToolResultBlock` type assertion to the cleanup loop so `CacheControl` is properly nilled on those blocks.
+- **Agent API errors not visible in progress log** — errors from the AI API call in the agent loop were returned but never emitted via the progress callback. Added `progress("agent_error", ...)` before the error return so failures appear in the live progress log.
+
 ## [0.21.2] - 2026-02-11
 
 ### Fixed

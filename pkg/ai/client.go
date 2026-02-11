@@ -311,9 +311,12 @@ func addConversationCacheBreakpoint(messages []AgentMessage) {
 		}
 		switch content := messages[i].Content.(type) {
 		case []interface{}:
-			for _, block := range content {
+			for j, block := range content {
 				if m, ok := block.(map[string]interface{}); ok {
 					delete(m, "cache_control")
+				} else if tb, ok := block.(ToolResultBlock); ok {
+					tb.CacheControl = nil
+					content[j] = tb // ToolResultBlock is a value type, must write back
 				}
 			}
 		case []ToolResultBlock:

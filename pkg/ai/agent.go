@@ -166,6 +166,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		resp, err := agent.CallWithTools(systemPrompt, messages, tools)
 		thinkingMs := int(time.Since(thinkStart).Milliseconds())
 		if err != nil {
+			progress("agent_error", fmt.Sprintf("Step %d API call failed: %s", step, err))
 			return nil, steps, fmt.Errorf("agent step %d API call failed: %w", step, err)
 		}
 
