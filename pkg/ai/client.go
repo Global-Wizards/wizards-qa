@@ -303,6 +303,28 @@ func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessag
 // so that Anthropic prompt caching caches the conversation prefix. Only the latest tool
 // result (the last user message) will be "new" input on each turn.
 func addConversationCacheBreakpoint(messages []AgentMessage) {
+	// First: remove any existing cache_control from ALL user messages
+	// to prevent accumulation across multiple CallWithTools calls.
+	for i := range messages {
+		if messages[i].Role != "user" {
+			continue
+		}
+		switch content := messages[i].Content.(type) {
+		case []interface{}:
+			for _, block := range content {
+				if m, ok := block.(map[string]interface{}); ok {
+					delete(m, "cache_control")
+				}
+			}
+		case []ToolResultBlock:
+			for j := range content {
+				content[j].CacheControl = nil
+			}
+			messages[i].Content = content
+		}
+	}
+
+	// Then: add cache_control to the second-to-last user message.
 	userCount := 0
 	for i := len(messages) - 1; i >= 0; i-- {
 		if messages[i].Role != "user" {
