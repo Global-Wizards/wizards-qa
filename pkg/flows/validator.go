@@ -28,7 +28,7 @@ func NewValidator() *Validator {
 			"swipe":             true,
 			"back":              true,
 			"takeScreenshot":    true,
-			"openBrowser":       true,
+			"openLink":          true,
 			"hideKeyboard":      true,
 			"pressKey":          true,
 			"eraseText":         true,

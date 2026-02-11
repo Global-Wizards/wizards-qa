@@ -83,7 +83,11 @@ func (e *Executor) RunFlow(flowPath string) (*TestResult, error) {
 
 		if err != nil {
 			result.Status = StatusFailed
-			result.Error = err.Error()
+			if stderrStr := strings.TrimSpace(stderr.String()); stderrStr != "" {
+				result.Error = fmt.Sprintf("%s\n%s", err.Error(), stderrStr)
+			} else {
+				result.Error = err.Error()
+			}
 		} else {
 			result.Status = StatusPassed
 		}

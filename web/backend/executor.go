@@ -338,7 +338,7 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 			continue
 		}
 
-		// Variable substitution + normalize openBrowser syntax + inject appId for web flows
+		// Variable substitution + normalize openLink syntax + inject appId for web flows
 		result := injectAppId(normalizeFlowYAML(varSubstitute(string(content), plan.Variables)))
 
 		dstPath := filepath.Join(tmpDir, filepath.Base(tmpl.Path))
@@ -351,25 +351,26 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 	return tmpDir, nil
 }
 
-// normalizeFlowYAML fixes openBrowser object syntax to simple string syntax.
+// normalizeFlowYAML fixes openLink object syntax to simple string syntax.
 // Converts:
 //
-//	- openBrowser:
+//	- openLink:
 //	    url: "https://..."
 //
 // To:
 //
-//	- openBrowser: "https://..."
-var openBrowserObjRegex = regexp.MustCompile(`(?m)^(\s*- openBrowser):\s*\n\s+url:\s*"?([^"\n]+)"?\s*$`)
+//	- openLink: "https://..."
+var openLinkObjRegex = regexp.MustCompile(`(?m)^(\s*- openLink):\s*\n\s+url:\s*"?([^"\n]+)"?\s*$`)
 
 // maestroCommandAliases maps invalid/old command names to correct Maestro names.
 var maestroCommandAliases = map[string]string{
-	"waitFor":    "extendedWaitUntil",
-	"screenshot": "takeScreenshot",
+	"waitFor":     "extendedWaitUntil",
+	"screenshot":  "takeScreenshot",
+	"openBrowser": "openLink",
 }
 
 func normalizeFlowYAML(content string) string {
-	result := openBrowserObjRegex.ReplaceAllString(content, `$1: "$2"`)
+	result := openLinkObjRegex.ReplaceAllString(content, `$1: "$2"`)
 	// Fix invalid command names that the AI may have generated
 	for old, correct := range maestroCommandAliases {
 		result = strings.ReplaceAll(result, "- "+old+":", "- "+correct+":")
@@ -378,7 +379,7 @@ func normalizeFlowYAML(content string) string {
 }
 
 // injectAppId ensures web flows have appId in their metadata section.
-// Maestro requires appId in every flow's YAML; for web testing via openBrowser,
+// Maestro requires appId in every flow's YAML; for web testing via openLink,
 // com.android.chrome satisfies the parser.
 func injectAppId(content string) string {
 	// Already has appId — leave unchanged
@@ -386,7 +387,7 @@ func injectAppId(content string) string {
 		return content
 	}
 	// Not a web flow — leave unchanged
-	if !strings.Contains(content, "openBrowser:") && !strings.Contains(content, "runFlow:") {
+	if !strings.Contains(content, "openLink:") && !strings.Contains(content, "runFlow:") {
 		return content
 	}
 	// If content has no metadata separator, inject appId with separator
@@ -505,8 +506,8 @@ func commandToYAML(cmd map[string]interface{}) string {
 				sb.WriteString(fmt.Sprintf("- %s: %s\n", key, v))
 			}
 		case map[string]interface{}:
-			// Flatten openBrowser: {url: "..."} → openBrowser: "..."
-			if key == "openBrowser" {
+			// Flatten openLink: {url: "..."} → openLink: "..."
+			if key == "openLink" {
 				if urlVal, ok := v["url"]; ok {
 					urlStr := fmt.Sprintf("%v", urlVal)
 					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, urlStr))

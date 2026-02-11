@@ -5,6 +5,13 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.5] - 2026-02-11
+
+### Fixed
+- **All Maestro flows failing with "exit status 1" due to invalid `openBrowser` command** — `openBrowser` is not a valid Maestro command; the correct command is `openLink`. Renamed in the AI prompt template, `flowToYAML()` serializer, `normalizeFlowYAML()` regex, `injectAppId()` detection, `commandToYAML()` flatten logic, and the flow validator's allowed commands. Added `"openBrowser": "openLink"` to `maestroCommandAliases` for runtime fix of flows already stored in the DB.
+- **Maestro error details swallowed — only "exit status 1" shown** — `pkg/maestro/executor.go` now includes stderr content in `result.Error` when non-empty, surfacing Maestro's actual parsing/validation errors instead of the generic Go exit code.
+- **Example template using invalid commands** — `flows/templates/example-game.yaml` still used `waitFor` and `captureScreenshot`; updated to `extendedWaitUntil` and `takeScreenshot`.
+
 ## [0.19.4] - 2026-02-11
 
 ### Fixed

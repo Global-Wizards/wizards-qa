@@ -877,7 +877,7 @@ Full analysis (JSON):
 Generate Maestro flows as a JSON array. Each flow should be a complete, runnable test.
 
 Maestro command reference:
-- openBrowser: "..." — navigate to the game URL (string value, NOT an object)
+- openLink: "..." — open a URL (string value, NOT an object)
 - extendedWaitUntil: {visible: "text", timeout: 5000} — wait for element
 - tapOn: "text" — tap on visible text element
 - tapOn: {point: "50%,80%"} — tap at percentage coordinates on screen
@@ -887,7 +887,7 @@ Maestro command reference:
 
 IMPORTANT RULES:
 - For canvas games ({{framework}}), use coordinate-based tapOn with percentage points
-- Always start with openBrowser and an extendedWaitUntil to ensure the game loads
+- Always start with openLink and an extendedWaitUntil to ensure the game loads
 - Add takeScreenshot commands after key interactions to capture state
 - Use percentage-based coordinates that match what you see in the screenshots
 
@@ -904,7 +904,7 @@ Respond with a JSON array of flows:
     "appId": "com.android.chrome",
     "tags": ["setup"],
     "commands": [
-      {"openBrowser": "{{url}}"},
+      {"openLink": "{{url}}"},
       {"extendedWaitUntil": {"visible": "Play", "timeout": 10000}},
       {"tapOn": "OK"},
       {"tapOn": "Play"},

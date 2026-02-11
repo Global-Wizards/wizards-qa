@@ -5,7 +5,7 @@ url: https://game.example.com
 ---
 # Wait for game to load
 - launchApp
-- waitFor:
+- extendedWaitUntil:
     visible: true
     timeout: 10000
 
@@ -16,7 +16,7 @@ url: https://game.example.com
 - tapOn: "Start Game"
 
 # Wait for game canvas to initialize
-- waitFor:
+- extendedWaitUntil:
     timeout: 3000
 
 # Click center of game screen (main menu)
@@ -24,7 +24,7 @@ url: https://game.example.com
     point: 50%,50%
 
 # Wait for level to load
-- waitFor:
+- extendedWaitUntil:
     timeout: 2000
 
 # Click specific coordinate (game character/object)
@@ -32,14 +32,14 @@ url: https://game.example.com
     point: 400,300
 
 # Wait for action to complete
-- waitFor:
+- extendedWaitUntil:
     timeout: 1000
 
 # Verify score is visible (HTML overlay)
 - assertVisible: "Score:"
 
 # Take screenshot for verification
-- captureScreenshot: gameplay-state.png
+- takeScreenshot: gameplay-state.png
 
 # Click another game element
 - tapOn:
@@ -49,4 +49,4 @@ url: https://game.example.com
 - assertVisible: "Level Complete"
 
 # Take final screenshot
-- captureScreenshot: level-complete.png
+- takeScreenshot: level-complete.png
