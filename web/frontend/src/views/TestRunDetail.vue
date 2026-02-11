@@ -275,7 +275,7 @@
             Back to Tests
           </button>
           <button
-            v-if="status === 'completed' || status === 'failed'"
+            v-if="(status === 'completed' || status === 'failed') && planId"
             class="inline-flex items-center gap-1 text-xs bg-primary text-primary-foreground rounded px-3 py-1.5 hover:bg-primary/90 transition-colors"
             @click="rerun"
           >
@@ -423,8 +423,8 @@ async function rerun() {
       router.replace(`/tests/run/${data.testId}`)
     }
     startExecution(data.testId, planId.value, planName.value)
-  } catch {
-    // Ignore
+  } catch (err) {
+    alert('Failed to re-run: ' + (err.message || 'Unknown error'))
   }
 }
 

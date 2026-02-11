@@ -216,21 +216,10 @@ func (e *Executor) ValidateFlow(flowPath string) error {
 	return nil
 }
 
-// parseOutput extracts details from Maestro output
+// parseOutput extracts details from Maestro output.
+// Status is determined by exit code (set before this is called), not by text matching.
+// Text matching "PASSED"/"FAILED"/"timeout" in output is unreliable because these
+// strings can appear in flow names, YAML content, or informational messages.
 func (e *Executor) parseOutput(result *TestResult) {
-	output := result.Stdout + result.Stderr
-
-	// Look for common patterns
-	if strings.Contains(output, "PASSED") {
-		result.Status = StatusPassed
-	}
-	if strings.Contains(output, "FAILED") {
-		result.Status = StatusFailed
-	}
-	if strings.Contains(output, "timeout") {
-		result.Status = StatusTimeout
-	}
-
-	// Extract step count
-	// TODO: Parse Maestro output format for step details
+	// TODO: Parse Maestro output format for step count details
 }

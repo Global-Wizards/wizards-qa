@@ -5,6 +5,29 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.20.0] - 2026-02-11
+
+### Fixed
+- **Re-run button broken after page refresh** — `planId` was not persisted to the database with test results, so after navigating away and returning to a completed test, the Re-run button had no plan to re-run. Added `plan_id` column to `test_results` table, included it in INSERT/SELECT queries, and returned it in the completed-test API response.
+- **`parseOutput()` overrides exit-code-based status incorrectly** — text matching for "PASSED", "FAILED", and "timeout" in Maestro output could match flow names or YAML content, overriding the correct exit-code-based status. Removed the unreliable text-matching logic; exit code is now the sole authority for pass/fail.
+- **Plans list not updating when test starts** — the Tests.vue page only listened for `test_completed`/`test_failed` WebSocket events but not `test_started`, so the plan status wouldn't show "running" until the test finished. Added `test_started` WS listener to update plan status immediately.
+- **Re-run button visible but silently fails when no planId** — the Re-run button was shown for all completed/failed tests even when `planId` was empty, and the `catch` block was empty. Now hidden when `planId` is missing and shows an alert on failure.
+- **Test detail sheet silently swallows fetch errors** — `openDetail()` caught fetch errors and fell back to the summary object without any indication. Now shows a warning alert when full details couldn't be loaded.
+- **Success rate displayed with excessive decimals** — values like `66.66666666666667%` were shown in the UI. Now rounded to the nearest integer with `Math.round()`.
+- **Log truncation invisible to users** — when logs exceeded 500 lines, old lines were silently dropped. Now inserts a `[Truncated: showing last 500 lines]` indicator at the top.
+- **Reconnect failure incorrectly marks test as "failed"** — when reconnecting to a test that no longer exists (e.g. after server restart), the status was set to "failed" with no explanation. Now adds an explanatory error message to the logs.
+- **Phase detection allows backward transitions** — log lines matching "preparing" or "loading" could regress the phase from "executing" back to "preparing". Phase transitions are now forward-only using a phase order map.
+- **Completed test response missing `totalFlows`** — the `handleGetLiveTest` endpoint omitted `totalFlows` for completed tests, causing the frontend to show 0 pending flow slots. Now returns `len(test.Flows)`.
+
+## [0.19.6] - 2026-02-11
+
+### Fixed
+- **All Maestro flows failing with `extendedWaitUntil expects either visible or notVisible`** — the AI generates `extendedWaitUntil` with only `timeout` and no condition, but Maestro requires `visible` or `notVisible` (timeout is just the max wait duration, not a standalone "sleep"). Fixed across 4 layers:
+  - **AI prompt** (`pkg/ai/types.go`): added `notVisible` variant to command reference and two explicit rules forbidding timeout-only usage.
+  - **Example template** (`flows/templates/example-game.yaml`): replaced `visible: true` (boolean) with `visible: "Start Game"` (string) and added `visible:` conditions to 3 timeout-only blocks.
+  - **Validator** (`pkg/flows/validator.go`): `extendedWaitUntil` with no `visible`/`notVisible` is now an error (was a warning that allowed timeout-only). Removed invalid `text` field check.
+  - **Runtime fix for DB-stored flows**: `normalizeFlowYAML()` strips timeout-only `extendedWaitUntil` blocks via regex; `commandToYAML()` in both `executor.go` and `analyzer.go` skips `extendedWaitUntil` maps missing `visible`/`notVisible`.
+
 ## [0.19.5] - 2026-02-11
 
 ### Fixed

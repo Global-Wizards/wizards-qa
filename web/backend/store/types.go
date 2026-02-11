@@ -57,6 +57,7 @@ type TestResultDetail struct {
 	ErrorOutput string       `json:"errorOutput,omitempty"`
 	CreatedBy   string       `json:"createdBy,omitempty"`
 	ProjectID   string       `json:"projectId,omitempty"`
+	PlanID      string       `json:"planId,omitempty"`
 }
 
 type HistoryPoint struct {

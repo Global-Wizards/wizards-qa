@@ -336,11 +336,13 @@ func (s *Server) handleGetLiveTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{
-		"testId":   test.ID,
-		"planName": test.Name,
-		"status":   test.Status,
-		"flows":    test.Flows,
-		"duration": test.Duration,
+		"testId":      test.ID,
+		"planId":      test.PlanID,
+		"planName":    test.Name,
+		"status":      test.Status,
+		"flows":       test.Flows,
+		"totalFlows":  len(test.Flows),
+		"duration":    test.Duration,
 		"successRate": test.SuccessRate,
 		"errorOutput": test.ErrorOutput,
 	})

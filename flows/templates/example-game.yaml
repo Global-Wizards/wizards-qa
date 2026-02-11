@@ -6,7 +6,7 @@ url: https://game.example.com
 # Wait for game to load
 - launchApp
 - extendedWaitUntil:
-    visible: true
+    visible: "Start Game"
     timeout: 10000
 
 # Check for "Start Game" button (HTML overlay)
@@ -17,6 +17,7 @@ url: https://game.example.com
 
 # Wait for game canvas to initialize
 - extendedWaitUntil:
+    visible: "Score:"
     timeout: 3000
 
 # Click center of game screen (main menu)
@@ -25,6 +26,7 @@ url: https://game.example.com
 
 # Wait for level to load
 - extendedWaitUntil:
+    visible: "Level"
     timeout: 2000
 
 # Click specific coordinate (game character/object)
@@ -33,6 +35,7 @@ url: https://game.example.com
 
 # Wait for action to complete
 - extendedWaitUntil:
+    visible: "Score:"
     timeout: 1000
 
 # Verify score is visible (HTML overlay)

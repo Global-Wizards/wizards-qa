@@ -223,19 +223,13 @@ func (v *Validator) validateSpecificCommand(cmdName string, value interface{}, c
 		}
 
 	case "extendedWaitUntil":
-		// Should have visible, text, or timeout
+		// Must have visible or notVisible — timeout alone is invalid in Maestro
 		if m, ok := value.(map[string]interface{}); ok {
-			hasCondition := false
-			if _, ok := m["visible"]; ok {
-				hasCondition = true
-			}
-			if _, ok := m["text"]; ok {
-				hasCondition = true
-			}
-			if _, ok := m["timeout"]; ok {
-				// timeout is fine alone
-			} else if !hasCondition {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (extendedWaitUntil): should have 'visible' or 'text' condition", cmdNum))
+			_, hasVisible := m["visible"]
+			_, hasNotVisible := m["notVisible"]
+			if !hasVisible && !hasNotVisible {
+				result.Errors = append(result.Errors, fmt.Sprintf("command %d (extendedWaitUntil): requires 'visible' or 'notVisible' condition — timeout alone is invalid", cmdNum))
+				result.Valid = false
 			}
 		}
 	}

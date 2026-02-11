@@ -449,9 +449,9 @@ func (s *Store) SaveTestResult(result TestResultDetail) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_by, project_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, result.ProjectID, ts,
+		`INSERT INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_by, project_id, plan_id, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, result.ProjectID, result.PlanID, ts,
 	)
 	return err
 }
@@ -478,11 +478,11 @@ func (s *Store) ListTestResults(limit, offset int) ([]TestResultSummary, error) 
 
 func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, status, timestamp, duration, success_rate, flows, error_output, COALESCE(created_by,''), COALESCE(project_id,'') FROM test_results WHERE id = ?`, id,
+		`SELECT id, name, status, timestamp, duration, success_rate, flows, error_output, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(plan_id,'') FROM test_results WHERE id = ?`, id,
 	)
 	var r TestResultDetail
 	var flowsJSON sql.NullString
-	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &flowsJSON, &r.ErrorOutput, &r.CreatedBy, &r.ProjectID)
+	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &flowsJSON, &r.ErrorOutput, &r.CreatedBy, &r.ProjectID, &r.PlanID)
 	if err != nil {
 		return nil, fmt.Errorf("test result not found: %s", id)
 	}

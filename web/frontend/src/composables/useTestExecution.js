@@ -42,14 +42,20 @@ export function useTestExecution() {
     }
   }
 
-  // Detect phase from log lines
+  const phaseOrder = { starting: 0, preparing: 1, executing: 2, results: 3, complete: 4 }
+
+  // Detect phase from log lines (only allows forward transitions)
   function detectPhase(line) {
+    let candidate = null
     if (/executing flows|running flows|starting execution/i.test(line)) {
-      phase.value = 'executing'
+      candidate = 'executing'
     } else if (/--- results ---|summary|test results/i.test(line)) {
-      phase.value = 'results'
+      candidate = 'results'
     } else if (/preparing|loading|compiling|validating/i.test(line)) {
-      phase.value = 'preparing'
+      candidate = 'preparing'
+    }
+    if (candidate && phaseOrder[candidate] > phaseOrder[phase.value]) {
+      phase.value = candidate
     }
   }
 
@@ -140,7 +146,17 @@ export function useTestExecution() {
     const offProgress = ws.on('test_progress', (data) => {
       if (data.testId === tid) {
         if (data.line) {
-          logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), data.line]
+          if (logs.value.length >= MAX_LOGS) {
+            const truncMsg = `[Truncated: showing last ${MAX_LOGS} lines]`
+            const trimmed = logs.value.slice(-(MAX_LOGS - 2))
+            if (trimmed[0] !== truncMsg) {
+              logs.value = [truncMsg, ...trimmed, data.line]
+            } else {
+              logs.value = [...trimmed, data.line]
+            }
+          } else {
+            logs.value = [...logs.value, data.line]
+          }
           detectPhase(data.line)
         }
         if (data.flowName) {
@@ -273,10 +289,11 @@ export function useTestExecution() {
 
       // Setup WS listeners for ongoing events
       setupListeners(tid)
-    } catch {
+    } catch (err) {
       // Test not found — likely already completed and cleaned up
       status.value = 'failed'
       phase.value = 'complete'
+      logs.value = [`Error: Could not load test data. ${err.message || 'Test may have been removed.'}`]
     }
   }
 

@@ -231,6 +231,7 @@ func (s *Server) finishTestRun(planID, testID, planName string, startTime time.T
 		ErrorOutput: errorOutput,
 		CreatedBy:   createdBy,
 		ProjectID:   projectID,
+		PlanID:      planID,
 	}
 
 	if err := s.store.SaveTestResult(result); err != nil {
@@ -362,6 +363,10 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 //	- openLink: "https://..."
 var openLinkObjRegex = regexp.MustCompile(`(?m)^(\s*- openLink):\s*\n\s+url:\s*"?([^"\n]+)"?\s*$`)
 
+// extendedWaitTimeoutOnlyRegex matches two-line extendedWaitUntil blocks that have
+// only a timeout and no visible/notVisible condition (invalid Maestro YAML).
+var extendedWaitTimeoutOnlyRegex = regexp.MustCompile(`(?m)^[ \t]*- extendedWaitUntil:\s*\n[ \t]+timeout:\s*\d+\s*$`)
+
 // maestroCommandAliases maps invalid/old command names to correct Maestro names.
 var maestroCommandAliases = map[string]string{
 	"waitFor":     "extendedWaitUntil",
@@ -375,6 +380,8 @@ func normalizeFlowYAML(content string) string {
 	for old, correct := range maestroCommandAliases {
 		result = strings.ReplaceAll(result, "- "+old+":", "- "+correct+":")
 	}
+	// Strip timeout-only extendedWaitUntil blocks (invalid Maestro YAML)
+	result = extendedWaitTimeoutOnlyRegex.ReplaceAllString(result, "")
 	return result
 }
 
@@ -493,6 +500,16 @@ func commandToYAML(cmd map[string]interface{}) string {
 		// Translate invalid command aliases to correct Maestro names
 		if corrected, ok := maestroCommandAliases[key]; ok {
 			key = corrected
+		}
+		// Skip extendedWaitUntil commands that have no visible/notVisible condition
+		if key == "extendedWaitUntil" {
+			if m, ok := value.(map[string]interface{}); ok {
+				_, hasVisible := m["visible"]
+				_, hasNotVisible := m["notVisible"]
+				if !hasVisible && !hasNotVisible {
+					continue
+				}
+			}
 		}
 		switch v := value.(type) {
 		case string:

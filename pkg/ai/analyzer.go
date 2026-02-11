@@ -1067,6 +1067,16 @@ func commandToYAML(cmd map[string]interface{}, indent int) string {
 	prefix := strings.Repeat("  ", indent)
 
 	for key, value := range cmd {
+		// Skip extendedWaitUntil commands that have no visible/notVisible condition
+		if key == "extendedWaitUntil" {
+			if m, ok := value.(map[string]interface{}); ok {
+				_, hasVisible := m["visible"]
+				_, hasNotVisible := m["notVisible"]
+				if !hasVisible && !hasNotVisible {
+					continue
+				}
+			}
+		}
 		switch v := value.(type) {
 		case string:
 			if key == "comment" {

@@ -878,7 +878,8 @@ Generate Maestro flows as a JSON array. Each flow should be a complete, runnable
 
 Maestro command reference:
 - openLink: "..." — open a URL (string value, NOT an object)
-- extendedWaitUntil: {visible: "text", timeout: 5000} — wait for element
+- extendedWaitUntil: {visible: "text", timeout: 5000} — wait until element is visible (timeout is optional max wait)
+- extendedWaitUntil: {notVisible: "text", timeout: 5000} — wait until element disappears
 - tapOn: "text" — tap on visible text element
 - tapOn: {point: "50%,80%"} — tap at percentage coordinates on screen
 - inputText: "..." — type text into focused field
@@ -890,6 +891,8 @@ IMPORTANT RULES:
 - Always start with openLink and an extendedWaitUntil to ensure the game loads
 - Add takeScreenshot commands after key interactions to capture state
 - Use percentage-based coordinates that match what you see in the screenshots
+- NEVER use extendedWaitUntil with only timeout and no condition. extendedWaitUntil REQUIRES either "visible" or "notVisible" — timeout alone is INVALID.
+- For "wait for page to load" scenarios, wait for a specific visible element (a button, heading, or game text).
 
 FLOW COMPOSITION — SHARED SETUP:
 - The FIRST flow MUST be a "setup" flow named exactly "setup". It contains the common steps that every test needs: opening the browser, waiting for the game to load, dismissing any splash screens, skipping tutorials, and reaching the main game state.

@@ -85,7 +85,7 @@
                   <TableCell class="font-medium">{{ test.name }}</TableCell>
                   <TableCell><StatusBadge :status="test.status" /></TableCell>
                   <TableCell>{{ test.duration }}</TableCell>
-                  <TableCell>{{ test.successRate }}%</TableCell>
+                  <TableCell>{{ Math.round(test.successRate) }}%</TableCell>
                   <TableCell class="text-right text-muted-foreground">
                     {{ formatDate(test.timestamp) }}
                   </TableCell>
@@ -217,6 +217,10 @@
           <SheetDescription>Test execution details</SheetDescription>
         </SheetHeader>
         <div v-if="selectedTest" class="mt-6 space-y-4">
+          <Alert v-if="detailData?._fetchError" variant="destructive" class="mb-2">
+            <AlertCircle class="h-4 w-4" />
+            <AlertDescription>Could not load full test details. Showing summary only.</AlertDescription>
+          </Alert>
           <div class="flex items-center justify-between">
             <span class="text-sm text-muted-foreground">Status</span>
             <StatusBadge :status="selectedTest.status" />
@@ -229,7 +233,7 @@
           <Separator />
           <div class="flex items-center justify-between">
             <span class="text-sm text-muted-foreground">Success Rate</span>
-            <span class="text-sm font-medium">{{ selectedTest.successRate }}%</span>
+            <span class="text-sm font-medium">{{ Math.round(selectedTest.successRate) }}%</span>
           </div>
           <Separator />
 
@@ -340,10 +344,11 @@ function toggleSort(field) {
 async function openDetail(test) {
   selectedTest.value = test
   sheetOpen.value = true
+  detailData.value = null
   try {
     detailData.value = await testsApi.get(test.id)
   } catch {
-    detailData.value = test
+    detailData.value = { ...test, _fetchError: true }
   }
 }
 
@@ -411,10 +416,15 @@ function setupWs() {
     await loadPlans()
   }
 
+  const offStarted = ws.on('test_started', (data) => {
+    const plan = plans.value.find(p => p.id === data.planId)
+    if (plan) { plan.status = 'running'; plan.lastRunId = data.testId }
+  })
   const offCompleted = ws.on('test_completed', refreshTables)
   const offFailed = ws.on('test_failed', refreshTables)
 
   wsCleanup = () => {
+    offStarted()
     offCompleted()
     offFailed()
   }
