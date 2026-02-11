@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.5] - 2026-02-11
+
+### Fixed
+- **CLI-generated Maestro flows have invalid YAML (`visible` field, bad structure)** — The CLI path (`WriteFlowsToFiles`) was missing the YAML normalization that the web backend already had. Added `tapOn: {visible}` flattening and command alias translation (`waitFor`→`extendedWaitUntil`, etc.) to the CLI's `commandToYAML()`, and added a `normalizeFlowYAML()` safety net with regex-based fixes (openLink object syntax, tapOn visible syntax, bare `visible:` lines, timeout-only extendedWaitUntil blocks) applied before writing flow files to disk.
+
 ## [0.21.4] - 2026-02-11
 
 ### Fixed

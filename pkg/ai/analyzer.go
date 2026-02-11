@@ -1001,8 +1001,8 @@ func WriteFlowsToFiles(flows []*MaestroFlow, outputDir string) error {
 		filename := fmt.Sprintf("%02d-%s.yaml", i, util.SanitizeFilename(flow.Name))
 		filepath := fmt.Sprintf("%s/%s", outputDir, filename)
 
-		// Convert flow to YAML
-		yamlContent := flowToYAML(flow)
+		// Convert flow to YAML and normalize to fix common AI generation mistakes
+		yamlContent := normalizeFlowYAML(flowToYAML(flow))
 
 		if err := os.WriteFile(filepath, []byte(yamlContent), 0644); err != nil {
 			return fmt.Errorf("failed to write flow file: %w", err)
@@ -1010,6 +1010,42 @@ func WriteFlowsToFiles(flows []*MaestroFlow, outputDir string) error {
 	}
 
 	return nil
+}
+
+// --- CLI-side YAML normalization (mirrors web/backend/executor.go) ---
+
+// openLinkObjRegexCLI matches multi-line openLink blocks: openLink:\n  url: "..."
+var openLinkObjRegexCLI = regexp.MustCompile(`(?m)^(\s*- openLink):\s*\n\s+url:\s*"?([^"\n]+)"?\s*$`)
+
+// extendedWaitTimeoutOnlyRegexCLI matches extendedWaitUntil blocks with only a timeout (invalid).
+var extendedWaitTimeoutOnlyRegexCLI = regexp.MustCompile(`(?m)^[ \t]*- extendedWaitUntil:\s*\n[ \t]+timeout:\s*\d+\s*$`)
+
+// tapOnVisibleRegexCLI matches multi-line tapOn blocks: tapOn:\n  visible: "text"
+var tapOnVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*- tapOn):\s*\n\s+visible:\s*"?([^"\n]+)"?\s*$`)
+
+// bareVisibleRegexCLI matches a bare "visible:" line NOT preceded by extendedWaitUntil or tapOn,
+// wrapping it in an extendedWaitUntil block.
+var bareVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*)- visible:\s*"?([^"\n]+)"?\s*$`)
+
+// maestroCommandAliasesCLI maps invalid/old command names to correct Maestro names.
+var maestroCommandAliasesCLI = map[string]string{
+	"waitFor":     "extendedWaitUntil",
+	"screenshot":  "takeScreenshot",
+	"openBrowser": "openLink",
+}
+
+// normalizeFlowYAML applies regex-based safety-net fixes to generated YAML.
+// This catches issues that the structured commandToYAML serialization may miss.
+func normalizeFlowYAML(content string) string {
+	result := openLinkObjRegexCLI.ReplaceAllString(content, `$1: "$2"`)
+	result = tapOnVisibleRegexCLI.ReplaceAllString(result, `$1: "$2"`)
+	for old, correct := range maestroCommandAliasesCLI {
+		result = strings.ReplaceAll(result, "- "+old+":", "- "+correct+":")
+	}
+	result = extendedWaitTimeoutOnlyRegexCLI.ReplaceAllString(result, "")
+	// Wrap bare "visible:" lines in extendedWaitUntil blocks
+	result = bareVisibleRegexCLI.ReplaceAllString(result, "${1}- extendedWaitUntil:\n${1}    visible: \"$2\"")
+	return result
 }
 
 // flowToYAML converts a MaestroFlow to YAML string
@@ -1067,6 +1103,10 @@ func commandToYAML(cmd map[string]interface{}, indent int) string {
 	prefix := strings.Repeat("  ", indent)
 
 	for key, value := range cmd {
+		// Translate invalid command aliases to correct Maestro names
+		if corrected, ok := maestroCommandAliasesCLI[key]; ok {
+			key = corrected
+		}
 		// Skip extendedWaitUntil commands that have no visible/notVisible condition
 		if key == "extendedWaitUntil" {
 			if m, ok := value.(map[string]interface{}); ok {
@@ -1096,6 +1136,15 @@ func commandToYAML(cmd map[string]interface{}, indent int) string {
 				if urlVal, ok := v["url"]; ok {
 					urlStr := fmt.Sprintf("%v", urlVal)
 					sb.WriteString(fmt.Sprintf("%s- %s: \"%s\"\n", prefix, key, urlStr))
+					continue
+				}
+			}
+			// Flatten tapOn: {visible: "..."} → tapOn: "..."
+			// The AI sometimes uses extendedWaitUntil syntax for tapOn
+			if key == "tapOn" {
+				if visVal, ok := v["visible"]; ok {
+					visStr := fmt.Sprintf("%v", visVal)
+					sb.WriteString(fmt.Sprintf("%s- %s: \"%s\"\n", prefix, key, visStr))
 					continue
 				}
 			}
