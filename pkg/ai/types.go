@@ -476,6 +476,7 @@ type AgentStep struct {
 	Result        string `json:"result"`
 	ScreenshotB64 string `json:"screenshotB64,omitempty"`
 	DurationMs    int    `json:"durationMs"`
+	ThinkingMs    int    `json:"thinkingMs,omitempty"`
 	Error         string `json:"error,omitempty"`
 }
 
@@ -606,7 +607,8 @@ RULES:
 3. Use console_logs when something seems wrong — errors often explain broken states.
 4. Be systematic: don't click the same thing twice unless testing repeated interactions.
 5. When you have thoroughly explored the game (usually 10-20 steps), output EXPLORATION_COMPLETE on its own line to signal you are done.
-6. Focus on discovering testable behaviors through active interaction, not passive observation.`
+6. Focus on discovering testable behaviors through active interaction, not passive observation.
+7. IMPORTANT: To save time, always combine wait and screenshot into a single response. Call both tools together — they will execute sequentially. Never call wait alone without also calling screenshot in the same response.`
 
 // AdaptiveExplorationPromptSuffix returns the system prompt addition for adaptive exploration mode.
 func AdaptiveExplorationPromptSuffix(maxTotalSteps int) string {

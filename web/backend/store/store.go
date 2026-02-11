@@ -385,10 +385,10 @@ func (s *Store) SaveAgentStep(step AgentStepRecord) (int64, error) {
 		step.CreatedAt = time.Now().Format(time.RFC3339)
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO agent_steps (analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, error, reasoning, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agent_steps (analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, thinking_ms, error, reasoning, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		step.AnalysisID, step.StepNumber, step.ToolName, step.Input, step.Result,
-		step.ScreenshotPath, step.DurationMs, step.Error, step.Reasoning, step.CreatedAt,
+		step.ScreenshotPath, step.DurationMs, step.ThinkingMs, step.Error, step.Reasoning, step.CreatedAt,
 	)
 	if err != nil {
 		return 0, err
@@ -403,7 +403,7 @@ func (s *Store) UpdateAgentStepScreenshot(id int64, screenshotPath string) error
 
 func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, error, reasoning, created_at
+		`SELECT id, analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, COALESCE(thinking_ms,0), error, reasoning, created_at
 		 FROM agent_steps WHERE analysis_id = ? ORDER BY step_number ASC`, analysisID,
 	)
 	if err != nil {
@@ -415,7 +415,7 @@ func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
 	for rows.Next() {
 		var step AgentStepRecord
 		if err := rows.Scan(&step.ID, &step.AnalysisID, &step.StepNumber, &step.ToolName, &step.Input,
-			&step.Result, &step.ScreenshotPath, &step.DurationMs, &step.Error, &step.Reasoning, &step.CreatedAt); err != nil {
+			&step.Result, &step.ScreenshotPath, &step.DurationMs, &step.ThinkingMs, &step.Error, &step.Reasoning, &step.CreatedAt); err != nil {
 			continue
 		}
 		steps = append(steps, step)

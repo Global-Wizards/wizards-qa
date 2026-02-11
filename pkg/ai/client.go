@@ -215,17 +215,20 @@ type ToolUseResponse struct {
 	Content    []ResponseContentBlock `json:"content"`
 	StopReason string                 `json:"stop_reason"`
 	Usage      struct {
-		InputTokens  int `json:"input_tokens"`
-		OutputTokens int `json:"output_tokens"`
+		InputTokens              int `json:"input_tokens"`
+		OutputTokens             int `json:"output_tokens"`
+		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
 }
 
 // ToolResultBlock is sent in user messages to return tool results.
 type ToolResultBlock struct {
-	Type      string      `json:"type"`    // "tool_result"
-	ToolUseID string      `json:"tool_use_id"`
-	Content   interface{} `json:"content"` // string or []contentBlock
-	IsError   bool        `json:"is_error,omitempty"`
+	Type         string        `json:"type"`    // "tool_result"
+	ToolUseID    string        `json:"tool_use_id"`
+	Content      interface{}   `json:"content"` // string or []contentBlock
+	IsError      bool          `json:"is_error,omitempty"`
+	CacheControl *CacheControl `json:"cache_control,omitempty"`
 }
 
 // claudeToolUseRequest is the request body for tool use calls.
@@ -261,6 +264,10 @@ func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessag
 		toolsCopy[len(toolsCopy)-1].CacheControl = &CacheControl{Type: "ephemeral"}
 	}
 
+	// Add cache_control to second-to-last user message for prompt caching.
+	// This caches the entire conversation prefix, so only the latest tool result is new.
+	addConversationCacheBreakpoint(messages)
+
 	reqBody, err := json.Marshal(claudeToolUseRequest{
 		Model:       c.Model,
 		MaxTokens:   c.MaxTokens,
@@ -286,9 +293,47 @@ func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessag
 	if err := json.Unmarshal(body, &toolResp); err != nil {
 		return nil, fmt.Errorf("failed to parse tool use response: %w", err)
 	}
-	log.Printf("CallWithTools: completed in %s (in=%d out=%d tokens, stop=%s)",
-		elapsed, toolResp.Usage.InputTokens, toolResp.Usage.OutputTokens, toolResp.StopReason)
+	log.Printf("CallWithTools: completed in %s (in=%d out=%d cache_create=%d cache_read=%d tokens, stop=%s)",
+		elapsed, toolResp.Usage.InputTokens, toolResp.Usage.OutputTokens,
+		toolResp.Usage.CacheCreationInputTokens, toolResp.Usage.CacheReadInputTokens, toolResp.StopReason)
 	return &toolResp, nil
+}
+
+// addConversationCacheBreakpoint adds cache_control to the second-to-last user message
+// so that Anthropic prompt caching caches the conversation prefix. Only the latest tool
+// result (the last user message) will be "new" input on each turn.
+func addConversationCacheBreakpoint(messages []AgentMessage) {
+	userCount := 0
+	for i := len(messages) - 1; i >= 0; i-- {
+		if messages[i].Role != "user" {
+			continue
+		}
+		userCount++
+		if userCount != 2 {
+			continue
+		}
+		// Found the second-to-last user message. Add cache_control to its last content block.
+		switch content := messages[i].Content.(type) {
+		case []interface{}:
+			if len(content) == 0 {
+				return
+			}
+			last := content[len(content)-1]
+			if m, ok := last.(map[string]interface{}); ok {
+				m["cache_control"] = map[string]string{"type": "ephemeral"}
+			} else if tb, ok := last.(ToolResultBlock); ok {
+				tb.CacheControl = &CacheControl{Type: "ephemeral"}
+				content[len(content)-1] = tb
+			}
+		case []ToolResultBlock:
+			if len(content) == 0 {
+				return
+			}
+			content[len(content)-1].CacheControl = &CacheControl{Type: "ephemeral"}
+			messages[i].Content = content
+		}
+		return
+	}
 }
 
 // AnalyzeWithImage sends a multimodal request with an image and text prompt to the Claude API.

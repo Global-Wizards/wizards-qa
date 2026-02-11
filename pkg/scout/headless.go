@@ -28,7 +28,7 @@ func NewRodBrowserPage(page *rod.Page) *RodBrowserPage {
 
 // CaptureScreenshot takes a WebP screenshot and returns it as base64.
 func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
-	quality := 40
+	quality := 25
 	data, err := r.page.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format:           proto.PageCaptureScreenshotFormatWebp,
 		Quality:          &quality,

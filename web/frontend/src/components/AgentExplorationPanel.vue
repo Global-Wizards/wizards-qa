@@ -165,8 +165,12 @@
                   <Badge variant="outline" class="shrink-0 text-[10px] px-1.5 py-0 font-mono">{{ entry.stepNumber }}</Badge>
                   <component :is="getToolMeta(entry.toolName).icon" :class="['h-3 w-3 shrink-0', entry.error ? 'text-red-500' : nodeColorClasses(entry).text]" />
                   <span class="text-xs font-medium truncate">{{ getToolMeta(entry.toolName).label }}</span>
-                  <!-- Gap indicator (thinking time) -->
-                  <span v-if="stepGapMs(i) != null" :class="['text-[10px] font-mono shrink-0 flex items-center gap-0.5', gapColor(stepGapMs(i))]">
+                  <!-- AI thinking time -->
+                  <span v-if="entry.thinkingMs" :class="['text-[10px] font-mono shrink-0 flex items-center gap-0.5', gapColor(entry.thinkingMs)]">
+                    <Brain class="h-2.5 w-2.5" />
+                    AI: {{ formatMs(entry.thinkingMs) }}
+                  </span>
+                  <span v-else-if="stepGapMs(i) != null" :class="['text-[10px] font-mono shrink-0 flex items-center gap-0.5', gapColor(stepGapMs(i))]">
                     <Clock class="h-2.5 w-2.5" />
                     +{{ formatMs(stepGapMs(i)) }}
                   </span>
@@ -283,7 +287,7 @@ import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import {
   Loader2, CheckCircle, MessageCircle, Send,
   MousePointerClick, Type, ArrowDown, Camera, Search, Terminal, Code,
-  Globe, Clock, Plus, Timer, Circle, Zap,
+  Globe, Clock, Plus, Timer, Circle, Zap, Brain,
 } from 'lucide-vue-next'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'

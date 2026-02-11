@@ -161,6 +161,7 @@ type AgentStepRecord struct {
 	Result         string `json:"result"`
 	ScreenshotPath string `json:"screenshotPath,omitempty"`
 	DurationMs     int    `json:"durationMs"`
+	ThinkingMs     int    `json:"thinkingMs,omitempty"`
 	Error          string `json:"error,omitempty"`
 	Reasoning      string `json:"reasoning,omitempty"`
 	CreatedAt      string `json:"createdAt"`

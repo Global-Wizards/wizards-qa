@@ -162,7 +162,9 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
 
+		thinkStart := time.Now()
 		resp, err := agent.CallWithTools(systemPrompt, messages, tools)
+		thinkingMs := int(time.Since(thinkStart).Milliseconds())
 		if err != nil {
 			return nil, steps, fmt.Errorf("agent step %d API call failed: %w", step, err)
 		}
@@ -253,14 +255,14 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 				steps = append(steps, AgentStep{
 					StepNumber: step, ToolName: "request_more_steps",
-					Input: string(block.Input), Result: resultMsg,
+					Input: string(block.Input), Result: resultMsg, ThinkingMs: thinkingMs,
 				})
 
 				// Emit step detail for live streaming
 				detail := map[string]interface{}{
 					"stepNumber": step, "toolName": "request_more_steps",
 					"input": string(block.Input), "result": resultMsg,
-					"error": "", "durationMs": 0,
+					"error": "", "durationMs": 0, "thinkingMs": thinkingMs,
 				}
 				if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
 					progress("agent_step_detail", string(detailJSON))
@@ -311,14 +313,14 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 				steps = append(steps, AgentStep{
 					StepNumber: step, ToolName: "request_more_time",
-					Input: string(block.Input), Result: resultMsg,
+					Input: string(block.Input), Result: resultMsg, ThinkingMs: thinkingMs,
 				})
 
 				// Emit step detail for live streaming
 				detail := map[string]interface{}{
 					"stepNumber": step, "toolName": "request_more_time",
 					"input": string(block.Input), "result": resultMsg,
-					"error": "", "durationMs": 0,
+					"error": "", "durationMs": 0, "thinkingMs": thinkingMs,
 				}
 				if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
 					progress("agent_step_detail", string(detailJSON))
@@ -340,6 +342,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				ToolName:   block.Name,
 				Input:      string(block.Input),
 				DurationMs: int(time.Since(toolStart).Milliseconds()),
+				ThinkingMs: thinkingMs,
 			}
 
 			if execErr != nil {
@@ -411,6 +414,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				"result":     truncate(textResult, 300),
 				"error":      errStr,
 				"durationMs": stepRecord.DurationMs,
+				"thinkingMs": thinkingMs,
 			}
 			if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
 				progress("agent_step_detail", string(detailJSON))

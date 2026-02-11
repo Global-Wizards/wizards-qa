@@ -389,6 +389,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 							Input:      strFromMap(detailData, "input"),
 							Result:     strFromMap(detailData, "result"),
 							DurationMs: intFromMap(detailData, "durationMs"),
+							ThinkingMs: intFromMap(detailData, "thinkingMs"),
 							Error:      strFromMap(detailData, "error"),
 							Reasoning:  latestReasoning,
 						}

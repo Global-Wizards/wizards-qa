@@ -5,6 +5,22 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.21.0] - 2026-02-11
+
+### Optimize Agent Analysis Step Duration
+
+#### Changed
+- **Prompt caching on conversation messages** — added `cache_control: ephemeral` to the second-to-last user message in `CallWithTools()`, caching the entire conversation prefix across turns. After the first couple of steps, 80-90% of input tokens hit cache (~10x faster processing), reducing per-step API time from 60-120s to ~10-20s.
+- **Reduced screenshot quality from 40 to 25** — WebP quality lowered in `CaptureScreenshot()`. AI vision works fine at q25 and images are ~40-50% smaller, reducing token count and transfer time per step.
+- **Batch wait+screenshot prompt instruction** — added rule 7 to the agent system prompt instructing the AI to combine `wait` and `screenshot` tool calls in a single response, eliminating ~30-50% of redundant LLM round-trips for the common wait-then-screenshot pattern.
+- **Cache token logging** — `CallWithTools` log line now includes `cache_creation` and `cache_read` token counts for monitoring cache hit rates.
+
+#### Added
+- **LLM thinking time tracking** — each agent step now records `thinkingMs` (time spent in the `CallWithTools()` API call). Displayed in the AgentExplorationPanel as a brain icon pill (`AI: 1m 30s`) next to each step, replacing the implicit gap indicator when available.
+- **`thinking_ms` column** in `agent_steps` database table for persisting thinking time.
+- **`CacheControl` field on `ToolResultBlock`** — enables per-message cache breakpoints for Anthropic prompt caching.
+- **Cache stats in `ToolUseResponse.Usage`** — `CacheCreationInputTokens` and `CacheReadInputTokens` fields for monitoring cache effectiveness.
+
 ## [0.20.0] - 2026-02-11
 
 ### Fixed
