@@ -362,8 +362,19 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 //	- openBrowser: "https://..."
 var openBrowserObjRegex = regexp.MustCompile(`(?m)^(\s*- openBrowser):\s*\n\s+url:\s*"?([^"\n]+)"?\s*$`)
 
+// maestroCommandAliases maps invalid/old command names to correct Maestro names.
+var maestroCommandAliases = map[string]string{
+	"waitFor":    "extendedWaitUntil",
+	"screenshot": "takeScreenshot",
+}
+
 func normalizeFlowYAML(content string) string {
-	return openBrowserObjRegex.ReplaceAllString(content, `$1: "$2"`)
+	result := openBrowserObjRegex.ReplaceAllString(content, `$1: "$2"`)
+	// Fix invalid command names that the AI may have generated
+	for old, correct := range maestroCommandAliases {
+		result = strings.ReplaceAll(result, "- "+old+":", "- "+correct+":")
+	}
+	return result
 }
 
 // injectAppId ensures web flows have appId in their metadata section.
@@ -478,6 +489,10 @@ func commandToYAML(cmd map[string]interface{}) string {
 	var sb strings.Builder
 
 	for key, value := range cmd {
+		// Translate invalid command aliases to correct Maestro names
+		if corrected, ok := maestroCommandAliases[key]; ok {
+			key = corrected
+		}
 		switch v := value.(type) {
 		case string:
 			if key == "comment" {

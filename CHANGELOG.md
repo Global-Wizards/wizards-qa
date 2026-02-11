@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.4] - 2026-02-11
+
+### Fixed
+- **Maestro flows failing with "Unrecognized field" errors for `waitFor` and `screenshot`** — the AI prompt taught two invalid Maestro command names (`waitFor` → should be `extendedWaitUntil`, `screenshot` → should be `takeScreenshot`). Fixed the `FlowGenerationPrompt` template, the validator's allowed commands map (also fixed `captureScreenshot` → `takeScreenshot` and added missing `openBrowser`), and added runtime command name aliasing in `normalizeFlowYAML()` and `commandToYAML()` to fix flows already stored in the DB.
+
 ## [0.19.3] - 2026-02-11
 
 ### Fixed

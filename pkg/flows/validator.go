@@ -23,11 +23,12 @@ func NewValidator() *Validator {
 			"inputText":         true,
 			"assertVisible":     true,
 			"assertNotVisible":  true,
-			"waitFor":           true,
+			"extendedWaitUntil": true,
 			"scroll":            true,
 			"swipe":             true,
 			"back":              true,
-			"captureScreenshot": true,
+			"takeScreenshot":    true,
+			"openBrowser":       true,
 			"hideKeyboard":      true,
 			"pressKey":          true,
 			"eraseText":         true,
@@ -221,7 +222,7 @@ func (v *Validator) validateSpecificCommand(cmdName string, value interface{}, c
 			}
 		}
 
-	case "waitFor":
+	case "extendedWaitUntil":
 		// Should have visible, text, or timeout
 		if m, ok := value.(map[string]interface{}); ok {
 			hasCondition := false
@@ -234,7 +235,7 @@ func (v *Validator) validateSpecificCommand(cmdName string, value interface{}, c
 			if _, ok := m["timeout"]; ok {
 				// timeout is fine alone
 			} else if !hasCondition {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (waitFor): should have 'visible' or 'text' condition", cmdNum))
+				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (extendedWaitUntil): should have 'visible' or 'text' condition", cmdNum))
 			}
 		}
 	}

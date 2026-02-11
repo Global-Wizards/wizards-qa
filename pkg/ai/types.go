@@ -878,17 +878,17 @@ Generate Maestro flows as a JSON array. Each flow should be a complete, runnable
 
 Maestro command reference:
 - openBrowser: "..." — navigate to the game URL (string value, NOT an object)
-- waitFor: {visible: "text", timeout: 5000} — wait for element
+- extendedWaitUntil: {visible: "text", timeout: 5000} — wait for element
 - tapOn: "text" — tap on visible text element
 - tapOn: {point: "50%,80%"} — tap at percentage coordinates on screen
 - inputText: "..." — type text into focused field
 - assertVisible: "text" — assert text is visible
-- screenshot: "name" — capture screenshot
+- takeScreenshot: "name" — capture screenshot
 
 IMPORTANT RULES:
 - For canvas games ({{framework}}), use coordinate-based tapOn with percentage points
-- Always start with openBrowser and a waitFor to ensure the game loads
-- Add screenshot commands after key interactions to capture state
+- Always start with openBrowser and an extendedWaitUntil to ensure the game loads
+- Add takeScreenshot commands after key interactions to capture state
 - Use percentage-based coordinates that match what you see in the screenshots
 
 FLOW COMPOSITION — SHARED SETUP:
@@ -905,10 +905,10 @@ Respond with a JSON array of flows:
     "tags": ["setup"],
     "commands": [
       {"openBrowser": "{{url}}"},
-      {"waitFor": {"visible": "Play", "timeout": 10000}},
+      {"extendedWaitUntil": {"visible": "Play", "timeout": 10000}},
       {"tapOn": "OK"},
       {"tapOn": "Play"},
-      {"screenshot": "game-ready"}
+      {"takeScreenshot": "game-ready"}
     ]
   },
   {
@@ -918,7 +918,7 @@ Respond with a JSON array of flows:
     "commands": [
       {"runFlow": "00-setup.yaml"},
       {"tapOn": {"point": "50%,80%"}},
-      {"screenshot": "after-action"},
+      {"takeScreenshot": "after-action"},
       {"assertVisible": "expected text"}
     ]
   }
