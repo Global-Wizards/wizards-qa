@@ -375,10 +375,13 @@ func injectAppId(content string) string {
 		return content
 	}
 	// Not a web flow — leave unchanged
-	if !strings.Contains(content, "openBrowser:") {
+	if !strings.Contains(content, "openBrowser:") && !strings.Contains(content, "runFlow:") {
 		return content
 	}
-	// Inject appId as the first line of the metadata section
+	// If content has no metadata separator, inject appId with separator
+	if !strings.Contains(content, "\n---\n") && !strings.HasPrefix(content, "---\n") {
+		return "appId: com.android.chrome\n---\n" + content
+	}
 	return "appId: com.android.chrome\n" + content
 }
 
@@ -428,12 +431,24 @@ func (s *Server) regenerateFlowsFromAnalysis(analysisID string) error {
 
 		var sb strings.Builder
 
-		// Metadata section: tags
+		// Metadata section: appId, url, tags
+		hasMetadata := false
+		if appId, ok := flowMap["appId"].(string); ok && appId != "" {
+			sb.WriteString(fmt.Sprintf("appId: %s\n", appId))
+			hasMetadata = true
+		}
+		if urlVal, ok := flowMap["url"].(string); ok && urlVal != "" {
+			sb.WriteString(fmt.Sprintf("url: %s\n", urlVal))
+			hasMetadata = true
+		}
 		if tags, ok := flowMap["tags"].([]interface{}); ok && len(tags) > 0 {
 			sb.WriteString("tags:\n")
 			for _, tag := range tags {
 				sb.WriteString(fmt.Sprintf("  - %v\n", tag))
 			}
+			hasMetadata = true
+		}
+		if hasMetadata {
 			sb.WriteString("---\n")
 		}
 
@@ -546,7 +561,8 @@ func parseFlowLine(line string) (name, status, duration string) {
 	return "", "", ""
 }
 
-var durationRegex = regexp.MustCompile(`\((\d+(?:\.\d+)?(?:ms|s))\)\s*$`)
+var durationRegex = regexp.MustCompile(`\((\d[\dhms.]*(?:ms|s|m|h))\)\s*$`)
+var leadingNumberRegex = regexp.MustCompile(`^\d+\.\s*`)
 
 func extractFlowNameAndDuration(line string) (name, duration string) {
 	// Extract duration first
@@ -561,10 +577,11 @@ func extractFlowNameAndDuration(line string) (name, duration string) {
 	}
 	line = strings.TrimSpace(line)
 
-	// Remove leading number prefix like "1. " or "1 "
-	if idx := strings.IndexAny(line, "(."); idx > 0 {
-		line = line[:idx]
-	}
+	// Remove leading number prefix like "1. " or "12. "
+	line = leadingNumberRegex.ReplaceAllString(line, "")
+	// Remove file extension
+	line = strings.TrimSuffix(line, ".yaml")
+	line = strings.TrimSuffix(line, ".yml")
 
 	return strings.TrimSpace(line), duration
 }

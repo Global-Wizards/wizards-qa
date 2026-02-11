@@ -5,6 +5,19 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.3] - 2026-02-11
+
+### Fixed
+- **Flow names in test results showing "1", "2", "3" instead of real names** — `extractFlowNameAndDuration()` used `strings.IndexAny(line, "(.")` which matched the `.` in `"1. 00-setup.yaml"` at index 1, truncating to just the number. Replaced with a `leadingNumberRegex` to strip the number prefix and `TrimSuffix` to remove `.yaml`/`.yml` extensions. Flow results now show actual names like "00-setup".
+- **Regenerated flows missing `appId`, `url`, and `---` separator** — `regenerateFlowsFromAnalysis()` only wrote `tags:` metadata from stored JSON, ignoring `appId` and `url`. The `---` separator was only emitted inside the tags block, so tagless flows got no separator between metadata and commands (invalid Maestro YAML). Now writes all metadata fields and emits `---` when any metadata is present.
+- **`injectAppId` producing invalid YAML when content has no metadata section** — when content was pure commands (no existing `---` separator), `injectAppId` prepended `appId:` without a `---` separator. Now detects missing separator and injects `appId: com.android.chrome\n---\n`.
+- **Duration regex not matching minute-format durations** — Go's `Duration.String()` produces `1m5.5s` for durations > 1 minute, but the regex only matched `ms`/`s` units. Expanded to handle compound durations like `1m5.5s` and `1h2m3s`.
+
+## [0.19.2] - 2026-02-11
+
+### Fixed
+- **Test flows using `runFlow` missing `appId`, failing Maestro YAML parsing** — `injectAppId()` only recognized `openBrowser:` as a web flow marker, so the 5 test flows that use `runFlow: 00-setup.yaml` (instead of `openBrowser:` directly) were missing `appId: com.android.chrome`. Maestro requires `appId` in every flow file, not just the setup flow. Fixed both `injectAppId()` in `executor.go` and `flowToYAML()` in `analyzer.go` to also detect `runFlow:` commands as web flow indicators.
+
 ## [0.19.1] - 2026-02-10
 
 ### Fixed

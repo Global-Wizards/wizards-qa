@@ -1016,10 +1016,14 @@ func WriteFlowsToFiles(flows []*MaestroFlow, outputDir string) error {
 func flowToYAML(flow *MaestroFlow) string {
 	var sb strings.Builder
 
-	// Auto-set appId for web flows that use openBrowser
+	// Auto-set appId for web flows that use openBrowser or runFlow (which delegates to a web setup flow)
 	if flow.AppId == "" {
 		for _, cmd := range flow.Commands {
 			if _, ok := cmd["openBrowser"]; ok {
+				flow.AppId = "com.android.chrome"
+				break
+			}
+			if _, ok := cmd["runFlow"]; ok {
 				flow.AppId = "com.android.chrome"
 				break
 			}
