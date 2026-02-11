@@ -299,7 +299,7 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 				log.Printf("Warning: could not read generated flow %s: %v", e.Name(), err)
 				continue
 			}
-			result := normalizeFlowYAML(varSubstitute(string(content), plan.Variables))
+			result := injectAppId(normalizeFlowYAML(varSubstitute(string(content), plan.Variables)))
 			if err := os.WriteFile(filepath.Join(tmpDir, e.Name()), []byte(result), 0644); err != nil {
 				os.RemoveAll(tmpDir)
 				return "", fmt.Errorf("writing flow %s: %w", e.Name(), err)
@@ -338,8 +338,8 @@ func (s *Server) prepareFlowDir(plan *store.TestPlan) (string, error) {
 			continue
 		}
 
-		// Variable substitution + normalize openBrowser syntax
-		result := normalizeFlowYAML(varSubstitute(string(content), plan.Variables))
+		// Variable substitution + normalize openBrowser syntax + inject appId for web flows
+		result := injectAppId(normalizeFlowYAML(varSubstitute(string(content), plan.Variables)))
 
 		dstPath := filepath.Join(tmpDir, filepath.Base(tmpl.Path))
 		if err := os.WriteFile(dstPath, []byte(result), 0644); err != nil {
@@ -364,6 +364,22 @@ var openBrowserObjRegex = regexp.MustCompile(`(?m)^(\s*- openBrowser):\s*\n\s+ur
 
 func normalizeFlowYAML(content string) string {
 	return openBrowserObjRegex.ReplaceAllString(content, `$1: "$2"`)
+}
+
+// injectAppId ensures web flows have appId in their metadata section.
+// Maestro requires appId in every flow's YAML; for web testing via openBrowser,
+// com.android.chrome satisfies the parser.
+func injectAppId(content string) string {
+	// Already has appId — leave unchanged
+	if strings.Contains(content, "appId:") {
+		return content
+	}
+	// Not a web flow — leave unchanged
+	if !strings.Contains(content, "openBrowser:") {
+		return content
+	}
+	// Inject appId as the first line of the metadata section
+	return "appId: com.android.chrome\n" + content
 }
 
 // regenerateFlowsFromAnalysis reconstructs YAML flow files from the analysis
@@ -430,7 +446,7 @@ func (s *Server) regenerateFlowsFromAnalysis(analysisID string) error {
 			}
 		}
 
-		content := normalizeFlowYAML(sb.String())
+		content := injectAppId(normalizeFlowYAML(sb.String()))
 		filename := fmt.Sprintf("%02d-%s.yaml", i, sanitizeFlowName(name))
 		if err := os.WriteFile(filepath.Join(dstDir, filename), []byte(content), 0644); err != nil {
 			return fmt.Errorf("writing regenerated flow %s: %w", filename, err)

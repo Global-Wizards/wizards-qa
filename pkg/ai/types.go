@@ -901,6 +901,7 @@ Respond with a JSON array of flows:
 [
   {
     "name": "setup",
+    "appId": "com.android.chrome",
     "tags": ["setup"],
     "commands": [
       {"openBrowser": "{{url}}"},
@@ -912,6 +913,7 @@ Respond with a JSON array of flows:
   },
   {
     "name": "basic-gameplay",
+    "appId": "com.android.chrome",
     "tags": ["smoke", "happy-path"],
     "commands": [
       {"runFlow": "00-setup.yaml"},

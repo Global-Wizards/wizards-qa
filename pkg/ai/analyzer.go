@@ -1016,6 +1016,16 @@ func WriteFlowsToFiles(flows []*MaestroFlow, outputDir string) error {
 func flowToYAML(flow *MaestroFlow) string {
 	var sb strings.Builder
 
+	// Auto-set appId for web flows that use openBrowser
+	if flow.AppId == "" {
+		for _, cmd := range flow.Commands {
+			if _, ok := cmd["openBrowser"]; ok {
+				flow.AppId = "com.android.chrome"
+				break
+			}
+		}
+	}
+
 	// Write metadata
 	hasMetadata := false
 	if flow.URL != "" {

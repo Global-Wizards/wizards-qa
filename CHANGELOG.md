@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.19.1] - 2026-02-10
+
+### Fixed
+- **Maestro flows failing due to missing `appId`** — all generated web flows failed with `Instantiation of YamlConfig value failed for JSON property appId due to missing (therefore NULL) value`. Maestro requires `appId` in every flow's YAML metadata. Added `injectAppId()` normalizer in `prepareFlowDir` and `regenerateFlowsFromAnalysis` to inject `appId: com.android.chrome` for web flows at execution time. Also updated `flowToYAML` to auto-set appId when a flow uses `openBrowser`, and updated the AI prompt example to include appId for future generations.
+
 ## [0.19.0] - 2026-02-10
 
 ### Added
