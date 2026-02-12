@@ -176,6 +176,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/reports/{id}", s.handleGetReport)
 		r.Get("/api/flows", s.handleListFlows)
 		r.Get("/api/flows/{name}", s.handleGetFlow)
+		r.Post("/api/flows/validate", s.handleValidateFlow)
 		r.Get("/api/stats", s.handleGetStats)
 		r.Get("/api/config", s.handleGetConfig)
 		r.Get("/api/performance", s.handleGetPerformance)
@@ -423,6 +424,18 @@ func (s *Server) handleGetFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, flow)
+}
+
+func (s *Server) handleValidateFlow(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Content string `json:"content"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+	result := validateMaestroYAML(req.Content)
+	respondJSON(w, http.StatusOK, result)
 }
 
 func (s *Server) handleGetStats(w http.ResponseWriter, r *http.Request) {

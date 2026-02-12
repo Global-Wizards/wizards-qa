@@ -117,6 +117,7 @@ export const reportsApi = {
 export const flowsApi = {
   list: () => api.get('/flows').then((r) => r.data),
   get: (name) => api.get(`/flows/${name}`).then((r) => r.data),
+  validate: (content) => api.post('/flows/validate', { content }).then((r) => r.data),
 }
 
 export const configApi = {

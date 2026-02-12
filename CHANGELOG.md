@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.4] - 2026-02-12
+
+### Added
+- **Maestro YAML validation in test plan editor** — per-flow "Validate" button and "Validate All Flows" button in the Flows tab. Strict validation against Maestro CLI rules: checks YAML syntax, metadata/commands structure (`---` separator), allowed commands (19 core + extended set), command-specific argument validation (tapOn selectors, extendedWaitUntil requires visible/notVisible, openLink format, runFlow file extension, scroll direction, repeat structure), and detects deprecated command aliases (waitFor, screenshot, openBrowser). Errors and warnings displayed inline with color-coded icons per flow tab. New `POST /api/flows/validate` endpoint.
+
 ## [0.23.3] - 2026-02-12
 
 ### Added

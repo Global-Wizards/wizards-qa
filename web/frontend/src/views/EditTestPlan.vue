@@ -108,6 +108,24 @@
               </div>
 
               <template v-else>
+                <!-- Validate All button -->
+                <div class="flex items-center justify-between mb-4">
+                  <div class="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      :disabled="validatingAll"
+                      @click="validateAllFlows"
+                    >
+                      <ShieldCheck class="h-3.5 w-3.5 mr-1" />
+                      {{ validatingAll ? 'Validating...' : 'Validate All Flows' }}
+                    </Button>
+                    <span v-if="validationSummary" class="text-xs" :class="validationSummary.allValid ? 'text-green-600 dark:text-green-400' : 'text-destructive'">
+                      {{ validationSummary.text }}
+                    </span>
+                  </div>
+                </div>
+
                 <Tabs v-model="activeFlowTab" class="space-y-4">
                   <TabsList class="flex-wrap h-auto gap-1">
                     <TabsTrigger
@@ -116,6 +134,18 @@
                       :value="flow.name"
                       class="text-xs"
                     >
+                      <ShieldCheck
+                        v-if="flow.validation && flow.validation.valid && !flow.validation.warnings.length"
+                        class="h-3 w-3 mr-1 text-green-600 dark:text-green-400"
+                      />
+                      <ShieldAlert
+                        v-else-if="flow.validation && flow.validation.valid && flow.validation.warnings.length"
+                        class="h-3 w-3 mr-1 text-yellow-600 dark:text-yellow-400"
+                      />
+                      <ShieldX
+                        v-else-if="flow.validation && !flow.validation.valid"
+                        class="h-3 w-3 mr-1 text-destructive"
+                      />
                       {{ flow.name }}
                       <span v-if="dirtyFlows.has(flow.name)" class="ml-1 text-primary">*</span>
                     </TabsTrigger>
@@ -125,14 +155,61 @@
                     <div v-if="flow.error" class="text-sm text-destructive mb-2">
                       Could not load flow: {{ flow.error }}
                     </div>
-                    <div v-else class="border rounded-md overflow-hidden">
-                      <Codemirror
-                        :model-value="flow.content"
-                        @update:model-value="onFlowEdit(flow, $event)"
-                        :extensions="cmExtensions"
-                        :style="{ minHeight: '400px' }"
-                      />
-                    </div>
+                    <template v-else>
+                      <!-- Per-flow validate button -->
+                      <div class="flex items-center gap-2 mb-2">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          :disabled="flow.validating"
+                          @click="validateFlow(flow)"
+                        >
+                          <ShieldCheck class="h-3.5 w-3.5 mr-1" />
+                          {{ flow.validating ? 'Validating...' : 'Validate' }}
+                        </Button>
+                      </div>
+
+                      <!-- Validation results -->
+                      <div v-if="flow.validation" class="mb-2 space-y-1">
+                        <!-- Valid -->
+                        <div
+                          v-if="flow.validation.valid && !flow.validation.errors.length && !flow.validation.warnings.length"
+                          class="flex items-start gap-2 rounded-md border border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 px-3 py-2"
+                        >
+                          <ShieldCheck class="h-4 w-4 mt-0.5 text-green-600 dark:text-green-400 shrink-0" />
+                          <span class="text-sm text-green-800 dark:text-green-300">Valid Maestro flow — ready to run</span>
+                        </div>
+
+                        <!-- Errors -->
+                        <div
+                          v-for="(err, i) in flow.validation.errors"
+                          :key="'e' + i"
+                          class="flex items-start gap-2 rounded-md border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 px-3 py-2"
+                        >
+                          <ShieldX class="h-4 w-4 mt-0.5 text-destructive shrink-0" />
+                          <span class="text-sm text-red-800 dark:text-red-300">{{ err }}</span>
+                        </div>
+
+                        <!-- Warnings -->
+                        <div
+                          v-for="(warn, i) in flow.validation.warnings"
+                          :key="'w' + i"
+                          class="flex items-start gap-2 rounded-md border border-yellow-200 dark:border-yellow-900 bg-yellow-50 dark:bg-yellow-950/30 px-3 py-2"
+                        >
+                          <ShieldAlert class="h-4 w-4 mt-0.5 text-yellow-600 dark:text-yellow-400 shrink-0" />
+                          <span class="text-sm text-yellow-800 dark:text-yellow-300">{{ warn }}</span>
+                        </div>
+                      </div>
+
+                      <div class="border rounded-md overflow-hidden">
+                        <Codemirror
+                          :model-value="flow.content"
+                          @update:model-value="onFlowEdit(flow, $event)"
+                          :extensions="cmExtensions"
+                          :style="{ minHeight: '400px' }"
+                        />
+                      </div>
+                    </template>
                   </TabsContent>
                 </Tabs>
               </template>
@@ -181,11 +258,11 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus } from 'lucide-vue-next'
+import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX } from 'lucide-vue-next'
 import { Codemirror } from 'vue-codemirror'
 import { yaml } from '@codemirror/lang-yaml'
 import { oneDark } from '@codemirror/theme-one-dark'
-import { testPlansApi } from '@/lib/api'
+import { testPlansApi, flowsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useTheme } from '@/composables/useTheme'
 import { Card, CardContent } from '@/components/ui/card'
@@ -219,6 +296,10 @@ const dirtyFlows = ref(new Set())
 
 // Snapshot for change detection
 let snapshot = null
+
+// Validation state
+const validatingAll = ref(false)
+const validationSummary = ref(null)
 
 // Variables as entries for editing
 const variableEntries = ref([])
@@ -265,6 +346,8 @@ function mapToEntries(map) {
 
 function onFlowEdit(flow, value) {
   flow.content = value
+  flow.validation = null
+  validationSummary.value = null
   const next = new Set(dirtyFlows.value)
   next.add(flow.name)
   dirtyFlows.value = next
@@ -284,6 +367,47 @@ function updateVariableKey(idx, val) {
 
 function updateVariableValue(idx, val) {
   variableEntries.value[idx].value = val
+}
+
+async function validateFlow(flow) {
+  flow.validating = true
+  flow.validation = null
+  try {
+    const result = await flowsApi.validate(flow.content)
+    flow.validation = result
+  } catch (err) {
+    flow.validation = { valid: false, errors: ['Validation request failed: ' + err.message], warnings: [] }
+  } finally {
+    flow.validating = false
+  }
+}
+
+async function validateAllFlows() {
+  validatingAll.value = true
+  validationSummary.value = null
+  let valid = 0
+  let invalid = 0
+  let warnings = 0
+
+  for (const flow of flows.value) {
+    if (flow.error) continue
+    await validateFlow(flow)
+    if (flow.validation) {
+      if (flow.validation.valid && !flow.validation.warnings.length) valid++
+      else if (flow.validation.valid && flow.validation.warnings.length) warnings++
+      else invalid++
+    }
+  }
+
+  const total = valid + invalid + warnings
+  if (invalid === 0 && warnings === 0) {
+    validationSummary.value = { allValid: true, text: `All ${total} flow(s) valid` }
+  } else if (invalid === 0) {
+    validationSummary.value = { allValid: true, text: `${valid} valid, ${warnings} with warnings` }
+  } else {
+    validationSummary.value = { allValid: false, text: `${invalid} invalid, ${valid} valid${warnings ? `, ${warnings} with warnings` : ''}` }
+  }
+  validatingAll.value = false
 }
 
 function goBack() {
