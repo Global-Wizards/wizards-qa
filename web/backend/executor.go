@@ -367,9 +367,12 @@ var openLinkObjRegex = regexp.MustCompile(`(?m)^(\s*- openLink):\s*\n\s+url:\s*"
 // only a timeout and no visible/notVisible condition (invalid Maestro YAML).
 var extendedWaitTimeoutOnlyRegex = regexp.MustCompile(`(?m)^[ \t]*- extendedWaitUntil:\s*\n[ \t]+timeout:\s*\d+\s*$`)
 
-// tapOnVisibleRegex matches multi-line tapOn blocks using the invalid {visible: "text"} syntax.
-// tapOn: \n    visible: "text"  →  tapOn: "text"
-var tapOnVisibleRegex = regexp.MustCompile(`(?m)^(\s*- tapOn):\s*\n\s+visible:\s*"?([^"\n]+)"?\s*$`)
+// selectorVisibleRegex matches any command followed by visible: on the next indented line.
+// The replacement function skips extendedWaitUntil (which legitimately uses visible:).
+var selectorVisibleRegex = regexp.MustCompile(`(?m)^(\s*- \w+):\s*\n\s+visible:\s*"?([^"\n]+)"?\s*$`)
+
+// selectorNotVisibleRegex — same but for notVisible:
+var selectorNotVisibleRegex = regexp.MustCompile(`(?m)^(\s*- \w+):\s*\n\s+notVisible:\s*"?([^"\n]+)"?\s*$`)
 
 // maestroCommandAliases maps invalid/old command names to correct Maestro names.
 var maestroCommandAliases = map[string]string{
@@ -380,8 +383,21 @@ var maestroCommandAliases = map[string]string{
 
 func normalizeFlowYAML(content string) string {
 	result := openLinkObjRegex.ReplaceAllString(content, `$1: "$2"`)
-	// Flatten tapOn: {visible: "text"} → tapOn: "text"
-	result = tapOnVisibleRegex.ReplaceAllString(result, `$1: "$2"`)
+	// Flatten {visible: "..."} / {notVisible: "..."} from any command except extendedWaitUntil
+	skipExtended := func(match string) string {
+		if strings.Contains(match, "extendedWaitUntil") {
+			return match
+		}
+		return selectorVisibleRegex.ReplaceAllString(match, `$1: "$2"`)
+	}
+	result = selectorVisibleRegex.ReplaceAllStringFunc(result, skipExtended)
+	skipExtendedNV := func(match string) string {
+		if strings.Contains(match, "extendedWaitUntil") {
+			return match
+		}
+		return selectorNotVisibleRegex.ReplaceAllString(match, `$1: "$2"`)
+	}
+	result = selectorNotVisibleRegex.ReplaceAllStringFunc(result, skipExtendedNV)
 	// Fix invalid command names that the AI may have generated
 	for old, correct := range maestroCommandAliases {
 		result = strings.ReplaceAll(result, "- "+old+":", "- "+correct+":")
@@ -537,12 +553,18 @@ func commandToYAML(cmd map[string]interface{}) string {
 					continue
 				}
 			}
-			// Flatten tapOn: {visible: "..."} → tapOn: "..."
-			// The AI sometimes uses extendedWaitUntil syntax for tapOn
-			if key == "tapOn" {
+			// Flatten {visible: "..."} or {notVisible: "..."} for any command except
+			// extendedWaitUntil. The AI sometimes applies extendedWaitUntil's selector
+			// syntax to tapOn, assertVisible, assertNotVisible, etc.
+			if key != "extendedWaitUntil" {
 				if visVal, ok := v["visible"]; ok {
 					visStr := fmt.Sprintf("%v", visVal)
 					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, visStr))
+					continue
+				}
+				if nvVal, ok := v["notVisible"]; ok {
+					nvStr := fmt.Sprintf("%v", nvVal)
+					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, nvStr))
 					continue
 				}
 			}

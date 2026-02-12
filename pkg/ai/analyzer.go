@@ -21,12 +21,29 @@ import (
 // Analyzer analyzes games and generates test scenarios
 type Analyzer struct {
 	Client Client
+	Usage  TokenUsage
 }
 
 // NewAnalyzer creates a new game analyzer
 func NewAnalyzer(client Client) *Analyzer {
-	return &Analyzer{
-		Client: client,
+	a := &Analyzer{Client: client}
+	if bc := baseClientOf(client); bc != nil {
+		bc.OnUsage = func(input, output, cacheCreate, cacheRead int) {
+			a.Usage.Add(input, output, cacheCreate, cacheRead)
+		}
+	}
+	return a
+}
+
+// baseClientOf extracts the *BaseClient from a Client implementation.
+func baseClientOf(client Client) *BaseClient {
+	switch c := client.(type) {
+	case *ClaudeClient:
+		return &c.BaseClient
+	case *GeminiClient:
+		return &c.BaseClient
+	default:
+		return nil
 	}
 }
 
@@ -43,7 +60,24 @@ func NewAnalyzerFromConfig(provider, apiKey, model string, temperature float64, 
 		return nil, fmt.Errorf("unsupported AI provider: %s (use 'anthropic' or 'google')", provider)
 	}
 
-	return &Analyzer{Client: client}, nil
+	return NewAnalyzer(client), nil
+}
+
+// emitCostEstimate sends a cost_estimate progress event with accumulated token usage.
+func (a *Analyzer) emitCostEstimate(progress func(step, message string)) {
+	if a.Usage.APICallCount == 0 {
+		return
+	}
+	model := ""
+	if bc := baseClientOf(a.Client); bc != nil {
+		model = bc.Model
+	}
+	cost := a.Usage.EstimatedCost(model)
+	progress("cost_estimate", fmt.Sprintf(
+		"Tokens: %d in + %d out = %d total (%d cached) | Est. cost: $%.4f (%d API calls)",
+		a.Usage.InputTokens, a.Usage.OutputTokens, a.Usage.TotalTokens,
+		a.Usage.CacheReadInputTokens, cost, a.Usage.APICallCount,
+	))
 }
 
 // parseURLHints extracts game-relevant hints from URL parameters.
@@ -283,6 +317,7 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 			onProgress(step, message)
 		}
 	}
+	defer a.emitCostEstimate(progress)
 
 	// --- Resume path: skip AI Call #1 if checkpoint has analysis ---
 	if opts.resumeData != nil && opts.resumeData.Step == "analyzed" && len(opts.resumeData.Analysis) > 0 {
@@ -1020,8 +1055,12 @@ var openLinkObjRegexCLI = regexp.MustCompile(`(?m)^(\s*- openLink):\s*\n\s+url:\
 // extendedWaitTimeoutOnlyRegexCLI matches extendedWaitUntil blocks with only a timeout (invalid).
 var extendedWaitTimeoutOnlyRegexCLI = regexp.MustCompile(`(?m)^[ \t]*- extendedWaitUntil:\s*\n[ \t]+timeout:\s*\d+\s*$`)
 
-// tapOnVisibleRegexCLI matches multi-line tapOn blocks: tapOn:\n  visible: "text"
-var tapOnVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*- tapOn):\s*\n\s+visible:\s*"?([^"\n]+)"?\s*$`)
+// selectorVisibleRegexCLI matches any command followed by visible: on the next indented line.
+// The replacement function skips extendedWaitUntil (which legitimately uses visible:).
+var selectorVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*- \w+):\s*\n\s+visible:\s*"?([^"\n]+)"?\s*$`)
+
+// selectorNotVisibleRegexCLI — same but for notVisible:
+var selectorNotVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*- \w+):\s*\n\s+notVisible:\s*"?([^"\n]+)"?\s*$`)
 
 // bareVisibleRegexCLI matches a bare "visible:" line NOT preceded by extendedWaitUntil or tapOn,
 // wrapping it in an extendedWaitUntil block.
@@ -1038,7 +1077,20 @@ var maestroCommandAliasesCLI = map[string]string{
 // This catches issues that the structured commandToYAML serialization may miss.
 func normalizeFlowYAML(content string) string {
 	result := openLinkObjRegexCLI.ReplaceAllString(content, `$1: "$2"`)
-	result = tapOnVisibleRegexCLI.ReplaceAllString(result, `$1: "$2"`)
+	skipExtended := func(match string) string {
+		if strings.Contains(match, "extendedWaitUntil") {
+			return match
+		}
+		return selectorVisibleRegexCLI.ReplaceAllString(match, `$1: "$2"`)
+	}
+	result = selectorVisibleRegexCLI.ReplaceAllStringFunc(result, skipExtended)
+	skipExtendedNV := func(match string) string {
+		if strings.Contains(match, "extendedWaitUntil") {
+			return match
+		}
+		return selectorNotVisibleRegexCLI.ReplaceAllString(match, `$1: "$2"`)
+	}
+	result = selectorNotVisibleRegexCLI.ReplaceAllStringFunc(result, skipExtendedNV)
 	for old, correct := range maestroCommandAliasesCLI {
 		result = strings.ReplaceAll(result, "- "+old+":", "- "+correct+":")
 	}
@@ -1139,12 +1191,18 @@ func commandToYAML(cmd map[string]interface{}, indent int) string {
 					continue
 				}
 			}
-			// Flatten tapOn: {visible: "..."} → tapOn: "..."
-			// The AI sometimes uses extendedWaitUntil syntax for tapOn
-			if key == "tapOn" {
+			// Flatten {visible: "..."} or {notVisible: "..."} for any command except
+			// extendedWaitUntil. The AI sometimes applies extendedWaitUntil's selector
+			// syntax to tapOn, assertVisible, assertNotVisible, etc.
+			if key != "extendedWaitUntil" {
 				if visVal, ok := v["visible"]; ok {
 					visStr := fmt.Sprintf("%v", visVal)
 					sb.WriteString(fmt.Sprintf("%s- %s: \"%s\"\n", prefix, key, visStr))
+					continue
+				}
+				if nvVal, ok := v["notVisible"]; ok {
+					nvStr := fmt.Sprintf("%v", nvVal)
+					sb.WriteString(fmt.Sprintf("%s- %s: \"%s\"\n", prefix, key, nvStr))
 					continue
 				}
 			}
