@@ -5,6 +5,28 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.3] - 2026-02-12
+
+### Added
+- **Test Plan Editor** — full editing of test plans from the Tests view. Click any test plan row to open a dedicated editor page with metadata editing (name, description, game URL), a CodeMirror YAML editor for each flow, and a key/value variables editor. Changes are tracked with dirty detection and saved via `PUT /api/test-plans/{id}`. Flow YAML content is written directly back to disk. Auto-saves before running. New backend methods `UpdateTestPlan` and `SaveFlowContent` with path-traversal protection.
+
+## [0.23.2] - 2026-02-12
+
+### Fixed
+- **Maestro flows failing — `visible`/`notVisible` leaking into element selectors** — the AI sometimes applied `extendedWaitUntil`'s `{visible: "..."}` / `{notVisible: "..."}` syntax to `tapOn`, `assertVisible`, `assertNotVisible`, and other commands, causing Maestro to reject flows with "Unrecognized field" errors. Generalized the existing `tapOn`-only defense to catch `visible`/`notVisible` in **all** selector commands:
+  - **`commandToYAML()`** now flattens `{visible: "..."}` and `{notVisible: "..."}` from any command except `extendedWaitUntil` (previously only handled `tapOn` + `visible`).
+  - **`normalizeFlowYAML()`** regex safety net expanded from `tapOnVisibleRegex` to two general regexes (`selectorVisibleRegex` / `selectorNotVisibleRegex`) covering all commands.
+  - **AI prompt** strengthened to explicitly prohibit `visible`/`notVisible` on `tapOn`, `assertVisible`, `assertNotVisible`, and all other commands.
+  - **Validator** now warns on `visible`/`notVisible` fields in `assertVisible`, `assertNotVisible`, and `tapOn` (added `notVisible` warning for `tapOn`).
+
+## [0.23.1] - 2026-02-11
+
+### Fixed
+- **Analysis page stuck after exploration — missed WebSocket events** — the analysis page would get stuck showing exploration as complete but never transitioning to results when the WebSocket connection dropped during long silent periods (e.g., 3-minute synthesis). Three fixes:
+  - **Server-side WebSocket pings** — `writePump()` now sends pings every 30 seconds with a 60-second pong deadline, keeping connections alive through Fly.io's idle timeout.
+  - **Client-side status polling fallback** — `useAnalysis.js` now polls the analysis status API every 15 seconds during active states, catching any missed `analysis_completed` or `analysis_failed` WebSocket events.
+  - **WebSocket listener error isolation** — `_emit()` now wraps each listener callback in its own try/catch, preventing one failing listener from blocking others. Parse errors and listener errors are now logged with distinct, accurate messages.
+
 ## [0.23.0] - 2026-02-11
 
 ### Added

@@ -183,6 +183,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/test-plans", s.handleListTestPlans)
 		r.Post("/api/test-plans", s.handleCreateTestPlan)
 		r.Get("/api/test-plans/{id}", s.handleGetTestPlan)
+		r.Put("/api/test-plans/{id}", s.handleUpdateTestPlan)
 		r.Post("/api/test-plans/{id}/run", s.handleRunTestPlan)
 		r.Delete("/api/test-plans/{id}", s.handleDeleteTestPlan)
 		r.Post("/api/analyze", s.handleAnalyzeGame)
@@ -527,7 +528,101 @@ func (s *Server) handleGetTestPlan(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusNotFound, "Test plan not found")
 		return
 	}
+
+	if r.URL.Query().Get("include") == "flows" {
+		type flowEntry struct {
+			Name    string `json:"name"`
+			Content string `json:"content"`
+			Error   string `json:"error,omitempty"`
+		}
+		var flows []flowEntry
+		for _, name := range plan.FlowNames {
+			fd, err := s.store.GetFlow(name)
+			if err != nil {
+				flows = append(flows, flowEntry{Name: name, Error: err.Error()})
+			} else {
+				flows = append(flows, flowEntry{Name: fd.Name, Content: fd.Content})
+			}
+		}
+		respondJSON(w, http.StatusOK, map[string]interface{}{
+			"plan":  plan,
+			"flows": nonNil(flows),
+		})
+		return
+	}
+
 	respondJSON(w, http.StatusOK, plan)
+}
+
+func (s *Server) handleUpdateTestPlan(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	existing, err := s.store.GetTestPlan(id)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Test plan not found")
+		return
+	}
+
+	// Admin or owner check
+	claims := auth.UserFromContext(r.Context())
+	if claims != nil && claims.Role != "admin" {
+		if existing.CreatedBy != "" && existing.CreatedBy != claims.UserID {
+			respondError(w, http.StatusForbidden, "Only the owner or an admin can update this test plan")
+			return
+		}
+	}
+
+	var req struct {
+		Name         string            `json:"name"`
+		Description  string            `json:"description"`
+		GameURL      string            `json:"gameUrl"`
+		FlowNames    []string          `json:"flowNames"`
+		Variables    map[string]string `json:"variables"`
+		FlowContents map[string]string `json:"flowContents"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.Name == "" {
+		respondError(w, http.StatusBadRequest, "Plan name is required")
+		return
+	}
+	if len(req.Name) > 200 {
+		respondError(w, http.StatusBadRequest, "Plan name must be 200 characters or less")
+		return
+	}
+	if req.GameURL != "" {
+		if _, err := url.ParseRequestURI(req.GameURL); err != nil {
+			respondError(w, http.StatusBadRequest, "Invalid game URL")
+			return
+		}
+	}
+
+	existing.Name = req.Name
+	existing.Description = req.Description
+	existing.GameURL = req.GameURL
+	existing.FlowNames = req.FlowNames
+	if req.Variables != nil {
+		existing.Variables = req.Variables
+	}
+
+	if err := s.store.UpdateTestPlan(*existing); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to update test plan")
+		return
+	}
+
+	var flowWarnings []string
+	for name, content := range req.FlowContents {
+		if err := s.store.SaveFlowContent(name, content); err != nil {
+			flowWarnings = append(flowWarnings, fmt.Sprintf("%s: %s", name, err.Error()))
+		}
+	}
+
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"plan":         existing,
+		"flowWarnings": nonNil(flowWarnings),
+	})
 }
 
 func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {

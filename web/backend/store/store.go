@@ -526,6 +526,47 @@ func (s *Store) SaveTestPlan(plan TestPlan) error {
 	return err
 }
 
+func (s *Store) UpdateTestPlan(plan TestPlan) error {
+	flowNamesJSON := marshalToPtr(plan.FlowNames)
+	variablesJSON := marshalToPtr(plan.Variables)
+	result, err := s.db.Exec(
+		`UPDATE test_plans SET name = ?, description = ?, game_url = ?, flow_names = ?, variables = ? WHERE id = ?`,
+		plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.ID,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("test plan not found: %s", plan.ID)
+	}
+	return nil
+}
+
+func (s *Store) SaveFlowContent(name, content string) error {
+	if !isSafeName(name) {
+		return fmt.Errorf("invalid flow name: %s", name)
+	}
+	flows, err := s.ListFlows()
+	if err != nil {
+		return fmt.Errorf("listing flows: %w", err)
+	}
+	for _, f := range flows {
+		if f.Name == name {
+			fullPath := filepath.Join(filepath.Dir(s.flowsDir), f.Path)
+			absPath, err := filepath.Abs(fullPath)
+			if err != nil {
+				return fmt.Errorf("resolving path: %w", err)
+			}
+			absBase, _ := filepath.Abs(filepath.Dir(s.flowsDir))
+			if !strings.HasPrefix(absPath, absBase) {
+				return fmt.Errorf("path traversal detected")
+			}
+			return os.WriteFile(absPath, []byte(content), 0644)
+		}
+	}
+	return fmt.Errorf("flow not found: %s", name)
+}
+
 func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 	rows, err := s.db.Query(
 		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,'') FROM test_plans ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,

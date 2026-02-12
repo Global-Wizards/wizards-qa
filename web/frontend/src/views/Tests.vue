@@ -190,8 +190,8 @@
                 <TableRow
                   v-for="plan in plans"
                   :key="plan.id"
-                  :class="plan.status === 'running' ? 'cursor-pointer hover:bg-muted/50' : ''"
-                  @click="plan.status === 'running' && plan.lastRunId ? navigateToRunning(plan) : null"
+                  class="cursor-pointer hover:bg-muted/50"
+                  @click="openPlanEditor(plan)"
                 >
                   <TableCell class="font-medium">
                     <div class="flex items-center gap-2">
@@ -217,6 +217,15 @@
                       >
                         <Eye class="h-3 w-3 mr-1" />
                         View
+                      </Button>
+                      <Button
+                        v-if="plan.status !== 'running'"
+                        size="sm"
+                        variant="outline"
+                        @click.stop="openPlanEditor(plan)"
+                      >
+                        <Pencil class="h-3 w-3 mr-1" />
+                        Edit
                       </Button>
                       <Button
                         size="sm"
@@ -254,7 +263,7 @@
 <script setup>
 import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertCircle, Plus, Play, Trash2, Eye, Loader2 } from 'lucide-vue-next'
+import { AlertCircle, Plus, Play, Trash2, Eye, Loader2, Pencil } from 'lucide-vue-next'
 import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { getWebSocket } from '@/lib/websocket'
@@ -355,6 +364,15 @@ function openDetail(test) {
 function navigateToRunning(plan) {
   const base = projectId.value ? `/projects/${projectId.value}` : ''
   router.push(`${base}/tests/run/${plan.lastRunId}`)
+}
+
+function openPlanEditor(plan) {
+  if (plan.status === 'running' && plan.lastRunId) {
+    navigateToRunning(plan)
+    return
+  }
+  const base = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push(`${base}/tests/plans/${plan.id}`)
 }
 
 async function deleteTest(test) {

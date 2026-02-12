@@ -133,8 +133,10 @@ export const templatesApi = {
 
 export const testPlansApi = {
   list: () => api.get('/test-plans').then((r) => r.data),
-  get: (id) => api.get(`/test-plans/${id}`).then((r) => r.data),
+  get: (id, params) => api.get(`/test-plans/${id}`, { params }).then((r) => r.data),
   create: (plan) => api.post('/test-plans', plan).then((r) => r.data),
+  update: (id, data) => api.put(`/test-plans/${id}`, data).then((r) => r.data),
+  delete: (id) => api.delete(`/test-plans/${id}`).then((r) => r.data),
   run: (id) => api.post(`/test-plans/${id}/run`).then((r) => r.data),
 }
 
