@@ -170,6 +170,8 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/tests/{id}", s.handleGetTest)
 		r.Get("/api/tests/{id}/live", s.handleGetLiveTest)
 		r.Post("/api/tests/run", s.handleRunTest)
+		r.Delete("/api/tests/{id}", s.handleDeleteTestResult)
+		r.Post("/api/tests/delete-batch", s.handleDeleteTestResultsBatch)
 		r.Get("/api/reports", s.handleListReports)
 		r.Get("/api/reports/{id}", s.handleGetReport)
 		r.Get("/api/flows", s.handleListFlows)
@@ -871,6 +873,32 @@ func (s *Server) handleDeleteTestPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) handleDeleteTestResult(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	if err := s.store.DeleteTestResult(id); err != nil {
+		respondError(w, http.StatusNotFound, "Test result not found")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+}
+
+func (s *Server) handleDeleteTestResultsBatch(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		IDs []string `json:"ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || len(req.IDs) == 0 {
+		respondError(w, http.StatusBadRequest, "Missing or empty ids array")
+		return
+	}
+	deleted := 0
+	for _, id := range req.IDs {
+		if err := s.store.DeleteTestResult(id); err == nil {
+			deleted++
+		}
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{"deleted": deleted})
 }
 
 // --- Server lifecycle ---

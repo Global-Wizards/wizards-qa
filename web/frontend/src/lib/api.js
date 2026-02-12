@@ -105,6 +105,8 @@ export const testsApi = {
   get: (id) => api.get(`/tests/${id}`).then((r) => r.data),
   live: (id) => api.get(`/tests/${id}/live`).then((r) => r.data),
   run: (payload) => api.post('/tests/run', payload).then((r) => r.data),
+  delete: (id) => api.delete(`/tests/${id}`).then((r) => r.data),
+  deleteBatch: (ids) => api.post('/tests/delete-batch', { ids }).then((r) => r.data),
 }
 
 export const reportsApi = {

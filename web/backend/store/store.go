@@ -494,6 +494,17 @@ func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
 	return &r, nil
 }
 
+func (s *Store) DeleteTestResult(id string) error {
+	result, err := s.db.Exec(`DELETE FROM test_results WHERE id = ?`, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("test result not found: %s", id)
+	}
+	return nil
+}
+
 // --- Test Plans (SQLite) ---
 
 func (s *Store) SaveTestPlan(plan TestPlan) error {

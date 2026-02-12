@@ -27,13 +27,26 @@
           <Input v-model="search" placeholder="Search tests..." class="max-w-sm" />
         </div>
 
+        <!-- Bulk Action Bar -->
+        <div
+          v-if="selectedIds.size > 0"
+          class="mb-4 flex items-center gap-3 rounded-md border bg-muted/50 px-4 py-2"
+        >
+          <span class="text-sm font-medium">{{ selectedIds.size }} selected</span>
+          <Button size="sm" variant="destructive" @click="deleteSelected">
+            <Trash2 class="h-3 w-3 mr-1" />
+            Delete Selected
+          </Button>
+          <Button size="sm" variant="ghost" @click="selectedIds.clear()">Clear</Button>
+        </div>
+
         <!-- Loading State -->
         <Card v-if="loading">
           <CardContent class="pt-6">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead v-for="i in 5" :key="i"><Skeleton class="h-4 w-20" /></TableHead>
+                  <TableHead v-for="i in 6" :key="i"><Skeleton class="h-4 w-20" /></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -56,6 +69,15 @@
             <Table>
               <TableHeader>
                 <TableRow>
+                  <TableHead class="w-10">
+                    <input
+                      type="checkbox"
+                      :checked="allSelected"
+                      :indeterminate="someSelected && !allSelected"
+                      @change="toggleSelectAll"
+                      class="rounded border-muted-foreground"
+                    />
+                  </TableHead>
                   <TableHead class="cursor-pointer" @click="toggleSort('name')">
                     Name
                     <span v-if="sortField === 'name'" class="ml-1">{{ sortAsc ? '↑' : '↓' }}</span>
@@ -69,10 +91,11 @@
                     Success Rate
                     <span v-if="sortField === 'successRate'" class="ml-1">{{ sortAsc ? '↑' : '↓' }}</span>
                   </TableHead>
-                  <TableHead class="text-right cursor-pointer" @click="toggleSort('timestamp')">
+                  <TableHead class="cursor-pointer" @click="toggleSort('timestamp')">
                     Timestamp
                     <span v-if="sortField === 'timestamp'" class="ml-1">{{ sortAsc ? '↑' : '↓' }}</span>
                   </TableHead>
+                  <TableHead class="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -82,16 +105,33 @@
                   class="cursor-pointer"
                   @click="openDetail(test)"
                 >
+                  <TableCell @click.stop>
+                    <input
+                      type="checkbox"
+                      :checked="selectedIds.has(test.id)"
+                      @change="toggleSelect(test.id)"
+                      class="rounded border-muted-foreground"
+                    />
+                  </TableCell>
                   <TableCell class="font-medium">{{ test.name }}</TableCell>
                   <TableCell><StatusBadge :status="test.status" /></TableCell>
                   <TableCell>{{ test.duration }}</TableCell>
                   <TableCell>{{ Math.round(test.successRate) }}%</TableCell>
-                  <TableCell class="text-right text-muted-foreground">
+                  <TableCell class="text-muted-foreground">
                     {{ formatDate(test.timestamp) }}
+                  </TableCell>
+                  <TableCell class="text-right">
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      @click.stop="deleteTest(test)"
+                    >
+                      <Trash2 class="h-3 w-3 text-destructive" />
+                    </Button>
                   </TableCell>
                 </TableRow>
                 <TableRow v-if="!filteredTests.length">
-                  <TableCell colspan="5" class="text-center text-muted-foreground py-8">
+                  <TableCell colspan="7" class="text-center text-muted-foreground py-8">
                     {{ search ? 'No tests match your search' : 'No tests found' }}
                   </TableCell>
                 </TableRow>
@@ -208,66 +248,11 @@
         </Card>
       </TabsContent>
     </Tabs>
-
-    <!-- Detail Sheet (completed test results only) -->
-    <Sheet :open="sheetOpen" @update:open="sheetOpen = $event">
-      <SheetContent side="right">
-        <SheetHeader>
-          <SheetTitle>{{ selectedTest?.name }}</SheetTitle>
-          <SheetDescription>Test execution details</SheetDescription>
-        </SheetHeader>
-        <div v-if="selectedTest" class="mt-6 space-y-4">
-          <Alert v-if="detailData?._fetchError" variant="destructive" class="mb-2">
-            <AlertCircle class="h-4 w-4" />
-            <AlertDescription>Could not load full test details. Showing summary only.</AlertDescription>
-          </Alert>
-          <div class="flex items-center justify-between">
-            <span class="text-sm text-muted-foreground">Status</span>
-            <StatusBadge :status="selectedTest.status" />
-          </div>
-          <Separator />
-          <div class="flex items-center justify-between">
-            <span class="text-sm text-muted-foreground">Duration</span>
-            <span class="text-sm font-medium">{{ selectedTest.duration }}</span>
-          </div>
-          <Separator />
-          <div class="flex items-center justify-between">
-            <span class="text-sm text-muted-foreground">Success Rate</span>
-            <span class="text-sm font-medium">{{ Math.round(selectedTest.successRate) }}%</span>
-          </div>
-          <Separator />
-
-          <!-- Flow Results -->
-          <div v-if="detailData?.flows?.length">
-            <h4 class="text-sm font-medium mb-3">Flow Results</h4>
-            <div class="space-y-2">
-              <div
-                v-for="flow in detailData.flows"
-                :key="flow.name"
-                class="flex items-center justify-between rounded-md border p-3"
-              >
-                <div>
-                  <p class="text-sm font-medium">{{ flow.name }}</p>
-                  <p class="text-xs text-muted-foreground">{{ flow.duration }}</p>
-                </div>
-                <StatusBadge :status="flow.status" />
-              </div>
-            </div>
-          </div>
-
-          <!-- Error Output -->
-          <div v-if="detailData?.errorOutput">
-            <h4 class="text-sm font-medium mb-2">Error Output</h4>
-            <pre class="text-xs bg-muted rounded-md p-3 overflow-auto max-h-48">{{ detailData.errorOutput }}</pre>
-          </div>
-        </div>
-      </SheetContent>
-    </Sheet>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlertCircle, Plus, Play, Trash2, Eye, Loader2 } from 'lucide-vue-next'
 import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
@@ -278,8 +263,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import StatusBadge from '@/components/StatusBadge.vue'
@@ -302,9 +285,32 @@ watch(search, (val) => {
 })
 const sortField = ref('timestamp')
 const sortAsc = ref(false)
-const sheetOpen = ref(false)
-const selectedTest = ref(null)
-const detailData = ref(null)
+
+// Selection state
+const selectedIds = reactive(new Set())
+
+const allSelected = computed(() => {
+  return filteredTests.value.length > 0 && filteredTests.value.every((t) => selectedIds.has(t.id))
+})
+const someSelected = computed(() => {
+  return filteredTests.value.some((t) => selectedIds.has(t.id))
+})
+
+function toggleSelect(id) {
+  if (selectedIds.has(id)) {
+    selectedIds.delete(id)
+  } else {
+    selectedIds.add(id)
+  }
+}
+
+function toggleSelectAll() {
+  if (allSelected.value) {
+    filteredTests.value.forEach((t) => selectedIds.delete(t.id))
+  } else {
+    filteredTests.value.forEach((t) => selectedIds.add(t.id))
+  }
+}
 
 // Plans state
 const plansLoading = ref(true)
@@ -341,20 +347,37 @@ function toggleSort(field) {
   }
 }
 
-async function openDetail(test) {
-  selectedTest.value = test
-  sheetOpen.value = true
-  detailData.value = null
-  try {
-    detailData.value = await testsApi.get(test.id)
-  } catch {
-    detailData.value = { ...test, _fetchError: true }
-  }
+function openDetail(test) {
+  const base = projectId.value ? `/projects/${projectId.value}` : ''
+  router.push(`${base}/tests/run/${test.id}`)
 }
 
 function navigateToRunning(plan) {
   const base = projectId.value ? `/projects/${projectId.value}` : ''
   router.push(`${base}/tests/run/${plan.lastRunId}`)
+}
+
+async function deleteTest(test) {
+  if (!confirm(`Delete test result "${test.name}"? This cannot be undone.`)) return
+  try {
+    await testsApi.delete(test.id)
+    tests.value = tests.value.filter((t) => t.id !== test.id)
+    selectedIds.delete(test.id)
+  } catch (err) {
+    error.value = 'Failed to delete test result: ' + err.message
+  }
+}
+
+async function deleteSelected() {
+  const ids = [...selectedIds]
+  if (!confirm(`Delete ${ids.length} test result(s)? This cannot be undone.`)) return
+  try {
+    await testsApi.deleteBatch(ids)
+    tests.value = tests.value.filter((t) => !selectedIds.has(t.id))
+    selectedIds.clear()
+  } catch (err) {
+    error.value = 'Failed to delete test results: ' + err.message
+  }
 }
 
 async function runPlan(plan) {

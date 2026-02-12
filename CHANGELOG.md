@@ -5,6 +5,17 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.0] - 2026-02-11
+
+### Added
+- **Delete test results** — individual and bulk delete support for test results. New `DELETE /api/tests/{id}` and `POST /api/tests/delete-batch` endpoints. Per-row trash icon button and multi-select checkboxes with "Delete Selected" bulk action bar in the Tests view.
+- **Click test result navigates to detail view** — clicking a test result row now navigates to the full `TestRunDetail` page (`/tests/run/:id`) with phase timeline, flow results, duration badges, stats strip, and logs, replacing the previous basic Sheet sidebar.
+
+## [0.22.0] - 2026-02-11
+
+### Added
+- **Token usage & cost estimation** — the analysis pipeline now tracks cumulative token consumption (input, output, cache creation, cache read) across all API calls and emits a `cost_estimate` progress event at the end of every analysis. Both CLI and web frontend display the summary (e.g., "Tokens: 45000 in + 8000 out = 53000 total (12000 cached) | Est. cost: $0.2550 (3 API calls)"). Pricing tables included for Claude Sonnet 4.5, Claude Haiku 4.5, and Gemini models.
+
 ## [0.21.5] - 2026-02-11
 
 ### Fixed
