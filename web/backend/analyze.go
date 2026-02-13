@@ -315,13 +315,34 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	}
 
 	// Acquire concurrency slot (released before inline test run to avoid two Chrome instances)
+	// Try non-blocking first to avoid broadcasting "queued" when there's no contention
 	select {
 	case s.analysisSem <- struct{}{}:
-		// Released explicitly below, not via defer
-	case <-s.serverCtx.Done():
-		s.store.UpdateAnalysisStatus(analysisID, store.StatusFailed, "shutdown")
-		s.broadcastAnalysisError(analysisID, "Server shutting down")
-		return
+		// Got it immediately
+	default:
+		// Semaphore is busy — notify user they're queued
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "queued",
+				Message: "Another analysis is running. Waiting in queue...",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+		log.Printf("Analysis %s: queued (semaphore busy)", analysisID)
+		queueTimeout := time.After(5 * time.Minute)
+		select {
+		case s.analysisSem <- struct{}{}:
+			// Got it
+		case <-queueTimeout:
+			s.store.UpdateAnalysisStatus(analysisID, store.StatusFailed, "queue_timeout")
+			s.broadcastAnalysisError(analysisID, "Timed out waiting in queue. Another analysis may be stuck — please try again.")
+			return
+		case <-s.serverCtx.Done():
+			s.store.UpdateAnalysisStatus(analysisID, store.StatusFailed, "shutdown")
+			s.broadcastAnalysisError(analysisID, "Server shutting down")
+			return
+		}
 	}
 	analysisSemHeld := true
 	releaseAnalysisSem := func() {
@@ -333,7 +354,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	defer releaseAnalysisSem()
 
 	// Update step now that we have the semaphore
-	s.store.UpdateAnalysisStatus(analysisID, store.StatusRunning, "scouting")
+	if err := s.store.UpdateAnalysisStatus(analysisID, store.StatusRunning, "scouting"); err != nil {
+		log.Printf("Warning: failed to update analysis %s step to scouting: %v", analysisID, err)
+	}
 
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_progress",

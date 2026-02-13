@@ -266,7 +266,7 @@
 
     <!-- State 2: Progress -->
     <AnalysisProgressPanel
-      v-else-if="status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'testing'"
+      v-else-if="status === 'queued' || status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'testing'"
       mode="progress"
       :game-url="gameUrl"
       :elapsed-seconds="elapsedSeconds"
@@ -302,7 +302,7 @@
     </AnalysisProgressPanel>
 
     <!-- Multi-device batch status cards -->
-    <div v-if="batchAnalysisIds.length > 1 && (status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'testing' || status === 'complete')" class="mt-4">
+    <div v-if="batchAnalysisIds.length > 1 && (status === 'queued' || status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'testing' || status === 'complete')" class="mt-4">
       <Card>
         <CardHeader class="pb-3">
           <CardTitle class="text-sm">Multi-Device Analyses</CardTitle>
@@ -1110,10 +1110,11 @@ const failedPhaseLabel = computed(() => {
 })
 
 const progressPhases = computed(() => {
+  const isQueued = status.value === 'queued'
   const phases = [{
-    id: 'scouting', label: 'Scouting page', icon: 'Radar', color: 'blue',
-    status: granularStepStatus('scouting'),
-    detail: stepDuration('scouting') ? `Completed in ${stepDuration('scouting')}s` : 'Fetching page and extracting metadata...',
+    id: 'scouting', label: isQueued ? 'Queued' : 'Scouting page', icon: isQueued ? 'Clock' : 'Radar', color: isQueued ? 'amber' : 'blue',
+    status: isQueued ? 'active' : granularStepStatus('scouting'),
+    detail: isQueued ? 'Another analysis is running. Waiting in queue...' : stepDuration('scouting') ? `Completed in ${stepDuration('scouting')}s` : 'Fetching page and extracting metadata...',
     durationSeconds: stepDuration('scouting'),
     subDetails: scoutingDetails.value,
   }]

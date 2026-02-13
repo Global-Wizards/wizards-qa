@@ -283,7 +283,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import {
   Loader2, AlertCircle, CheckCircle2, Terminal, Copy, ChevronDown,
   ArrowDown, RefreshCw, PlayCircle,
-  Radar, Bot, Brain, ListTree, ClipboardCheck, FlaskConical,
+  Radar, Bot, Brain, ListTree, ClipboardCheck, FlaskConical, Clock,
 } from 'lucide-vue-next'
 import { PlayCircle as PlayCircleIcon } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -308,6 +308,7 @@ defineEmits(['cancel', 'retry', 'continue', 'start-over', 'copy-log'])
 
 // --- Phase icon map ---
 const phaseIconMap = {
+  Clock,
   Radar,
   Bot,
   Brain,

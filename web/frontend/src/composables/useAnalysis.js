@@ -10,7 +10,7 @@ const LS_KEY = 'wizards-qa-running-analysis'
 
 // Map granular step names to coarse status for backward compat
 const STEP_TO_STATUS = {
-  queued: 'scouting',
+  queued: 'queued',
   scouting: 'scouting',
   scouted: 'scouting',
   scouted_detail: 'scouting',
@@ -55,7 +55,7 @@ const STEP_TO_STATUS = {
 }
 
 export function useAnalysis() {
-  const status = ref('idle') // idle, scouting, analyzing, generating, creating_test_plan, complete, error
+  const status = ref('idle') // idle, queued, scouting, analyzing, generating, creating_test_plan, complete, error
   const currentStep = ref('') // granular step name
   const analysisId = ref(null)
   const pageMeta = ref(null)
@@ -128,7 +128,7 @@ export function useAnalysis() {
     statusPollInterval = setInterval(async () => {
       if (!analysisId.value) return
       // Only poll when in an active (non-terminal) state
-      const activeStates = ['scouting', 'analyzing', 'generating', 'creating_test_plan', 'testing']
+      const activeStates = ['queued', 'scouting', 'analyzing', 'generating', 'creating_test_plan', 'testing']
       if (!activeStates.includes(status.value)) return
       try {
         const statusData = await analysesApi.status(analysisId.value)

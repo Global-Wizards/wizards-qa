@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.33.0] - 2026-02-13
+
+### Added
+- **Queued analysis state** — when an analysis is started while another is already running, the UI now shows "Queued — Another analysis is running. Waiting in queue..." with a clock icon instead of misleadingly showing "Scouting page..."
+- **Queue timeout** — queued analyses time out after 5 minutes with a clear error message instead of waiting indefinitely behind a stuck analysis.
+
+### Fixed
+- **Silent semaphore step update failure** — the `UpdateAnalysisStatus` call after acquiring the semaphore now logs errors instead of silently discarding them.
+
 ## [0.32.5] - 2026-02-13
 
 ### Fixed
