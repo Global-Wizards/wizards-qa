@@ -245,6 +245,7 @@ export function useTestExecution() {
             screenshotB64: data.screenshotB64,
             result: data.result,
             status: data.status,
+            reasoning: data.reasoning || '',
           },
         ]
       }

@@ -35,6 +35,13 @@ type browserFlowFile struct {
 	Commands []interface{}
 }
 
+// flowContext provides shared context for flow execution, enabling runFlow references.
+type flowContext struct {
+	flows    []browserFlowFile
+	flowDir  string
+	visiting map[string]bool // recursion guard
+}
+
 // launchBrowserTestRun starts executeBrowserTestRun in a goroutine with panic recovery.
 func (s *Server) launchBrowserTestRun(planID, testID, flowDir, planName, viewport string, cleanupDir bool, createdBy string) {
 	go func() {
@@ -133,6 +140,8 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 	toolExec := &ai.BrowserToolExecutor{Page: browserPage}
 	s.broadcastTestLog(testID, planID, fmt.Sprintf("Browser ready (%dx%d @ %.1fx)", vp.Width, vp.Height, vp.DevicePixelRatio))
 
+	fctx := &flowContext{flows: flows, flowDir: flowDir, visiting: make(map[string]bool)}
+
 	var flowResults []store.FlowResult
 
 	for fi, flow := range flows {
@@ -191,7 +200,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 				},
 			})
 
-			result, screenshot, cmdErr := executeFlowCommand(browserPage, toolExec, cmd, aiClient, vp.Width, vp.Height)
+			result, screenshot, reasoning, cmdErr := executeFlowCommand(browserPage, toolExec, cmd, aiClient, vp.Width, vp.Height, fctx)
 
 			status := "passed"
 			if cmdErr != nil {
@@ -215,6 +224,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 						"screenshotB64": screenshot,
 						"result":        result,
 						"status":        status,
+						"reasoning":     reasoning,
 					},
 				})
 			}
@@ -264,7 +274,17 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 			logLine += " - " + flowError
 		}
 
-		s.broadcastTestLog(testID, planID, logLine)
+		// Update running test log buffer only (no broadcast — the full message below handles it)
+		s.runningTestsMu.Lock()
+		if rt, ok := s.runningTests[testID]; ok {
+			if len(rt.Logs) >= maxRunningTestLogs {
+				rt.Logs = rt.Logs[1:]
+			}
+			rt.Logs = append(rt.Logs, logLine)
+		}
+		s.runningTestsMu.Unlock()
+
+		// Single broadcast with full flow result data
 		s.wsHub.Broadcast(ws.Message{
 			Type: "test_progress",
 			Data: map[string]interface{}{
@@ -409,46 +429,46 @@ func parseFlowYAMLForBrowser(filename, content string) (*browserFlowFile, error)
 }
 
 // executeFlowCommand executes a single Maestro flow command using the browser.
-func executeFlowCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cmd interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (result string, screenshot string, err error) {
+func executeFlowCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cmd interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int, fctx *flowContext) (result string, screenshot string, reasoning string, err error) {
 	switch c := cmd.(type) {
 	case string:
 		return executeStringCommand(page, toolExec, c)
 	case map[string]interface{}:
-		return executeMapCommand(page, toolExec, c, aiClient, vpWidth, vpHeight)
+		return executeMapCommand(page, toolExec, c, aiClient, vpWidth, vpHeight, fctx)
 	default:
-		return "", "", fmt.Errorf("unknown command type: %T", cmd)
+		return "", "", "", fmt.Errorf("unknown command type: %T", cmd)
 	}
 }
 
 // executeStringCommand handles simple string commands like "back", "takeScreenshot".
-func executeStringCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cmd string) (string, string, error) {
+func executeStringCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cmd string) (string, string, string, error) {
 	switch cmd {
 	case "back":
 		_, err := page.EvalJS("history.back()")
 		if err != nil {
-			return "", "", fmt.Errorf("back: %w", err)
+			return "", "", "", fmt.Errorf("back: %w", err)
 		}
 		time.Sleep(500 * time.Millisecond)
 		ss, _ := page.CaptureScreenshot()
-		return "Navigated back.", ss, nil
+		return "Navigated back.", ss, "", nil
 
 	case "takeScreenshot":
 		ss, err := page.CaptureScreenshot()
 		if err != nil {
-			return "", "", fmt.Errorf("screenshot: %w", err)
+			return "", "", "", fmt.Errorf("screenshot: %w", err)
 		}
-		return "Screenshot captured.", ss, nil
+		return "Screenshot captured.", ss, "", nil
 
 	case "hideKeyboard":
-		return "hideKeyboard (no-op in browser).", "", nil
+		return "hideKeyboard (no-op in browser).", "", "", nil
 
 	default:
-		return fmt.Sprintf("Skipped unsupported command: %s", cmd), "", nil
+		return fmt.Sprintf("Skipped unsupported command: %s", cmd), "", "", nil
 	}
 }
 
 // executeMapCommand handles map-style commands like {openLink: "url"}, {tapOn: ...}, etc.
-func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cmd map[string]interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (string, string, error) {
+func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cmd map[string]interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int, fctx *flowContext) (string, string, string, error) {
 	for cmdName, value := range cmd {
 		switch cmdName {
 		case "openLink":
@@ -459,10 +479,11 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 				}
 			}
 			if url == "" {
-				return "", "", fmt.Errorf("openLink: missing URL")
+				return "", "", "", fmt.Errorf("openLink: missing URL")
 			}
 			input, _ := json.Marshal(map[string]string{"url": url})
-			return toolExec.Execute("navigate", input)
+			r, ss, err := toolExec.Execute("navigate", input)
+			return r, ss, "", err
 
 		case "tapOn":
 			return executeTapOn(page, toolExec, value, aiClient, vpWidth, vpHeight)
@@ -470,10 +491,11 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 		case "inputText":
 			text, _ := value.(string)
 			if text == "" {
-				return "", "", fmt.Errorf("inputText: empty text")
+				return "", "", "", fmt.Errorf("inputText: empty text")
 			}
 			input, _ := json.Marshal(map[string]string{"text": text})
-			return toolExec.Execute("type_text", input)
+			r, ss, err := toolExec.Execute("type_text", input)
+			return r, ss, "", err
 
 		case "scroll":
 			return executeScroll(toolExec, value)
@@ -490,26 +512,25 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 		case "takeScreenshot":
 			ss, err := page.CaptureScreenshot()
 			if err != nil {
-				return "", "", fmt.Errorf("screenshot: %w", err)
+				return "", "", "", fmt.Errorf("screenshot: %w", err)
 			}
-			return "Screenshot captured.", ss, nil
+			return "Screenshot captured.", ss, "", nil
 
 		case "back":
 			_, err := page.EvalJS("history.back()")
 			if err != nil {
-				return "", "", fmt.Errorf("back: %w", err)
+				return "", "", "", fmt.Errorf("back: %w", err)
 			}
 			time.Sleep(500 * time.Millisecond)
 			ss, _ := page.CaptureScreenshot()
-			return "Navigated back.", ss, nil
+			return "Navigated back.", ss, "", nil
 
 		case "pressKey":
 			key, _ := value.(string)
-			return fmt.Sprintf("pressKey %q (no-op in browser)", key), "", nil
+			return fmt.Sprintf("pressKey %q (no-op in browser)", key), "", "", nil
 
 		case "eraseText":
-			// Simulate backspace key presses
-			count := 10 // default
+			count := 10
 			if n, ok := value.(int); ok {
 				count = n
 			}
@@ -522,7 +543,7 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 				page.EvalJS(`document.execCommand('delete', false)`)
 			}
 			ss, _ := page.CaptureScreenshot()
-			return fmt.Sprintf("Erased %d characters.", count), ss, nil
+			return fmt.Sprintf("Erased %d characters.", count), ss, "", nil
 
 		case "evalScript":
 			expr, _ := value.(string)
@@ -533,45 +554,40 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 			}
 			res, err := page.EvalJS(expr)
 			if err != nil {
-				return "", "", fmt.Errorf("evalScript: %w", err)
+				return "", "", "", fmt.Errorf("evalScript: %w", err)
 			}
-			return res, "", nil
+			return res, "", "", nil
 
 		case "launchApp", "clearState", "stopApp":
-			return fmt.Sprintf("%s (no-op in browser mode)", cmdName), "", nil
+			return fmt.Sprintf("%s (no-op in browser mode)", cmdName), "", "", nil
 
 		case "repeat":
-			return executeRepeat(page, toolExec, value, aiClient, vpWidth, vpHeight)
+			return executeRepeat(page, toolExec, value, aiClient, vpWidth, vpHeight, fctx)
 
 		case "runFlow":
-			return fmt.Sprintf("runFlow (not supported in browser mode)"), "", nil
+			return executeRunFlow(page, toolExec, value, aiClient, vpWidth, vpHeight, fctx)
 
 		default:
-			return fmt.Sprintf("Skipped unsupported command: %s", cmdName), "", nil
+			return fmt.Sprintf("Skipped unsupported command: %s", cmdName), "", "", nil
 		}
 	}
-	return "", "", fmt.Errorf("empty command map")
+	return "", "", "", fmt.Errorf("empty command map")
 }
 
 // executeTapOn handles the tapOn command with point, text, or AI-based targeting.
-func executeTapOn(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, value interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (string, string, error) {
+func executeTapOn(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, value interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (string, string, string, error) {
 	switch v := value.(type) {
 	case string:
-		// tapOn: "text" — use AI vision to find and click the text
 		return tapOnText(page, toolExec, v, aiClient, vpWidth, vpHeight)
 
 	case map[string]interface{}:
-		// Check for point-based tap
 		if pointStr, ok := v["point"].(string); ok {
 			return tapOnPoint(page, toolExec, pointStr, vpWidth, vpHeight)
 		}
-		// Check for text-based tap
 		if text, ok := v["text"].(string); ok {
 			return tapOnText(page, toolExec, text, aiClient, vpWidth, vpHeight)
 		}
-		// Check for id-based tap (use AI or JS)
 		if id, ok := v["id"].(string); ok {
-			// Try clicking by element ID using JavaScript
 			jsResult, err := page.EvalJS(fmt.Sprintf(`(() => {
 				const el = document.getElementById('%s');
 				if (el) { el.click(); return 'clicked'; }
@@ -580,27 +596,26 @@ func executeTapOn(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, value i
 			if err == nil && jsResult == "clicked" {
 				time.Sleep(250 * time.Millisecond)
 				ss, _ := page.CaptureScreenshot()
-				return fmt.Sprintf("Tapped element #%s", id), ss, nil
+				return fmt.Sprintf("Tapped element #%s", id), ss, "", nil
 			}
-			// Fall back to AI vision for the ID text
 			return tapOnText(page, toolExec, id, aiClient, vpWidth, vpHeight)
 		}
-		return "", "", fmt.Errorf("tapOn: no recognizable selector (text, point, or id)")
+		return "", "", "", fmt.Errorf("tapOn: no recognizable selector (text, point, or id)")
 
 	default:
-		return "", "", fmt.Errorf("tapOn: unexpected value type %T", value)
+		return "", "", "", fmt.Errorf("tapOn: unexpected value type %T", value)
 	}
 }
 
 // tapOnText uses AI vision to find text on screen and click its coordinates.
-func tapOnText(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, text string, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (string, string, error) {
+func tapOnText(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, text string, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (string, string, string, error) {
 	if aiClient == nil {
-		return "", "", fmt.Errorf("tapOn text %q: AI client not configured (set ANTHROPIC_API_KEY)", text)
+		return "", "", "", fmt.Errorf("tapOn text %q: AI client not configured (set ANTHROPIC_API_KEY)", text)
 	}
 
 	ss, err := page.CaptureScreenshot()
 	if err != nil {
-		return "", "", fmt.Errorf("tapOn text: screenshot failed: %w", err)
+		return "", "", "", fmt.Errorf("tapOn text: screenshot failed: %w", err)
 	}
 
 	prompt := fmt.Sprintf(
@@ -610,34 +625,33 @@ func tapOnText(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, text strin
 
 	response, err := aiClient.AnalyzeWithImage(prompt, ss)
 	if err != nil {
-		return "", "", fmt.Errorf("tapOn text %q: AI vision failed: %w", text, err)
+		return "", "", "", fmt.Errorf("tapOn text %q: AI vision failed: %w", text, err)
 	}
 
 	response = strings.TrimSpace(response)
 	if strings.Contains(strings.ToUpper(response), "NOT_FOUND") {
-		return "", ss, fmt.Errorf("tapOn text %q: text not found on screen", text)
+		return "", ss, response, fmt.Errorf("tapOn text %q: text not found on screen", text)
 	}
 
-	// Parse "x,y" from response
 	x, y, parseErr := parseCoordinates(response)
 	if parseErr != nil {
-		return "", ss, fmt.Errorf("tapOn text %q: could not parse coordinates from AI response %q: %w", text, response, parseErr)
+		return "", ss, response, fmt.Errorf("tapOn text %q: could not parse coordinates from AI response %q: %w", text, response, parseErr)
 	}
 
 	input, _ := json.Marshal(map[string]int{"x": x, "y": y})
 	result, clickSS, clickErr := toolExec.Execute("click", input)
 	if clickErr != nil {
-		return "", ss, fmt.Errorf("tapOn text %q: click failed: %w", text, clickErr)
+		return "", ss, response, fmt.Errorf("tapOn text %q: click failed: %w", text, clickErr)
 	}
 
-	return fmt.Sprintf("Tapped on %q at (%d,%d). %s", text, x, y, result), clickSS, nil
+	return fmt.Sprintf("Tapped on %q at (%d,%d). %s", text, x, y, result), clickSS, response, nil
 }
 
 // tapOnPoint handles tapOn with point: "x,y" or "x%,y%".
-func tapOnPoint(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, pointStr string, vpWidth, vpHeight int) (string, string, error) {
+func tapOnPoint(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, pointStr string, vpWidth, vpHeight int) (string, string, string, error) {
 	parts := strings.Split(pointStr, ",")
 	if len(parts) != 2 {
-		return "", "", fmt.Errorf("tapOn point: invalid format %q, expected 'x,y'", pointStr)
+		return "", "", "", fmt.Errorf("tapOn point: invalid format %q, expected 'x,y'", pointStr)
 	}
 
 	xStr := strings.TrimSpace(parts[0])
@@ -645,17 +659,16 @@ func tapOnPoint(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, pointStr 
 
 	var x, y int
 
-	// Handle percentage coordinates
 	if strings.HasSuffix(xStr, "%") {
 		pct, err := strconv.ParseFloat(strings.TrimSuffix(xStr, "%"), 64)
 		if err != nil {
-			return "", "", fmt.Errorf("tapOn point: invalid x percentage %q", xStr)
+			return "", "", "", fmt.Errorf("tapOn point: invalid x percentage %q", xStr)
 		}
 		x = int(pct / 100.0 * float64(vpWidth))
 	} else {
 		val, err := strconv.Atoi(xStr)
 		if err != nil {
-			return "", "", fmt.Errorf("tapOn point: invalid x coordinate %q", xStr)
+			return "", "", "", fmt.Errorf("tapOn point: invalid x coordinate %q", xStr)
 		}
 		x = val
 	}
@@ -663,23 +676,24 @@ func tapOnPoint(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, pointStr 
 	if strings.HasSuffix(yStr, "%") {
 		pct, err := strconv.ParseFloat(strings.TrimSuffix(yStr, "%"), 64)
 		if err != nil {
-			return "", "", fmt.Errorf("tapOn point: invalid y percentage %q", yStr)
+			return "", "", "", fmt.Errorf("tapOn point: invalid y percentage %q", yStr)
 		}
 		y = int(pct / 100.0 * float64(vpHeight))
 	} else {
 		val, err := strconv.Atoi(yStr)
 		if err != nil {
-			return "", "", fmt.Errorf("tapOn point: invalid y coordinate %q", yStr)
+			return "", "", "", fmt.Errorf("tapOn point: invalid y coordinate %q", yStr)
 		}
 		y = val
 	}
 
 	input, _ := json.Marshal(map[string]int{"x": x, "y": y})
-	return toolExec.Execute("click", input)
+	r, ss, err := toolExec.Execute("click", input)
+	return r, ss, "", err
 }
 
 // executeScroll handles the scroll command.
-func executeScroll(toolExec *ai.BrowserToolExecutor, value interface{}) (string, string, error) {
+func executeScroll(toolExec *ai.BrowserToolExecutor, value interface{}) (string, string, string, error) {
 	direction := "down"
 	amount := 300
 
@@ -699,19 +713,20 @@ func executeScroll(toolExec *ai.BrowserToolExecutor, value interface{}) (string,
 	}
 
 	input, _ := json.Marshal(map[string]interface{}{"direction": direction, "amount": amount})
-	return toolExec.Execute("scroll", input)
+	r, ss, err := toolExec.Execute("scroll", input)
+	return r, ss, "", err
 }
 
 // executeWaitUntil handles extendedWaitUntil by polling screenshots with AI vision.
-func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (string, string, error) {
+func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (string, string, string, error) {
 	m, ok := value.(map[string]interface{})
 	if !ok {
-		return "", "", fmt.Errorf("extendedWaitUntil: expected map, got %T", value)
+		return "", "", "", fmt.Errorf("extendedWaitUntil: expected map, got %T", value)
 	}
 
 	visibleText, _ := m["visible"].(string)
 	notVisibleText, _ := m["notVisible"].(string)
-	timeoutMs := 10000 // default 10s
+	timeoutMs := 10000
 
 	if t, ok := m["timeout"].(int); ok {
 		timeoutMs = t
@@ -721,7 +736,7 @@ func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.Claud
 	}
 
 	if visibleText == "" && notVisibleText == "" {
-		return "", "", fmt.Errorf("extendedWaitUntil: needs visible or notVisible condition")
+		return "", "", "", fmt.Errorf("extendedWaitUntil: needs visible or notVisible condition")
 	}
 
 	checkText := visibleText
@@ -732,15 +747,15 @@ func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.Claud
 	}
 
 	if aiClient == nil {
-		// Without AI, just wait and take a screenshot
 		time.Sleep(time.Duration(timeoutMs) * time.Millisecond)
 		ss, _ := page.CaptureScreenshot()
-		return fmt.Sprintf("Waited %dms (no AI for vision check)", timeoutMs), ss, nil
+		return fmt.Sprintf("Waited %dms (no AI for vision check)", timeoutMs), ss, "", nil
 	}
 
 	deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
 	pollInterval := 1 * time.Second
 	var lastSS string
+	var lastResponse string
 
 	for time.Now().Before(deadline) {
 		ss, err := page.CaptureScreenshot()
@@ -760,14 +775,15 @@ func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.Claud
 			time.Sleep(pollInterval)
 			continue
 		}
+		lastResponse = response
 
 		isVisible := strings.Contains(strings.ToUpper(strings.TrimSpace(response)), "YES")
 
 		if wantVisible && isVisible {
-			return fmt.Sprintf("Text %q is now visible.", checkText), ss, nil
+			return fmt.Sprintf("Text %q is now visible.", checkText), ss, response, nil
 		}
 		if !wantVisible && !isVisible {
-			return fmt.Sprintf("Text %q is no longer visible.", checkText), ss, nil
+			return fmt.Sprintf("Text %q is no longer visible.", checkText), ss, response, nil
 		}
 
 		time.Sleep(pollInterval)
@@ -777,11 +793,11 @@ func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.Claud
 	if !wantVisible {
 		condition = "not visible"
 	}
-	return "", lastSS, fmt.Errorf("extendedWaitUntil: timed out waiting for %q to be %s after %dms", checkText, condition, timeoutMs)
+	return "", lastSS, lastResponse, fmt.Errorf("extendedWaitUntil: timed out waiting for %q to be %s after %dms", checkText, condition, timeoutMs)
 }
 
 // executeAssertVisible checks if text is visible (or not visible) using AI vision.
-func executeAssertVisible(page ai.BrowserPage, value interface{}, aiClient *ai.ClaudeClient, wantVisible bool) (string, string, error) {
+func executeAssertVisible(page ai.BrowserPage, value interface{}, aiClient *ai.ClaudeClient, wantVisible bool) (string, string, string, error) {
 	text := ""
 	switch v := value.(type) {
 	case string:
@@ -793,21 +809,20 @@ func executeAssertVisible(page ai.BrowserPage, value interface{}, aiClient *ai.C
 	}
 
 	if text == "" {
-		return "", "", fmt.Errorf("assert: empty text")
+		return "", "", "", fmt.Errorf("assert: empty text")
 	}
 
 	ss, err := page.CaptureScreenshot()
 	if err != nil {
-		return "", "", fmt.Errorf("assert: screenshot failed: %w", err)
+		return "", "", "", fmt.Errorf("assert: screenshot failed: %w", err)
 	}
 
 	if aiClient == nil {
-		// Without AI, just report the screenshot was taken
 		cmdName := "assertVisible"
 		if !wantVisible {
 			cmdName = "assertNotVisible"
 		}
-		return fmt.Sprintf("%s %q (no AI to verify)", cmdName, text), ss, nil
+		return fmt.Sprintf("%s %q (no AI to verify)", cmdName, text), ss, "", nil
 	}
 
 	prompt := fmt.Sprintf(
@@ -817,29 +832,29 @@ func executeAssertVisible(page ai.BrowserPage, value interface{}, aiClient *ai.C
 
 	response, err := aiClient.AnalyzeWithImage(prompt, ss)
 	if err != nil {
-		return "", ss, fmt.Errorf("assert: AI vision failed: %w", err)
+		return "", ss, "", fmt.Errorf("assert: AI vision failed: %w", err)
 	}
 
 	isVisible := strings.Contains(strings.ToUpper(strings.TrimSpace(response)), "YES")
 
 	if wantVisible && !isVisible {
-		return "", ss, fmt.Errorf("assertVisible failed: %q not found on screen", text)
+		return "", ss, response, fmt.Errorf("assertVisible failed: %q not found on screen", text)
 	}
 	if !wantVisible && isVisible {
-		return "", ss, fmt.Errorf("assertNotVisible failed: %q is visible on screen", text)
+		return "", ss, response, fmt.Errorf("assertNotVisible failed: %q is visible on screen", text)
 	}
 
 	if wantVisible {
-		return fmt.Sprintf("assertVisible passed: %q is visible.", text), ss, nil
+		return fmt.Sprintf("assertVisible passed: %q is visible.", text), ss, response, nil
 	}
-	return fmt.Sprintf("assertNotVisible passed: %q is not visible.", text), ss, nil
+	return fmt.Sprintf("assertNotVisible passed: %q is not visible.", text), ss, response, nil
 }
 
 // executeRepeat handles the repeat command with a fixed count or while-condition.
-func executeRepeat(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, value interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int) (string, string, error) {
+func executeRepeat(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, value interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int, fctx *flowContext) (string, string, string, error) {
 	m, ok := value.(map[string]interface{})
 	if !ok {
-		return "", "", fmt.Errorf("repeat: expected map, got %T", value)
+		return "", "", "", fmt.Errorf("repeat: expected map, got %T", value)
 	}
 
 	times := 1
@@ -852,25 +867,86 @@ func executeRepeat(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, value 
 
 	cmds, ok := m["commands"].([]interface{})
 	if !ok || len(cmds) == 0 {
-		return "", "", fmt.Errorf("repeat: no commands")
+		return "", "", "", fmt.Errorf("repeat: no commands")
 	}
 
 	var lastResult string
 	var lastSS string
+	var lastReasoning string
 	for i := 0; i < times; i++ {
 		for _, subCmd := range cmds {
-			r, ss, err := executeFlowCommand(page, toolExec, subCmd, aiClient, vpWidth, vpHeight)
+			r, ss, reasoning, err := executeFlowCommand(page, toolExec, subCmd, aiClient, vpWidth, vpHeight, fctx)
 			if err != nil {
-				return r, ss, fmt.Errorf("repeat iteration %d: %w", i+1, err)
+				return r, ss, reasoning, fmt.Errorf("repeat iteration %d: %w", i+1, err)
 			}
 			lastResult = r
 			if ss != "" {
 				lastSS = ss
 			}
+			if reasoning != "" {
+				lastReasoning = reasoning
+			}
 		}
 	}
 
-	return fmt.Sprintf("Repeated %d times. Last: %s", times, lastResult), lastSS, nil
+	return fmt.Sprintf("Repeated %d times. Last: %s", times, lastResult), lastSS, lastReasoning, nil
+}
+
+// executeRunFlow runs a referenced flow by looking it up in the flow context.
+func executeRunFlow(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, value interface{}, aiClient *ai.ClaudeClient, vpWidth, vpHeight int, fctx *flowContext) (string, string, string, error) {
+	if fctx == nil {
+		return "", "", "", fmt.Errorf("runFlow: no flow context available")
+	}
+
+	filename, _ := value.(string)
+	if filename == "" {
+		return "", "", "", fmt.Errorf("runFlow: missing flow filename")
+	}
+
+	// Look up flow by Path or Name
+	var targetFlow *browserFlowFile
+	for i := range fctx.flows {
+		if fctx.flows[i].Path == filename || fctx.flows[i].Name == strings.TrimSuffix(strings.TrimSuffix(filename, ".yaml"), ".yml") {
+			targetFlow = &fctx.flows[i]
+			break
+		}
+	}
+	if targetFlow == nil {
+		return "", "", "", fmt.Errorf("runFlow: flow %q not found", filename)
+	}
+
+	// Recursion guard
+	if fctx.visiting[filename] {
+		return "", "", "", fmt.Errorf("runFlow: recursive loop detected for %q", filename)
+	}
+	fctx.visiting[filename] = true
+	defer delete(fctx.visiting, filename)
+
+	// Navigate to flow URL if specified
+	if targetFlow.Meta.URL != "" {
+		if err := page.Navigate(targetFlow.Meta.URL); err != nil {
+			return "", "", "", fmt.Errorf("runFlow %q: navigation to %s failed: %w", filename, targetFlow.Meta.URL, err)
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	// Execute all commands in the referenced flow
+	var lastResult, lastSS, lastReasoning string
+	for _, cmd := range targetFlow.Commands {
+		r, ss, reasoning, err := executeFlowCommand(page, toolExec, cmd, aiClient, vpWidth, vpHeight, fctx)
+		if err != nil {
+			return r, ss, reasoning, fmt.Errorf("runFlow %q: %w", filename, err)
+		}
+		lastResult = r
+		if ss != "" {
+			lastSS = ss
+		}
+		if reasoning != "" {
+			lastReasoning = reasoning
+		}
+	}
+
+	return fmt.Sprintf("runFlow %q completed (%d commands). Last: %s", filename, len(targetFlow.Commands), lastResult), lastSS, lastReasoning, nil
 }
 
 // parseCoordinates parses "x,y" from a string, handling common AI response formats.

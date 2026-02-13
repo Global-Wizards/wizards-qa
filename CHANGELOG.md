@@ -5,6 +5,19 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.27.0] - 2026-02-12
+
+### Added
+- **`runFlow` command in browser mode** — flows using `runFlow: "00-setup.yaml"` now execute the referenced flow's commands in browser mode, enabling shared setup flows. Includes recursion guard and URL navigation from the referenced flow's metadata.
+- **TestStepNavigator component** — agent-like step navigator for browser-mode test results with flow-grouped sidebar, base64 screenshot display, AI reasoning panel, prev/next navigation, lightbox dialog, and live auto-follow mode during execution.
+- **AI reasoning in step data** — vision-powered commands (`tapOnText`, `assertVisible`, `assertNotVisible`, `extendedWaitUntil`) now return the AI's raw response as reasoning, broadcast via WebSocket and displayed in the step navigator.
+
+### Fixed
+- **Duplicate flow result broadcasts** — each flow completion was broadcast twice (once via `broadcastTestLog` and again via a separate `test_progress` message). Now uses inline log buffer update with a single broadcast.
+
+### Changed
+- **TestRunDetail step display** — replaced inline expandable screenshot sections with the new `TestStepNavigator` component for a richer step-by-step browsing experience.
+
 ## [0.26.1] - 2026-02-13
 
 ### Fixed
