@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.3] - 2026-02-13
+
+### Fixed
+- **HTTP status checks broken by axios interceptor** — the response interceptor was creating `new Error(message)` which stripped the `.response` property from axios errors. All `err?.response?.status` checks (404 polling guard, 401/403 auth detection) were silently failing because the status was always `undefined`. Now preserves `error.response` on the re-thrown error.
+
 ## [0.32.2] - 2026-02-13
 
 ### Fixed
