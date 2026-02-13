@@ -46,7 +46,7 @@
             <p class="text-sm font-medium capitalize">{{ d.device === 'ios' ? 'iOS' : d.device }}</p>
             <p class="text-[10px] text-muted-foreground">{{ d.viewport }}</p>
             <div class="mt-1">
-              <Badge v-if="d.status === 'completed'" variant="secondary">{{ d.flowCount }} flow(s)</Badge>
+              <Badge v-if="d.status === 'completed'" variant="secondary">{{ d.flowCount }} {{ d.flowCount === 1 ? 'flow' : 'flows' }}</Badge>
               <Badge v-else variant="destructive" class="text-[10px]">Failed</Badge>
             </div>
             <p v-if="d.error" class="text-[10px] text-destructive mt-1 truncate" :title="d.error">{{ d.error }}</p>
@@ -56,15 +56,8 @@
     </Card>
 
     <!-- Stats Grid -->
-    <div class="grid gap-4 grid-cols-2 lg:grid-cols-4">
-      <StatCard title="Mechanics" :value="analysis?.mechanics?.length || 0" :icon="Cog" description="Game mechanics found" />
-      <StatCard title="UI Elements" :value="analysis?.uiElements?.length || 0" :icon="Layout" description="Interface elements" />
-      <StatCard title="User Flows" :value="analysis?.userFlows?.length || 0" :icon="GitBranch" description="Interaction paths" />
-      <StatCard title="Edge Cases" :value="analysis?.edgeCases?.length || 0" :icon="AlertTriangle" description="Potential issues" />
-      <StatCard title="UI/UX Issues" :value="analysis?.uiuxAnalysis?.length || 0" :icon="Eye" description="Visual findings" />
-      <StatCard title="Wording Issues" :value="analysis?.wordingCheck?.length || 0" :icon="Type" description="Text findings" />
-      <StatCard title="Game Design" :value="analysis?.gameDesign?.length || 0" :icon="Gamepad2" description="Design observations" />
-      <StatCard title="Test Flows" :value="flows?.length || 0" :icon="PlayCircle" description="Generated flows" />
+    <div v-if="visibleStats.length" class="grid gap-4 grid-cols-2 lg:grid-cols-4">
+      <StatCard v-for="s in visibleStats" :key="s.title" :title="s.title" :value="s.value" :icon="s.icon" :description="s.description" />
     </div>
 
     <!-- Page Metadata Card -->
@@ -111,15 +104,30 @@
 </template>
 
 <script setup>
+import { computed } from 'vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import StatCard from '@/components/StatCard.vue'
 import { Cog, Layout, GitBranch, AlertTriangle, Eye, Type, Gamepad2, PlayCircle } from 'lucide-vue-next'
 
-defineProps({
+const props = defineProps({
   analysis: { type: Object, default: null },
   pageMeta: { type: Object, default: null },
   flows: { type: Array, default: () => [] },
   devices: { type: Array, default: () => [] },
+})
+
+const visibleStats = computed(() => {
+  const all = [
+    { title: 'Mechanics', value: props.analysis?.mechanics?.length || 0, icon: Cog, description: 'Game mechanics found' },
+    { title: 'UI Elements', value: props.analysis?.uiElements?.length || 0, icon: Layout, description: 'Interface elements' },
+    { title: 'User Flows', value: props.analysis?.userFlows?.length || 0, icon: GitBranch, description: 'Interaction paths' },
+    { title: 'Edge Cases', value: props.analysis?.edgeCases?.length || 0, icon: AlertTriangle, description: 'Potential issues' },
+    { title: 'UI/UX Issues', value: props.analysis?.uiuxAnalysis?.length || 0, icon: Eye, description: 'Visual findings' },
+    { title: 'Wording Issues', value: props.analysis?.wordingCheck?.length || 0, icon: Type, description: 'Text findings' },
+    { title: 'Game Design', value: props.analysis?.gameDesign?.length || 0, icon: Gamepad2, description: 'Design observations' },
+    { title: 'Test Flows', value: props.flows?.length || 0, icon: PlayCircle, description: 'Generated flows' },
+  ]
+  return all.filter(s => s.value > 0)
 })
 </script>

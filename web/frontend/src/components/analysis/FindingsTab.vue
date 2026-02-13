@@ -1,7 +1,19 @@
 <template>
   <div class="space-y-4">
-    <!-- Summary bar: 3 colored stat pills -->
+    <!-- Filter bar -->
     <div v-if="findings?.length" class="flex flex-wrap items-center gap-2">
+      <!-- Tier pills -->
+      <button
+        :class="[
+          'inline-flex items-center rounded-full px-3 py-1 text-xs font-medium transition-colors',
+          activeTier === 'all'
+            ? 'bg-primary text-primary-foreground'
+            : 'bg-muted text-muted-foreground hover:bg-muted/80'
+        ]"
+        @click="activeTier = 'all'"
+      >
+        All
+      </button>
       <button
         :class="[
           'inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-medium transition-colors',
@@ -38,23 +50,9 @@
         <svg xmlns="http://www.w3.org/2000/svg" class="h-3.5 w-3.5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clip-rule="evenodd" /></svg>
         {{ tierCounts.bug }} Bugs
       </button>
-    </div>
 
-    <!-- Filter controls -->
-    <div v-if="findings?.length" class="flex flex-wrap items-center gap-3">
-      <!-- Tier filter buttons -->
-      <div class="flex items-center gap-1">
-        <Button
-          v-for="opt in tierOptions"
-          :key="opt.value"
-          size="sm"
-          :variant="activeTier === opt.value ? 'default' : 'outline'"
-          :class="['h-7 text-xs', opt.activeClass && activeTier === opt.value ? opt.activeClass : '']"
-          @click="activeTier = opt.value"
-        >
-          {{ opt.label }}
-        </Button>
-      </div>
+      <!-- Separator -->
+      <div class="h-5 w-px bg-border" />
 
       <!-- Category dropdown -->
       <Select v-if="categories.length > 1" :model-value="activeCategory" @update:model-value="activeCategory = $event">
@@ -91,7 +89,7 @@
           </span>
         </div>
         <div class="space-y-3">
-          <div v-for="(finding, i) in groupedFindings.positive" :key="'p-' + i" class="rounded-md border border-green-200 dark:border-green-800/40 bg-white dark:bg-green-950/30 p-4 space-y-2">
+          <div v-for="(finding, i) in groupedFindings.positive" :key="'p-' + i" class="rounded-md border border-green-200 dark:border-green-800/40 bg-card dark:bg-green-950/30 p-4 space-y-2">
             <div class="flex flex-wrap items-center gap-2">
               <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">positive</span>
               <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
@@ -116,7 +114,7 @@
           </span>
         </div>
         <div class="space-y-3">
-          <div v-for="(finding, i) in groupedFindings.suggestion" :key="'s-' + i" class="rounded-md border border-amber-200 dark:border-amber-800/40 bg-white dark:bg-amber-950/30 p-4 space-y-2">
+          <div v-for="(finding, i) in groupedFindings.suggestion" :key="'s-' + i" class="rounded-md border border-amber-200 dark:border-amber-800/40 bg-card dark:bg-amber-950/30 p-4 space-y-2">
             <div class="flex flex-wrap items-center gap-2">
               <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ finding.severity }}</span>
               <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
@@ -148,7 +146,7 @@
               'rounded-md border p-4 space-y-2',
               finding.severity === 'critical'
                 ? 'border-red-300 dark:border-red-700/60 bg-red-50 dark:bg-red-950/40'
-                : 'border-red-200 dark:border-red-800/40 bg-white dark:bg-red-950/30'
+                : 'border-red-200 dark:border-red-800/40 bg-card dark:bg-red-950/30'
             ]"
           >
             <div class="flex flex-wrap items-center gap-2">
@@ -175,9 +173,15 @@
     </div>
 
     <!-- Role Checklists -->
-    <details v-if="findings?.length" class="mt-6">
-      <summary class="cursor-pointer text-sm font-semibold select-none">Action Checklist by Role</summary>
-      <div class="mt-3 grid gap-4 sm:grid-cols-2">
+    <div v-if="findings?.length" class="mt-6 rounded-lg border">
+      <button
+        class="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold select-none hover:bg-muted/50 transition-colors"
+        @click="checklistOpen = !checklistOpen"
+      >
+        Action Checklist by Role
+        <ChevronDown class="h-4 w-4 text-muted-foreground transition-transform" :class="checklistOpen && 'rotate-180'" />
+      </button>
+      <div v-if="checklistOpen" class="px-4 pb-4 grid gap-4 sm:grid-cols-2">
         <!-- Developer -->
         <div v-if="developerItems.length" class="rounded-md border p-3 space-y-2">
           <div class="flex items-center gap-2 text-sm font-medium">
@@ -226,7 +230,7 @@
           </label>
         </div>
       </div>
-    </details>
+    </div>
   </div>
 </template>
 
@@ -234,9 +238,9 @@
 import { ref, computed, reactive, watch } from 'vue'
 import { findingTier } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { ChevronDown } from 'lucide-vue-next'
 
 const props = defineProps({
   findings: { type: Array, default: () => [] },
@@ -247,6 +251,9 @@ const activeTier = ref('all')
 const activeCategory = ref('all')
 const searchQuery = ref('')
 const checklistState = reactive({})
+const checklistOpen = ref(false)
+
+function pl(n, s, p) { return n === 1 ? s : (p || s + 's') }
 
 // Debounced search text
 let searchTimeout = null
@@ -255,13 +262,6 @@ watch(searchQuery, (val) => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => { debouncedSearch.value = val }, 200)
 })
-
-const tierOptions = [
-  { value: 'all', label: 'All' },
-  { value: 'positive', label: 'Positive', activeClass: 'bg-green-600 hover:bg-green-700 border-green-600' },
-  { value: 'suggestion', label: 'Suggestions', activeClass: 'bg-amber-600 hover:bg-amber-700 border-amber-600' },
-  { value: 'bug', label: 'Bugs', activeClass: 'bg-red-600 hover:bg-red-700 border-red-600' },
-]
 
 const counts = computed(() => {
   const c = { critical: 0, major: 0, minor: 0, suggestion: 0, positive: 0 }
@@ -325,40 +325,40 @@ const groupedFindings = computed(() => {
 // Role checklist items — dynamic based on severity counts
 const developerItems = computed(() => {
   const items = []
-  if (counts.value.critical) items.push(`Fix ${counts.value.critical} critical bug(s)`)
-  if (counts.value.major) items.push(`Address ${counts.value.major} major issue(s)`)
-  if (counts.value.suggestion) items.push(`Review ${counts.value.suggestion} suggestion(s) for implementation`)
-  if (counts.value.minor) items.push(`Review ${counts.value.minor} minor issue(s)`)
+  if (counts.value.critical) items.push(`Fix ${counts.value.critical} critical ${pl(counts.value.critical, 'bug')}`)
+  if (counts.value.major) items.push(`Address ${counts.value.major} major ${pl(counts.value.major, 'issue')}`)
+  if (counts.value.suggestion) items.push(`Review ${counts.value.suggestion} ${pl(counts.value.suggestion, 'suggestion')} for implementation`)
+  if (counts.value.minor) items.push(`Review ${counts.value.minor} minor ${pl(counts.value.minor, 'issue')}`)
   return items
 })
 
 const qaItems = computed(() => {
   const items = []
   const bugs = counts.value.critical + counts.value.major
-  if (bugs) items.push(`Verify and reproduce ${bugs} reported bug(s)`)
+  if (bugs) items.push(`Verify and reproduce ${bugs} reported ${pl(bugs, 'bug')}`)
   if (counts.value.critical) items.push('Create regression tests for critical issues')
   const suggestions = counts.value.suggestion + counts.value.minor
-  if (suggestions) items.push(`Validate ${suggestions} suggestion(s) against requirements`)
+  if (suggestions) items.push(`Validate ${suggestions} ${pl(suggestions, 'suggestion')} against requirements`)
   return items
 })
 
 const designerItems = computed(() => {
   const items = []
-  if (counts.value.positive) items.push(`Celebrate ${counts.value.positive} positive finding(s)`)
+  if (counts.value.positive) items.push(`Celebrate ${counts.value.positive} positive ${pl(counts.value.positive, 'finding')}`)
   const suggestions = counts.value.suggestion + counts.value.minor
-  if (suggestions) items.push(`Review ${suggestions} UI/UX suggestion(s)`)
+  if (suggestions) items.push(`Review ${suggestions} UI/UX ${pl(suggestions, 'suggestion')}`)
   const bugs = counts.value.critical + counts.value.major
-  if (bugs) items.push(`Assess visual impact of ${bugs} bug fix(es)`)
+  if (bugs) items.push(`Assess visual impact of ${bugs} bug ${pl(bugs, 'fix', 'fixes')}`)
   return items
 })
 
 const pmItems = computed(() => {
   const items = []
-  if (counts.value.critical) items.push(`Prioritize ${counts.value.critical} critical bug(s) for immediate fix`)
-  if (counts.value.major) items.push(`Schedule ${counts.value.major} major issue(s) in backlog`)
+  if (counts.value.critical) items.push(`Prioritize ${counts.value.critical} critical ${pl(counts.value.critical, 'bug')} for immediate fix`)
+  if (counts.value.major) items.push(`Schedule ${counts.value.major} major ${pl(counts.value.major, 'issue')} in backlog`)
   const suggestions = counts.value.suggestion + counts.value.minor
-  if (suggestions) items.push(`Evaluate ${suggestions} suggestion(s) for roadmap`)
-  if (counts.value.positive) items.push(`Share ${counts.value.positive} positive highlight(s) with stakeholders`)
+  if (suggestions) items.push(`Evaluate ${suggestions} ${pl(suggestions, 'suggestion')} for roadmap`)
+  if (counts.value.positive) items.push(`Share ${counts.value.positive} positive ${pl(counts.value.positive, 'highlight')} with stakeholders`)
   return items
 })
 </script>

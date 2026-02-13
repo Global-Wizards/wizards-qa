@@ -106,6 +106,7 @@
           </TabsContent>
           <TabsContent v-if="lastTestRunId" value="test-results">
             <div v-if="testResultLoading" class="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+              <Loader2 class="h-4 w-4 animate-spin" />
               Loading test results...
             </div>
             <div v-else-if="testResult" class="space-y-4">
@@ -134,8 +135,10 @@
                 </div>
               </div>
             </div>
-            <div v-else class="text-sm text-muted-foreground py-8 text-center">
-              Test result not found
+            <div v-else class="flex flex-col items-center gap-2 py-12 text-center">
+              <AlertCircle class="h-8 w-8 text-muted-foreground/50" />
+              <p class="text-sm font-medium">Test result not found</p>
+              <p class="text-xs text-muted-foreground">The test run may have been deleted or is no longer available.</p>
             </div>
           </TabsContent>
         </div>
@@ -150,7 +153,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { analysesApi, testPlansApi, testsApi } from '@/lib/api'
 import { truncateUrl } from '@/lib/utils'
 import { formatDate } from '@/lib/dateUtils'
-import { ArrowLeft, Download, FlaskConical } from 'lucide-vue-next'
+import { ArrowLeft, Download, FlaskConical, Loader2, AlertCircle } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'

@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.5] - 2026-02-13
+
+### Improved
+- **Analysis detail page design polish** — Replaced hardcoded `bg-white` with `bg-card` on FindingsTab finding cards so they render correctly in dark mode and custom themes. Merged duplicate tier filter rows into a single filter bar with an "All" pill and vertical separator. Fixed awkward `bug(s)` / `flow(s)` / `issue(s)` pluralization throughout FindingsTab and OverviewTab to read naturally ("1 bug", "3 bugs"). Replaced raw `<details>` Action Checklist with a styled collapsible matching the app's design system. Hidden zero-value stat cards on the Overview tab. Added a loading spinner to the Test Results tab and improved the empty state with an icon and explanatory subtitle.
+
 ## [0.34.4] - 2026-02-13
 
 ### Improved
