@@ -24,6 +24,9 @@ export class WebSocketManager {
   connect() {
     if (this.ws?.readyState === WebSocket.OPEN) return
 
+    // Reset reconnect state when explicitly connecting
+    this.shouldReconnect = true
+
     try {
       this.ws = new WebSocket(this.baseUrl)
     } catch (err) {

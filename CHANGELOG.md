@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.0] - 2026-02-13
+
+### Error Handling Audit — Fix Silent Failures
+
+#### Fixed
+- **Dashboard polling swallows auth errors** — `loadStats()` catch block now detects 401/403 responses and shows "Session expired" instead of silently polling forever after token expiry.
+- **Test reconnect shows wrong error message** — `reconnect()` in `useTestExecution.js` now discriminates by HTTP status: 404 shows "Test not found", 401/403 shows "Session expired", and other errors show the actual error message instead of the misleading "Test may have been removed."
+- **WebSocket reconnect counter not reset on explicit connect** — after exhausting 10 reconnect attempts (`connection_lost`), a subsequent explicit `connect()` call (e.g. navigating to a new page) would not reset `shouldReconnect`, preventing future reconnection. Now resets `shouldReconnect = true` on every explicit `connect()`.
+
 ## [0.31.0] - 2026-02-13
 
 ### Memory Optimization — Prevent OOM Crashes

@@ -349,10 +349,18 @@ export function useTestExecution() {
       // Setup WS listeners for ongoing events
       setupListeners(tid)
     } catch (err) {
-      // Test not found — likely already completed and cleaned up
       status.value = 'failed'
       phase.value = 'complete'
-      logs.value = [`Error: Could not load test data. ${err.message || 'Test may have been removed.'}`]
+      const httpStatus = err?.response?.status
+      let msg
+      if (httpStatus === 404) {
+        msg = 'Test not found — it may have been removed.'
+      } else if (httpStatus === 401 || httpStatus === 403) {
+        msg = 'Session expired. Please refresh the page.'
+      } else {
+        msg = `Could not connect to server: ${err.message || 'Unknown error'}`
+      }
+      logs.value = [`Error: ${msg}`]
     }
   }
 

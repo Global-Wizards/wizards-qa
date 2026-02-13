@@ -49,6 +49,8 @@ async function loadStats() {
   } catch (err) {
     if (loading.value) {
       error.value = err.message
+    } else if (err?.response?.status === 401 || err?.response?.status === 403) {
+      error.value = 'Session expired. Please refresh the page.'
     }
   } finally {
     loading.value = false
