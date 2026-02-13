@@ -53,69 +53,33 @@
       <Skeleton v-for="i in 5" :key="i" class="h-20 w-full" />
     </div>
 
-    <!-- Empty -->
-    <div v-else-if="filteredAnalyses.length === 0" class="text-center py-12 text-muted-foreground">
-      <Sparkles class="h-10 w-10 mx-auto mb-3 opacity-30" />
-      <p class="text-lg font-medium">No analyses found</p>
-      <p class="text-sm mt-1">{{ analyses.length === 0 ? 'Start your first analysis to see results here.' : 'Try adjusting your filters.' }}</p>
-    </div>
-
-    <!-- List -->
-    <div v-else class="space-y-2">
-      <div
-        v-for="item in filteredAnalyses"
-        :key="item.id"
-        class="flex items-center gap-4 p-4 rounded-lg border hover:bg-muted/50 transition-colors cursor-pointer"
-        @click="viewAnalysis(item)"
+    <!-- DataTable -->
+    <div v-else>
+      <DataTable
+        :columns="analysisColumns"
+        :data="filteredAnalyses"
+        :sorting="analysisSorting"
+        :on-row-click="onAnalysisRowClick"
+        empty-text="No analyses found"
+        @update:sorting="analysisSorting = $event"
       >
-        <div class="flex-1 min-w-0">
-          <div class="flex items-center gap-2 mb-1">
-            <p class="text-sm font-medium truncate">{{ item.gameName || 'Untitled' }}</p>
-            <Badge :variant="statusVariant(item.status)" class="shrink-0 text-xs">
-              <Loader2 v-if="item.status === 'running'" class="h-3 w-3 mr-1 animate-spin" />
-              {{ item.status }}
-            </Badge>
+        <template #empty>
+          <div class="flex flex-col items-center gap-2">
+            <Sparkles class="h-10 w-10 text-muted-foreground/30" />
+            <p class="text-sm font-medium">No analyses found</p>
+            <p class="text-xs text-muted-foreground">{{ analyses.length === 0 ? 'Start your first analysis to see results here.' : 'Try adjusting your filters.' }}</p>
           </div>
-          <p class="text-xs text-muted-foreground truncate" :title="item.gameUrl">{{ item.gameUrl }}</p>
-          <div class="flex items-center gap-2 mt-1.5">
-            <span v-if="item.framework" class="text-xs text-muted-foreground capitalize">{{ item.framework }}</span>
-            <span v-if="item.framework && item.flowCount" class="text-xs text-muted-foreground">&middot;</span>
-            <span v-if="item.flowCount" class="text-xs text-muted-foreground">{{ item.flowCount }} flow(s)</span>
-            <!-- Module badges -->
-            <template v-if="parsedModules(item)">
-              <span class="text-xs text-muted-foreground">&middot;</span>
-              <span v-if="parsedModules(item).uiux !== false" class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0 rounded-full bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                <Eye class="h-2.5 w-2.5" />UI/UX
-              </span>
-              <span v-if="parsedModules(item).wording !== false" class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400">
-                <Type class="h-2.5 w-2.5" />Wording
-              </span>
-              <span v-if="parsedModules(item).gameDesign !== false" class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0 rounded-full bg-purple-500/10 text-purple-600 dark:text-purple-400">
-                <Gamepad2 class="h-2.5 w-2.5" />Design
-              </span>
-              <span v-if="parsedModules(item).testFlows !== false" class="inline-flex items-center gap-0.5 text-[10px] px-1.5 py-0 rounded-full bg-green-500/10 text-green-600 dark:text-green-400">
-                <PlayCircle class="h-2.5 w-2.5" />Flows
-              </span>
-            </template>
-          </div>
-        </div>
-        <div class="flex items-center gap-2 shrink-0">
-          <span class="text-xs text-muted-foreground whitespace-nowrap" :title="fullTimestamp(item.createdAt)">{{ timeAgo(item.createdAt) }}</span>
-          <Button variant="ghost" size="sm" @click.stop="reAnalyze(item)">
-            <RefreshCw class="h-3 w-3" />
-          </Button>
-          <Button variant="ghost" size="sm" @click.stop="deleteAnalysis(item)">
-            <Trash2 class="h-3 w-3 text-destructive" />
-          </Button>
-        </div>
-      </div>
+        </template>
+      </DataTable>
     </div>
   </div>
 </template>
 
 <script setup>
-import { ref, computed, reactive, onMounted } from 'vue'
+import { ref, computed, reactive, onMounted, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useIntervalFn } from '@vueuse/core'
+import { createColumnHelper } from '@tanstack/vue-table'
 import { analysesApi, projectsApi } from '@/lib/api'
 import { timeAgo, fullTimestamp } from '@/lib/dateUtils'
 import { Plus, RefreshCw, Trash2, Loader2, Sparkles, Eye, Type, Gamepad2, PlayCircle } from 'lucide-vue-next'
@@ -123,7 +87,9 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
+import { DataTable, DataTableColumnHeader } from '@/components/ui/data-table'
 
 const route = useRoute()
 const router = useRouter()
@@ -182,6 +148,86 @@ const filteredAnalyses = computed(() => {
 
   return list
 })
+
+// DataTable columns
+const analysisSorting = ref([])
+const columnHelper = createColumnHelper()
+
+const analysisColumns = [
+  columnHelper.accessor('gameName', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Game' }),
+    cell: (info) => {
+      const item = info.row.original
+      return h('div', { class: 'min-w-0' }, [
+        h('p', { class: 'text-sm font-medium truncate' }, item.gameName || 'Untitled'),
+        h('p', { class: 'text-xs text-muted-foreground truncate', title: item.gameUrl }, item.gameUrl),
+      ])
+    },
+  }),
+  columnHelper.accessor('status', {
+    header: 'Status',
+    cell: (info) => {
+      const status = info.getValue()
+      return h(Badge, { variant: statusVariant(status), class: 'text-xs' }, () => [
+        status === 'running' ? h(Loader2, { class: 'h-3 w-3 mr-1 animate-spin' }) : null,
+        status,
+      ])
+    },
+    enableSorting: false,
+  }),
+  columnHelper.accessor('framework', {
+    header: 'Framework',
+    cell: (info) => h('span', { class: 'text-sm text-muted-foreground capitalize' }, info.getValue() || '-'),
+    meta: { class: 'hidden sm:table-cell' },
+  }),
+  columnHelper.accessor('flowCount', {
+    header: 'Flows',
+    cell: (info) => h('span', { class: 'text-sm text-muted-foreground' }, info.getValue() ? `${info.getValue()}` : '-'),
+    meta: { class: 'hidden md:table-cell' },
+  }),
+  columnHelper.accessor('createdAt', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Created' }),
+    cell: (info) => h(Tooltip, null, {
+      default: () => h(TooltipTrigger, { asChild: true }, () =>
+        h('span', { class: 'text-xs text-muted-foreground cursor-default whitespace-nowrap' }, timeAgo(info.getValue()))
+      ),
+      content: () => h(TooltipContent, null, () => h('p', null, fullTimestamp(info.getValue()))),
+    }),
+    meta: { class: 'hidden lg:table-cell' },
+  }),
+  columnHelper.display({
+    id: 'actions',
+    header: () => h('span', { class: 'sr-only' }, 'Actions'),
+    cell: ({ row }) => h('div', { class: 'flex items-center gap-1', onClick: (e) => e.stopPropagation() }, [
+      h(Button, { variant: 'ghost', size: 'sm', onClick: () => reAnalyze(row.original) },
+        () => h(RefreshCw, { class: 'h-3 w-3' })),
+      h(Button, { variant: 'ghost', size: 'sm', onClick: () => deleteAnalysis(row.original) },
+        () => h(Trash2, { class: 'h-3 w-3 text-destructive' })),
+    ]),
+    enableSorting: false,
+  }),
+]
+
+function onAnalysisRowClick(row) {
+  viewAnalysis(row.original)
+}
+
+// Auto-refresh when any analysis is running
+const hasRunning = computed(() => analyses.value.some(a => a.status === 'running'))
+
+async function refreshAnalyses() {
+  if (!hasRunning.value) return
+  try {
+    const data = projectId.value
+      ? await projectsApi.analyses(projectId.value)
+      : await analysesApi.list()
+    analyses.value = data.analyses || []
+  } catch {
+    // silent
+  }
+}
+
+useIntervalFn(refreshAnalyses, 5000)
 
 function navigateToNewAnalysis() {
   const basePath = projectId.value ? `/projects/${projectId.value}` : ''

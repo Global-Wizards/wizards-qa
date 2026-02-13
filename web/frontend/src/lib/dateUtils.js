@@ -1,15 +1,12 @@
+import { format, formatDistanceToNowStrict } from 'date-fns'
+
 /**
  * Format a date string for display (e.g., "Jan 5, 10:30 AM").
  */
 export function formatDate(dateStr) {
   if (!dateStr) return ''
   try {
-    return new Date(dateStr).toLocaleDateString(undefined, {
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-    })
+    return format(new Date(dateStr), 'MMM d, h:mm a')
   } catch {
     return dateStr
   }
@@ -20,17 +17,22 @@ export function formatDate(dateStr) {
  */
 export function timeAgo(timestamp) {
   if (!timestamp) return '-'
-  const now = Date.now()
-  const diff = now - new Date(timestamp).getTime()
-  const seconds = Math.floor(diff / 1000)
-  if (seconds < 60) return 'just now'
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 24) return `${hours}h ago`
-  const days = Math.floor(hours / 24)
-  if (days < 30) return `${days}d ago`
-  return new Date(timestamp).toLocaleDateString()
+  try {
+    const date = new Date(timestamp)
+    const diff = Date.now() - date.getTime()
+    if (diff < 60000) return 'just now'
+    const str = formatDistanceToNowStrict(date)
+    return str
+      .replace(/ seconds?/, 's')
+      .replace(/ minutes?/, 'm')
+      .replace(/ hours?/, 'h')
+      .replace(/ days?/, 'd')
+      .replace(/ months?/, 'mo')
+      .replace(/ years?/, 'y')
+      + ' ago'
+  } catch {
+    return '-'
+  }
 }
 
 /**
@@ -38,5 +40,9 @@ export function timeAgo(timestamp) {
  */
 export function fullTimestamp(timestamp) {
   if (!timestamp) return ''
-  return new Date(timestamp).toLocaleString()
+  try {
+    return format(new Date(timestamp), 'PPpp')
+  } catch {
+    return ''
+  }
 }

@@ -29,15 +29,15 @@
 
         <!-- Bulk Action Bar -->
         <div
-          v-if="selectedIds.size > 0"
+          v-if="selectedRowCount > 0"
           class="mb-4 flex items-center gap-3 rounded-md border bg-muted/50 px-4 py-2"
         >
-          <span class="text-sm font-medium">{{ selectedIds.size }} selected</span>
+          <span class="text-sm font-medium">{{ selectedRowCount }} selected</span>
           <Button size="sm" variant="destructive" @click="deleteSelected">
             <Trash2 class="h-3 w-3 mr-1" />
             Delete Selected
           </Button>
-          <Button size="sm" variant="ghost" @click="selectedIds.clear()">Clear</Button>
+          <Button size="sm" variant="ghost" @click="rowSelection = {}">Clear</Button>
         </div>
 
         <!-- Loading State -->
@@ -63,80 +63,21 @@
           <AlertDescription>{{ error }}</AlertDescription>
         </Alert>
 
-        <!-- Tests Table -->
+        <!-- Tests DataTable -->
         <Card v-else>
           <CardContent class="pt-6">
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead class="w-10">
-                    <input
-                      type="checkbox"
-                      :checked="allSelected"
-                      :indeterminate="someSelected && !allSelected"
-                      @change="toggleSelectAll"
-                      class="rounded border-muted-foreground"
-                    />
-                  </TableHead>
-                  <TableHead class="cursor-pointer" @click="toggleSort('name')">
-                    Name
-                    <span v-if="sortField === 'name'" class="ml-1">{{ sortAsc ? '↑' : '↓' }}</span>
-                  </TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead class="cursor-pointer" @click="toggleSort('duration')">
-                    Duration
-                    <span v-if="sortField === 'duration'" class="ml-1">{{ sortAsc ? '↑' : '↓' }}</span>
-                  </TableHead>
-                  <TableHead class="cursor-pointer" @click="toggleSort('successRate')">
-                    Success Rate
-                    <span v-if="sortField === 'successRate'" class="ml-1">{{ sortAsc ? '↑' : '↓' }}</span>
-                  </TableHead>
-                  <TableHead class="cursor-pointer" @click="toggleSort('timestamp')">
-                    Timestamp
-                    <span v-if="sortField === 'timestamp'" class="ml-1">{{ sortAsc ? '↑' : '↓' }}</span>
-                  </TableHead>
-                  <TableHead class="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow
-                  v-for="test in filteredTests"
-                  :key="test.id"
-                  class="cursor-pointer"
-                  @click="openDetail(test)"
-                >
-                  <TableCell @click.stop>
-                    <input
-                      type="checkbox"
-                      :checked="selectedIds.has(test.id)"
-                      @change="toggleSelect(test.id)"
-                      class="rounded border-muted-foreground"
-                    />
-                  </TableCell>
-                  <TableCell class="font-medium">{{ test.name }}</TableCell>
-                  <TableCell><StatusBadge :status="test.status" /></TableCell>
-                  <TableCell>{{ test.duration }}</TableCell>
-                  <TableCell>{{ Math.round(test.successRate) }}%</TableCell>
-                  <TableCell class="text-muted-foreground">
-                    {{ formatDate(test.timestamp) }}
-                  </TableCell>
-                  <TableCell class="text-right">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      @click.stop="deleteTest(test)"
-                    >
-                      <Trash2 class="h-3 w-3 text-destructive" />
-                    </Button>
-                  </TableCell>
-                </TableRow>
-                <TableRow v-if="!filteredTests.length">
-                  <TableCell colspan="7" class="text-center text-muted-foreground py-8">
-                    {{ search ? 'No tests match your search' : 'No tests found' }}
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <DataTable
+              ref="dataTableRef"
+              :columns="columns"
+              :data="tests"
+              :sorting="sorting"
+              :global-filter="debouncedSearch"
+              :row-selection="rowSelection"
+              :on-row-click="onRowClick"
+              :empty-text="search ? 'No tests match your search' : 'No tests found'"
+              @update:sorting="sorting = $event"
+              @update:row-selection="rowSelection = $event"
+            />
           </CardContent>
         </Card>
       </TabsContent>
@@ -261,9 +202,11 @@
 </template>
 
 <script setup>
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, computed, h, onMounted, onUnmounted } from 'vue'
+import { refDebounced } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
 import { AlertCircle, Plus, Play, Trash2, Eye, Loader2, Pencil } from 'lucide-vue-next'
+import { createColumnHelper } from '@tanstack/vue-table'
 import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { getWebSocket } from '@/lib/websocket'
@@ -274,6 +217,8 @@ import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { DataTable } from '@/components/ui/data-table'
+import { DataTableColumnHeader } from '@/components/ui/data-table'
 import StatusBadge from '@/components/StatusBadge.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 
@@ -286,39 +231,74 @@ const loading = ref(true)
 const error = ref(null)
 const tests = ref([])
 const search = ref('')
-const debouncedSearch = ref('')
-let searchTimeout = null
-watch(search, (val) => {
-  clearTimeout(searchTimeout)
-  searchTimeout = setTimeout(() => { debouncedSearch.value = val }, 300)
-})
-const sortField = ref('timestamp')
-const sortAsc = ref(false)
+const debouncedSearch = refDebounced(search, 300)
 
-// Selection state
-const selectedIds = reactive(new Set())
+// TanStack Table state
+const sorting = ref([{ id: 'timestamp', desc: true }])
+const rowSelection = ref({})
+const dataTableRef = ref(null)
 
-const allSelected = computed(() => {
-  return filteredTests.value.length > 0 && filteredTests.value.every((t) => selectedIds.has(t.id))
-})
-const someSelected = computed(() => {
-  return filteredTests.value.some((t) => selectedIds.has(t.id))
-})
+const selectedRowCount = computed(() => Object.keys(rowSelection.value).length)
 
-function toggleSelect(id) {
-  if (selectedIds.has(id)) {
-    selectedIds.delete(id)
-  } else {
-    selectedIds.add(id)
-  }
-}
+// Column definitions
+const columnHelper = createColumnHelper()
 
-function toggleSelectAll() {
-  if (allSelected.value) {
-    filteredTests.value.forEach((t) => selectedIds.delete(t.id))
-  } else {
-    filteredTests.value.forEach((t) => selectedIds.add(t.id))
-  }
+const columns = [
+  columnHelper.display({
+    id: 'select',
+    header: ({ table }) => h('input', {
+      type: 'checkbox',
+      checked: table.getIsAllPageRowsSelected(),
+      indeterminate: table.getIsSomePageRowsSelected(),
+      onChange: (e) => table.toggleAllPageRowsSelected(!!e.target.checked),
+      class: 'rounded border-muted-foreground',
+    }),
+    cell: ({ row }) => h('div', { onClick: (e) => e.stopPropagation() }, [
+      h('input', {
+        type: 'checkbox',
+        checked: row.getIsSelected(),
+        onChange: (e) => row.toggleSelected(!!e.target.checked),
+        class: 'rounded border-muted-foreground',
+      }),
+    ]),
+    enableSorting: false,
+  }),
+  columnHelper.accessor('name', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Name' }),
+    cell: (info) => h('span', { class: 'font-medium' }, info.getValue()),
+  }),
+  columnHelper.accessor('status', {
+    header: 'Status',
+    cell: (info) => h(StatusBadge, { status: info.getValue() }),
+    enableSorting: false,
+  }),
+  columnHelper.accessor('duration', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Duration' }),
+  }),
+  columnHelper.accessor('successRate', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Success Rate' }),
+    cell: (info) => `${Math.round(info.getValue())}%`,
+  }),
+  columnHelper.accessor('timestamp', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Timestamp' }),
+    cell: (info) => h('span', { class: 'text-muted-foreground' }, formatDate(info.getValue())),
+  }),
+  columnHelper.display({
+    id: 'actions',
+    header: () => h('span', { class: 'sr-only' }, 'Actions'),
+    cell: ({ row }) => h('div', { class: 'text-right', onClick: (e) => e.stopPropagation() }, [
+      h(Button, {
+        variant: 'ghost',
+        size: 'sm',
+        onClick: () => deleteTest(row.original),
+      }, () => h(Trash2, { class: 'h-3 w-3 text-destructive' })),
+    ]),
+    enableSorting: false,
+  }),
+]
+
+function onRowClick(row) {
+  openDetail(row.original)
 }
 
 // Plans state
@@ -328,33 +308,6 @@ const plans = ref([])
 
 // Run error
 const runError = ref(null)
-
-const filteredTests = computed(() => {
-  let result = [...tests.value]
-
-  if (debouncedSearch.value) {
-    const q = debouncedSearch.value.toLowerCase()
-    result = result.filter((t) => t.name.toLowerCase().includes(q))
-  }
-
-  result.sort((a, b) => {
-    const aVal = a[sortField.value]
-    const bVal = b[sortField.value]
-    const cmp = aVal < bVal ? -1 : aVal > bVal ? 1 : 0
-    return sortAsc.value ? cmp : -cmp
-  })
-
-  return result
-})
-
-function toggleSort(field) {
-  if (sortField.value === field) {
-    sortAsc.value = !sortAsc.value
-  } else {
-    sortField.value = field
-    sortAsc.value = true
-  }
-}
 
 function openDetail(test) {
   const base = projectId.value ? `/projects/${projectId.value}` : ''
@@ -380,19 +333,26 @@ async function deleteTest(test) {
   try {
     await testsApi.delete(test.id)
     tests.value = tests.value.filter((t) => t.id !== test.id)
-    selectedIds.delete(test.id)
+    // Clear selection for deleted row
+    const newSelection = { ...rowSelection.value }
+    const idx = tests.value.findIndex(t => t.id === test.id)
+    if (idx >= 0) delete newSelection[idx]
+    rowSelection.value = newSelection
   } catch (err) {
     error.value = 'Failed to delete test result: ' + err.message
   }
 }
 
 async function deleteSelected() {
-  const ids = [...selectedIds]
+  const table = dataTableRef.value?.table
+  if (!table) return
+  const selectedRows = table.getSelectedRowModel().rows
+  const ids = selectedRows.map(r => r.original.id)
   if (!confirm(`Delete ${ids.length} test result(s)? This cannot be undone.`)) return
   try {
     await testsApi.deleteBatch(ids)
-    tests.value = tests.value.filter((t) => !selectedIds.has(t.id))
-    selectedIds.clear()
+    tests.value = tests.value.filter((t) => !ids.includes(t.id))
+    rowSelection.value = {}
   } catch (err) {
     error.value = 'Failed to delete test results: ' + err.message
   }
@@ -501,6 +461,5 @@ onMounted(async () => {
 
 onUnmounted(() => {
   if (wsCleanup) wsCleanup()
-  clearTimeout(searchTimeout)
 })
 </script>

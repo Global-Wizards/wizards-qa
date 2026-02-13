@@ -11,7 +11,7 @@
     <Tabs v-model="currentStep" class="space-y-6">
       <TabsList class="grid w-full grid-cols-4">
         <TabsTrigger value="details" :disabled="false">1. Details</TabsTrigger>
-        <TabsTrigger value="flows" :disabled="!detailsValid">2. Flows</TabsTrigger>
+        <TabsTrigger value="flows" :disabled="!detailsMeta.valid">2. Flows</TabsTrigger>
         <TabsTrigger value="variables" :disabled="!flowsValid">3. Variables</TabsTrigger>
         <TabsTrigger value="review" :disabled="!variablesValid">4. Review</TabsTrigger>
       </TabsList>
@@ -23,28 +23,41 @@
             <CardTitle>Plan Details</CardTitle>
           </CardHeader>
           <CardContent class="space-y-4">
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Plan Name *</label>
-              <Input v-model="plan.name" placeholder="e.g. Smoke Test - Game Mechanics" />
-            </div>
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Game URL *</label>
-              <Input v-model="plan.gameUrl" placeholder="https://your-game.example.com" />
-              <p v-if="plan.gameUrl && !isValidUrl(plan.gameUrl)" class="text-xs text-destructive">
-                Enter a valid URL starting with http:// or https://
-              </p>
-            </div>
-            <div class="space-y-2">
-              <label class="text-sm font-medium">Description</label>
-              <textarea
-                v-model="plan.description"
-                rows="3"
-                placeholder="Optional description of this test plan..."
-                class="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              ></textarea>
-            </div>
+            <FormField name="name" v-slot="{ componentField }">
+              <FormItem>
+                <FormLabel>Plan Name *</FormLabel>
+                <FormControl>
+                  <Input v-bind="componentField" placeholder="e.g. Smoke Test - Game Mechanics" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+
+            <FormField name="gameUrl" v-slot="{ componentField }">
+              <FormItem>
+                <FormLabel>Game URL *</FormLabel>
+                <FormControl>
+                  <Input v-bind="componentField" placeholder="https://your-game.example.com" />
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            </FormField>
+
+            <FormField name="description" v-slot="{ componentField }">
+              <FormItem>
+                <FormLabel>Description</FormLabel>
+                <FormControl>
+                  <Textarea
+                    v-bind="componentField"
+                    rows="3"
+                    placeholder="Optional description of this test plan..."
+                  />
+                </FormControl>
+              </FormItem>
+            </FormField>
+
             <div class="flex justify-end">
-              <Button :disabled="!detailsValid" @click="currentStep = 'flows'">
+              <Button :disabled="!detailsMeta.valid" @click="currentStep = 'flows'">
                 Next: Select Flows
               </Button>
             </div>
@@ -146,8 +159,8 @@
             <div v-for="varName in uniqueVariables" :key="varName" class="space-y-2">
               <label class="text-sm font-medium">{{ varName }}</label>
               <Input
-                :model-value="plan.variables[varName] || ''"
-                @update:model-value="plan.variables[varName] = $event"
+                :model-value="variables[varName] || ''"
+                @update:model-value="variables[varName] = $event"
                 :placeholder="`Value for {{${varName}}}`"
               />
             </div>
@@ -171,17 +184,17 @@
             <div class="grid gap-4 md:grid-cols-2">
               <div>
                 <span class="text-sm text-muted-foreground">Name</span>
-                <p class="font-medium">{{ plan.name }}</p>
+                <p class="font-medium">{{ detailsValues.name }}</p>
               </div>
               <div>
                 <span class="text-sm text-muted-foreground">Game URL</span>
-                <p class="font-medium">{{ plan.gameUrl }}</p>
+                <p class="font-medium">{{ detailsValues.gameUrl }}</p>
               </div>
             </div>
 
-            <div v-if="plan.description">
+            <div v-if="detailsValues.description">
               <span class="text-sm text-muted-foreground">Description</span>
-              <p class="text-sm">{{ plan.description }}</p>
+              <p class="text-sm">{{ detailsValues.description }}</p>
             </div>
 
             <Separator />
@@ -195,11 +208,11 @@
               </div>
             </div>
 
-            <div v-if="Object.keys(plan.variables).length">
+            <div v-if="Object.keys(variables).length">
               <Separator />
               <span class="text-sm text-muted-foreground">Variables</span>
               <div class="mt-2 space-y-1">
-                <div v-for="(val, key) in plan.variables" :key="key" class="flex gap-2 text-sm">
+                <div v-for="(val, key) in variables" :key="key" class="flex gap-2 text-sm">
                   <span class="text-muted-foreground">{{ key }}:</span>
                   <span class="font-medium">{{ val || '(empty)' }}</span>
                 </div>
@@ -225,14 +238,19 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useForm } from 'vee-validate'
+import { toTypedSchema } from '@vee-validate/zod'
 import { templatesApi, testPlansApi, analysesApi } from '@/lib/api'
+import { testPlanDetailsSchema } from '@/lib/formSchemas'
 import { useProject } from '@/composables/useProject'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
 import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form'
 
 const router = useRouter()
 const route = useRoute()
@@ -246,24 +264,17 @@ const selectedFlows = ref(new Set())
 const creating = ref(false)
 const createError = ref(null)
 const analysisId = ref(route.query.analysisId || '')
+const variables = reactive({})
 
-const plan = reactive({
-  name: '',
-  gameUrl: '',
-  description: '',
-  variables: {},
+const { meta: detailsMeta, values: detailsValues, setValues } = useForm({
+  validationSchema: toTypedSchema(testPlanDetailsSchema),
+  initialValues: {
+    name: '',
+    gameUrl: '',
+    description: '',
+  },
 })
 
-function isValidUrl(str) {
-  try {
-    const url = new URL(str)
-    return url.protocol === 'http:' || url.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
-
-const detailsValid = computed(() => plan.name.trim() !== '' && isValidUrl(plan.gameUrl.trim()))
 const flowsValid = computed(() => selectedFlows.value.size > 0)
 const variablesValid = computed(() => flowsValid.value)
 
@@ -312,17 +323,17 @@ async function createPlan() {
   createError.value = null
 
   // Pre-fill url variable with gameUrl if applicable
-  if (uniqueVariables.value.includes('GAME_URL') && !plan.variables.GAME_URL) {
-    plan.variables.GAME_URL = plan.gameUrl
+  if (uniqueVariables.value.includes('GAME_URL') && !variables.GAME_URL) {
+    variables.GAME_URL = detailsValues.gameUrl
   }
 
   try {
     await testPlansApi.create({
-      name: plan.name,
-      gameUrl: plan.gameUrl,
-      description: plan.description,
+      name: detailsValues.name,
+      gameUrl: detailsValues.gameUrl,
+      description: detailsValues.description,
       flowNames: [...selectedFlows.value],
-      variables: { ...plan.variables },
+      variables: { ...variables },
       projectId: projectId.value,
       analysisId: analysisId.value || undefined,
     })
@@ -362,13 +373,11 @@ onMounted(async () => {
     const names = route.query.flows.split(',')
     selectedFlows.value = new Set(names)
   }
-  if (route.query.gameUrl) {
-    plan.gameUrl = route.query.gameUrl
-  }
 
-  // Pre-fill game URL from project context
-  if (!plan.gameUrl && currentProject.value?.gameUrl) {
-    plan.gameUrl = currentProject.value.gameUrl
+  // Pre-fill game URL
+  const initialGameUrl = route.query.gameUrl || currentProject.value?.gameUrl || ''
+  if (initialGameUrl) {
+    setValues({ gameUrl: initialGameUrl })
   }
 })
 </script>

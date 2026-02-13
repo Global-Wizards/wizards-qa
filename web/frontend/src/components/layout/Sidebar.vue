@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
+import { useStorage } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
 import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut, FolderKanban, Settings, Users, ChevronsUpDown, Plus, Globe, Gamepad2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -15,7 +16,7 @@ import { versionApi } from '@/lib/api'
 
 const route = useRoute()
 const router = useRouter()
-const collapsed = ref(false)
+const collapsed = useStorage('sidebar-collapsed', false)
 const version = ref('')
 const changelogOpen = ref(false)
 const changelogContent = ref('')

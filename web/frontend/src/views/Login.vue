@@ -1,43 +1,54 @@
 <script setup>
-import { ref } from 'vue'
+import { ref, computed } from 'vue'
 import { useRouter } from 'vue-router'
+import { useForm } from 'vee-validate'
+import { toTypedSchema } from '@vee-validate/zod'
 import { useAuth } from '@/composables/useAuth'
+import { loginSchema, registerSchema } from '@/lib/formSchemas'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form'
+import { AnimatedGradientText } from '@/components/ui/animated-gradient-text'
 
 const router = useRouter()
 const { login, register } = useAuth()
 
-const mode = ref('login') // 'login' or 'register'
-const email = ref('')
-const password = ref('')
-const displayName = ref('')
-const error = ref('')
+const mode = ref('login')
+const serverError = ref('')
 const submitting = ref(false)
 
-async function handleSubmit() {
-  error.value = ''
+const schema = computed(() =>
+  mode.value === 'register' ? registerSchema : loginSchema
+)
+
+const { handleSubmit, resetForm, meta } = useForm({
+  validationSchema: computed(() => toTypedSchema(schema.value)),
+})
+
+const onSubmit = handleSubmit(async (values) => {
+  serverError.value = ''
   submitting.value = true
 
   try {
     if (mode.value === 'register') {
-      await register(email.value, password.value, displayName.value)
+      await register(values.email, values.password, values.displayName)
     } else {
-      await login(email.value, password.value)
+      await login(values.email, values.password)
     }
     router.push('/')
   } catch (err) {
-    error.value = err.message || 'An error occurred'
+    serverError.value = err.message || 'An error occurred'
   } finally {
     submitting.value = false
   }
-}
+})
 
 function toggleMode() {
   mode.value = mode.value === 'login' ? 'register' : 'login'
-  error.value = ''
+  serverError.value = ''
+  resetForm()
 }
 </script>
 
@@ -46,7 +57,7 @@ function toggleMode() {
     <Card class="w-full max-w-md">
       <CardHeader class="text-center">
         <div class="mb-2">
-          <span class="text-2xl font-bold text-primary">Wizards QA</span>
+          <AnimatedGradientText class="text-2xl font-bold">Wizards QA</AnimatedGradientText>
         </div>
         <CardTitle>{{ mode === 'login' ? 'Sign In' : 'Create Account' }}</CardTitle>
         <CardDescription>
@@ -54,47 +65,55 @@ function toggleMode() {
         </CardDescription>
       </CardHeader>
       <CardContent>
-        <form @submit.prevent="handleSubmit" class="space-y-4">
-          <Alert v-if="error" variant="destructive">
-            <AlertDescription>{{ error }}</AlertDescription>
+        <form @submit.prevent="onSubmit" class="space-y-4">
+          <Alert v-if="serverError" variant="destructive">
+            <AlertDescription>{{ serverError }}</AlertDescription>
           </Alert>
 
-          <div v-if="mode === 'register'" class="space-y-2">
-            <label class="text-sm font-medium" for="displayName">Display Name</label>
-            <Input
-              id="displayName"
-              v-model="displayName"
-              type="text"
-              placeholder="Your name"
-              required
-              :disabled="submitting"
-            />
-          </div>
+          <FormField v-if="mode === 'register'" name="displayName" v-slot="{ componentField }">
+            <FormItem>
+              <FormLabel>Display Name</FormLabel>
+              <FormControl>
+                <Input
+                  v-bind="componentField"
+                  type="text"
+                  placeholder="Your name"
+                  :disabled="submitting"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          </FormField>
 
-          <div class="space-y-2">
-            <label class="text-sm font-medium" for="email">Email</label>
-            <Input
-              id="email"
-              v-model="email"
-              type="email"
-              placeholder="you@example.com"
-              required
-              :disabled="submitting"
-            />
-          </div>
+          <FormField name="email" v-slot="{ componentField }">
+            <FormItem>
+              <FormLabel>Email</FormLabel>
+              <FormControl>
+                <Input
+                  v-bind="componentField"
+                  type="email"
+                  placeholder="you@example.com"
+                  :disabled="submitting"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          </FormField>
 
-          <div class="space-y-2">
-            <label class="text-sm font-medium" for="password">Password</label>
-            <Input
-              id="password"
-              v-model="password"
-              type="password"
-              placeholder="Min. 8 characters"
-              required
-              minlength="8"
-              :disabled="submitting"
-            />
-          </div>
+          <FormField name="password" v-slot="{ componentField }">
+            <FormItem>
+              <FormLabel>Password</FormLabel>
+              <FormControl>
+                <Input
+                  v-bind="componentField"
+                  type="password"
+                  placeholder="Min. 8 characters"
+                  :disabled="submitting"
+                />
+              </FormControl>
+              <FormMessage />
+            </FormItem>
+          </FormField>
 
           <Button type="submit" class="w-full" :disabled="submitting">
             {{ submitting ? 'Please wait...' : (mode === 'login' ? 'Sign In' : 'Create Account') }}

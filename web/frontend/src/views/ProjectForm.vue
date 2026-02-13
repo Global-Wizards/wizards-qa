@@ -10,26 +10,35 @@
     <Card class="max-w-2xl">
       <CardContent class="pt-6 space-y-6">
         <!-- Name -->
-        <div class="space-y-2">
-          <label class="text-sm font-medium">Project Name *</label>
-          <Input v-model="form.name" placeholder="e.g. My Awesome Game" />
-        </div>
+        <FormField name="name" v-slot="{ componentField }">
+          <FormItem>
+            <FormLabel>Project Name *</FormLabel>
+            <FormControl>
+              <Input v-bind="componentField" placeholder="e.g. My Awesome Game" />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        </FormField>
 
         <!-- URL -->
-        <div class="space-y-2">
-          <label class="text-sm font-medium">Game URL</label>
-          <Input v-model="form.gameUrl" placeholder="https://your-game.example.com" />
-        </div>
+        <FormField name="gameUrl" v-slot="{ componentField }">
+          <FormItem>
+            <FormLabel>Game URL</FormLabel>
+            <FormControl>
+              <Input v-bind="componentField" placeholder="https://your-game.example.com" />
+            </FormControl>
+            <FormMessage />
+          </FormItem>
+        </FormField>
 
-        <!-- Description -->
+        <!-- Description (Echo Editor) -->
         <div class="space-y-2">
           <label class="text-sm font-medium">Description</label>
-          <textarea
-            v-model="form.description"
-            rows="3"
-            placeholder="What is this project about?"
-            class="flex min-h-[80px] w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          ></textarea>
+          <echo-editor
+            v-model="description"
+            :extensions="editorExtensions"
+            class="min-h-[120px] rounded-md border border-input"
+          />
         </div>
 
         <!-- Color -->
@@ -67,7 +76,7 @@
         <!-- Actions -->
         <div class="flex items-center justify-between">
           <Button variant="outline" @click="router.back()">Cancel</Button>
-          <Button :disabled="!form.name.trim() || saving" @click="handleSave">
+          <Button :disabled="!meta.valid || saving" @click="handleSave">
             {{ saving ? 'Saving...' : (isEdit ? 'Save Changes' : 'Create Project') }}
           </Button>
         </div>
@@ -81,12 +90,16 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useForm } from 'vee-validate'
+import { toTypedSchema } from '@vee-validate/zod'
 import { projectsApi } from '@/lib/api'
+import { projectSchema } from '@/lib/formSchemas'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
+import { FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/components/ui/form'
 
 const router = useRouter()
 const route = useRoute()
@@ -95,6 +108,9 @@ const isEdit = computed(() => !!route.params.projectId)
 const saving = ref(false)
 const saveError = ref(null)
 const newTag = ref('')
+const description = ref('')
+
+const editorExtensions = []
 
 const colors = [
   '#6366f1', '#8b5cf6', '#ec4899', '#ef4444', '#f97316',
@@ -102,12 +118,18 @@ const colors = [
 ]
 
 const form = reactive({
-  name: '',
-  gameUrl: '',
-  description: '',
   color: '#6366f1',
   icon: 'gamepad-2',
   tags: [],
+})
+
+const { meta, values, setValues } = useForm({
+  validationSchema: toTypedSchema(projectSchema),
+  initialValues: {
+    name: '',
+    gameUrl: '',
+    description: '',
+  },
 })
 
 function addTag() {
@@ -126,12 +148,21 @@ async function handleSave() {
   saving.value = true
   saveError.value = null
 
+  const payload = {
+    name: values.name,
+    gameUrl: values.gameUrl,
+    description: description.value,
+    color: form.color,
+    icon: form.icon,
+    tags: form.tags,
+  }
+
   try {
     if (isEdit.value) {
-      await projectsApi.update(route.params.projectId, { ...form })
+      await projectsApi.update(route.params.projectId, payload)
       router.push(`/projects/${route.params.projectId}`)
     } else {
-      const created = await projectsApi.create({ ...form })
+      const created = await projectsApi.create(payload)
       router.push(`/projects/${created.id}`)
     }
   } catch (err) {
@@ -145,9 +176,12 @@ onMounted(async () => {
   if (isEdit.value) {
     try {
       const project = await projectsApi.get(route.params.projectId)
-      form.name = project.name || ''
-      form.gameUrl = project.gameUrl || ''
-      form.description = project.description || ''
+      setValues({
+        name: project.name || '',
+        gameUrl: project.gameUrl || '',
+        description: project.description || '',
+      })
+      description.value = project.description || ''
       form.color = project.color || '#6366f1'
       form.icon = project.icon || 'gamepad-2'
       form.tags = project.tags || []

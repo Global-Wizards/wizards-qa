@@ -89,7 +89,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { AlertCircle, Copy } from 'lucide-vue-next'
 import { flowsApi } from '@/lib/api'
-import { useClipboard } from '@/composables/useClipboard'
+import { useClipboard, refDebounced } from '@vueuse/core'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -107,7 +107,8 @@ const categoryFilter = ref('all')
 const dialogOpen = ref(false)
 const selectedFlow = ref(null)
 const flowContent = ref('')
-const { copied, copy: copyToClipboard } = useClipboard()
+const { copied, copy: copyToClipboard } = useClipboard({ copiedDuring: 2000 })
+const debouncedSearch = refDebounced(search, 300)
 
 const categories = computed(() => {
   const cats = new Set(flows.value.map((f) => f.category))
@@ -117,8 +118,8 @@ const categories = computed(() => {
 const filteredFlows = computed(() => {
   let result = [...flows.value]
 
-  if (search.value) {
-    const q = search.value.toLowerCase()
+  if (debouncedSearch.value) {
+    const q = debouncedSearch.value.toLowerCase()
     result = result.filter((f) => f.name.toLowerCase().includes(q) || f.category.toLowerCase().includes(q))
   }
 

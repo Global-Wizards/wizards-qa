@@ -589,6 +589,7 @@
 
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
+import { useStorage } from '@vueuse/core'
 import { useRouter, useRoute } from 'vue-router'
 import { useAnalysis } from '@/composables/useAnalysis'
 import { truncateUrl, isValidUrl, severityVariant } from '@/lib/utils'
@@ -596,7 +597,7 @@ import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
 import { DEFAULT_VIEWPORT, getViewportByName, getViewportCategories, getRecommendedViewports } from '@/lib/viewports'
 import { testsApi, analysesApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
-import { useClipboard } from '@/composables/useClipboard'
+import { useClipboard } from '@vueuse/core'
 import { useProject } from '@/composables/useProject'
 import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
@@ -618,8 +619,8 @@ const { currentProject } = useProject()
 const projectId = computed(() => route.params.projectId || '')
 const gameUrl = ref('')
 const analyzing = ref(false)
-const useAgentMode = ref(true)
-const selectedProfile = ref('balanced')
+const useAgentMode = useStorage('analyze-agent-mode', true)
+const selectedProfile = useStorage('analyze-profile', 'balanced')
 const showCustomFields = ref(false)
 const defaultProfile = getProfileByName('balanced')
 const customModel = ref(defaultProfile.model)
@@ -628,13 +629,13 @@ const customAgentSteps = ref(defaultProfile.agentSteps)
 const customTemperature = ref(defaultProfile.temperature)
 const customMaxTotalSteps = ref(35)
 const customMaxTotalTimeout = ref(25)
-const moduleDynamicSteps = ref(true)
-const moduleDynamicTimeout = ref(true)
-const moduleUiux = ref(true)
-const moduleWording = ref(true)
-const moduleGameDesign = ref(true)
-const moduleTestFlows = ref(true)
-const selectedViewport = ref(DEFAULT_VIEWPORT)
+const moduleDynamicSteps = useStorage('analyze-dynamic-steps', true)
+const moduleDynamicTimeout = useStorage('analyze-dynamic-timeout', true)
+const moduleUiux = useStorage('analyze-module-uiux', true)
+const moduleWording = useStorage('analyze-module-wording', true)
+const moduleGameDesign = useStorage('analyze-module-game-design', true)
+const moduleTestFlows = useStorage('analyze-module-test-flows', true)
+const selectedViewport = useStorage('analyze-viewport', DEFAULT_VIEWPORT)
 const recentAnalyses = ref([])
 const currentAnalysisId = ref(null)
 
@@ -642,14 +643,14 @@ const currentAnalysisId = ref(null)
 const flowDialogOpen = ref(false)
 const previewFlowData = ref(null)
 const previewFlowYaml = ref('')
-const { copied: flowCopied, copy: copyFlowToClipboard } = useClipboard()
+const { copied: flowCopied, copy: copyFlowToClipboard } = useClipboard({ copiedDuring: 2000 })
 
 // Agent screenshot preview state
 const agentScreenshotOpen = ref(false)
 const agentScreenshotStep = ref(null)
 
 // Debug log clipboard
-const { copied: logCopied, copy: copyLogToClipboard } = useClipboard()
+const { copied: logCopied, copy: copyLogToClipboard } = useClipboard({ copiedDuring: 2000 })
 
 const {
   status,
@@ -1165,10 +1166,7 @@ watch(status, (val) => {
 function handleReset() {
   reset()
   analyzing.value = false
-  useAgentMode.value = false
-  selectedProfile.value = 'balanced'
   showCustomFields.value = false
-  selectedViewport.value = DEFAULT_VIEWPORT
   gameUrl.value = ''
   currentAnalysisId.value = null
   loadRecentAnalyses()

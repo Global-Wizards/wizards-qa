@@ -1,6 +1,8 @@
 <script setup>
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, h } from 'vue'
+import { useIntervalFn } from '@vueuse/core'
 import { useRouter } from 'vue-router'
+import { createColumnHelper } from '@tanstack/vue-table'
 import {
   Activity, CheckCircle2, XCircle, TrendingUp, AlertCircle, Sparkles,
   GitBranch, FlaskConical, ChevronRight, HeartPulse, ShieldCheck,
@@ -10,17 +12,18 @@ import {
 import { statsApi, projectsApi } from '@/lib/api'
 import { timeAgo, fullTimestamp } from '@/lib/dateUtils'
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Separator } from '@/components/ui/separator'
 import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip'
+import { DataTable, DataTableColumnHeader } from '@/components/ui/data-table'
 import StatCard from '@/components/StatCard.vue'
 import StatusBadge from '@/components/StatusBadge.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 import TestHistoryChart from '@/components/charts/TestHistoryChart.vue'
 import PassFailDonut from '@/components/charts/PassFailDonut.vue'
+import { ShimmerButton } from '@/components/ui/shimmer-button'
 
 const router = useRouter()
 const loading = ref(true)
@@ -39,8 +42,6 @@ const stats = ref({
 
 const projects = ref([])
 const onboardingDismissed = ref(false)
-
-let refreshInterval = null
 
 async function loadStats() {
   try {
@@ -99,16 +100,55 @@ const successRateColor = computed(() => {
   return 'text-muted-foreground'
 })
 
+// Recent Tests DataTable
+const recentTestsSorting = ref([{ id: 'timestamp', desc: true }])
+const columnHelper = createColumnHelper()
+
+const recentTestColumns = [
+  columnHelper.accessor('name', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Name' }),
+    cell: (info) => h('span', { class: 'font-medium' }, info.getValue()),
+  }),
+  columnHelper.accessor('status', {
+    header: 'Status',
+    cell: (info) => h(StatusBadge, { status: info.getValue() }),
+    enableSorting: false,
+  }),
+  columnHelper.accessor('duration', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Duration' }),
+    cell: (info) => info.getValue() || '-',
+    meta: { class: 'hidden sm:table-cell' },
+  }),
+  columnHelper.accessor('successRate', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Success Rate' }),
+    cell: (info) => {
+      const val = info.getValue()
+      if (!val) return '-'
+      return h('span', { class: val >= 70 ? 'text-emerald-500' : 'text-red-500' }, `${val}%`)
+    },
+    meta: { class: 'hidden md:table-cell' },
+  }),
+  columnHelper.accessor('timestamp', {
+    header: ({ column }) => h(DataTableColumnHeader, { column, title: 'Timestamp' }),
+    cell: (info) => h(Tooltip, null, {
+      default: () => h(TooltipTrigger, { asChild: true }, () =>
+        h('span', { class: 'text-muted-foreground cursor-default' }, timeAgo(info.getValue()))
+      ),
+      content: () => h(TooltipContent, null, () => h('p', null, fullTimestamp(info.getValue()))),
+    }),
+    meta: { class: 'text-right' },
+  }),
+]
+
+function onRecentTestClick(row) {
+  router.push(`/tests/run/${row.original.id}`)
+}
+
+useIntervalFn(loadStats, 30000)
+
 onMounted(() => {
   loadStats()
   loadProjects()
-  refreshInterval = setInterval(loadStats, 30000)
-})
-
-onUnmounted(() => {
-  if (refreshInterval) {
-    clearInterval(refreshInterval)
-  }
 })
 </script>
 
@@ -173,10 +213,10 @@ onUnmounted(() => {
           </p>
           <div class="flex flex-col sm:flex-row gap-3">
             <router-link to="/projects/new">
-              <Button class="glow-primary-sm">
+              <ShimmerButton border-radius="8px">
                 <Swords class="h-4 w-4 mr-2" />
                 Start New Campaign
-              </Button>
+              </ShimmerButton>
             </router-link>
             <Button variant="outline" @click="onboardingDismissed = true">
               Explore the Arena
@@ -200,10 +240,10 @@ onUnmounted(() => {
             </p>
             <div class="flex flex-col sm:flex-row gap-3">
               <router-link to="/analyze">
-                <Button>
+                <ShimmerButton border-radius="8px">
                   <Sparkles class="h-4 w-4 mr-2" />
                   Scout Your First Game
-                </Button>
+                </ShimmerButton>
               </router-link>
               <router-link to="/tests/new">
                 <Button variant="outline">
@@ -445,64 +485,30 @@ onUnmounted(() => {
             </router-link>
           </CardHeader>
           <CardContent>
-            <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead class="hidden sm:table-cell">Duration</TableHead>
-                  <TableHead class="hidden md:table-cell">Success Rate</TableHead>
-                  <TableHead class="text-right">Timestamp</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                <TableRow
-                  v-for="test in visibleTests"
-                  :key="test.name"
-                  class="cursor-pointer hover:bg-muted/50"
-                  @click="openTest(test)"
-                >
-                  <TableCell class="font-medium">{{ test.name }}</TableCell>
-                  <TableCell><StatusBadge :status="test.status" /></TableCell>
-                  <TableCell class="hidden sm:table-cell">{{ test.duration || '-' }}</TableCell>
-                  <TableCell class="hidden md:table-cell">
-                    <span v-if="test.successRate" :class="test.successRate >= 70 ? 'text-emerald-500' : 'text-red-500'">
-                      {{ test.successRate }}%
-                    </span>
-                    <span v-else>-</span>
-                  </TableCell>
-                  <TableCell class="text-right">
-                    <Tooltip>
-                      <TooltipTrigger as-child>
-                        <span class="text-muted-foreground cursor-default">
-                          {{ timeAgo(test.timestamp) }}
-                        </span>
-                      </TooltipTrigger>
-                      <TooltipContent>
-                        <p>{{ fullTimestamp(test.timestamp) }}</p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-                <TableRow v-if="!visibleTests.length">
-                  <TableCell colspan="5" class="text-center py-12">
-                    <div class="flex flex-col items-center gap-3">
-                      <Clock class="h-10 w-10 text-muted-foreground/30" />
-                      <div>
-                        <p class="text-sm text-muted-foreground">No recent tests</p>
-                        <p class="text-xs text-muted-foreground/70 mb-3">Your test results will appear here</p>
-                      </div>
-                      <router-link to="/tests/new">
-                        <Button variant="outline" size="sm">
-                          <FileText class="h-4 w-4 mr-2" />
-                          Create Test Plan
-                        </Button>
-                      </router-link>
-                    </div>
-                  </TableCell>
-                </TableRow>
-              </TableBody>
-            </Table>
+            <DataTable
+              :columns="recentTestColumns"
+              :data="visibleTests"
+              :sorting="recentTestsSorting"
+              :on-row-click="onRecentTestClick"
+              empty-text="No recent tests"
+              @update:sorting="recentTestsSorting = $event"
+            >
+              <template #empty>
+                <div class="flex flex-col items-center gap-3">
+                  <Clock class="h-10 w-10 text-muted-foreground/30" />
+                  <div>
+                    <p class="text-sm text-muted-foreground">No recent tests</p>
+                    <p class="text-xs text-muted-foreground/70 mb-3">Your test results will appear here</p>
+                  </div>
+                  <router-link to="/tests/new">
+                    <Button variant="outline" size="sm">
+                      <FileText class="h-4 w-4 mr-2" />
+                      Create Test Plan
+                    </Button>
+                  </router-link>
+                </div>
+              </template>
+            </DataTable>
           </CardContent>
         </Card>
       </template>

@@ -49,7 +49,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import { useClipboard } from '@/composables/useClipboard'
+import { useClipboard } from '@vueuse/core'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -63,7 +63,7 @@ defineProps({
 const dialogOpen = ref(false)
 const selectedFlow = ref(null)
 const yamlContent = ref('')
-const { copied, copy } = useClipboard()
+const { copied, copy } = useClipboard({ copiedDuring: 2000 })
 
 function buildYaml(flow) {
   let yaml = ''

@@ -73,7 +73,13 @@ router.beforeEach((to, from, next) => {
 const { initTheme } = useTheme()
 initTheme()
 
+import { MotionPlugin } from '@vueuse/motion'
+import EchoEditor from 'echo-editor'
+import 'echo-editor/style.css'
+
 const app = createApp(App)
+app.use(MotionPlugin)
+app.use(EchoEditor)
 app.use(router)
 
 // Wait for router to resolve initial route before mounting,

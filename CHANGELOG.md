@@ -5,6 +5,28 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.0] - 2026-02-12
+
+### Added
+- **ShimmerButton component** (`ui/shimmer-button/`) — animated shimmer effect button from Inspira UI, used for primary CTAs in Dashboard onboarding and empty states.
+- **DataTable `#empty` slot** — rich empty states with icons and CTA buttons, replacing plain text fallback.
+- **DataTable `meta.class` support** — column definitions can now specify `meta: { class: 'hidden sm:table-cell' }` for responsive column hiding.
+- **Reports list view** — grid/list view toggle on the Reports page with preference persisted via `useStorage('reports-view')`. List view uses DataTable with sortable columns.
+- **AnalysisList auto-refresh** — analyses list now auto-polls every 5 seconds when any analysis has `running` status, using `useIntervalFn`.
+
+### Changed
+- **Dashboard recent tests** — replaced hand-rolled `<Table>` with `<DataTable>` component using TanStack column definitions, sortable headers, responsive column hiding, tooltip timestamps, and rich empty state with CTA.
+- **AnalysisList** — replaced hand-rolled `<div>` list with `<DataTable>` component with sortable columns (Game, Status, Framework, Flows, Created, Actions), responsive column hiding, and rich empty state.
+- **Dashboard.vue** — replaced manual `setInterval`/`clearInterval` with `useIntervalFn` from VueUse (auto-cleanup on unmount).
+- **Tests.vue** — replaced manual debounce (`setTimeout`/`clearTimeout` + watcher) with `refDebounced` from VueUse.
+- **Flows.vue** — switched from custom `useClipboard` to VueUse's `useClipboard`, added `refDebounced` for search filtering.
+- **Sidebar.vue** — sidebar collapsed state now persists across page loads via `useStorage('sidebar-collapsed')`.
+- **Analyze.vue** — analysis form preferences (agent mode, modules, viewport, profile) now persist across visits via `useStorage`. Reset ("Analyze Another") preserves user preferences instead of reverting to defaults.
+- **Clipboard composable** — all consumers (Analyze.vue, Flows.vue, TestFlowsTab.vue) switched from custom `useClipboard` to VueUse's `useClipboard({ copiedDuring: 2000 })`.
+
+### Removed
+- **Custom `useClipboard.js` composable** — deleted in favor of VueUse's built-in `useClipboard`.
+
 ## [0.24.1] - 2026-02-12
 
 ### Fixed
