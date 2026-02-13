@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.0] - 2026-02-13
+
+### Added
+- **Browser-based test execution** — run Maestro YAML test flows directly in headless Chrome using AI vision, bypassing the Maestro CLI entirely. Supports `openLink`, `tapOn` (text, point, ID), `inputText`, `scroll`, `extendedWaitUntil`, `assertVisible`, `assertNotVisible`, `takeScreenshot`, `back`, `repeat`, and more. Text-based commands use Claude vision to locate elements on screenshots.
+- **Run mode selector** — test plans now have a dropdown Run button with "Run with Maestro" (existing) and "Run in Browser" (new headless Chrome + AI) modes, available in both Tests and EditTestPlan views.
+- **Per-step screenshots in test runs** — browser mode broadcasts screenshots after each command via WebSocket (`test_step_screenshot`, `test_flow_started`, `test_command_progress`). TestRunDetail shows expandable flow results with inline step screenshots and a lightbox viewer.
+- **Multi-device analysis** — analyze games on multiple device viewports simultaneously. Toggle "Multi-Device" mode on the Analyze page to select Desktop, iOS, and Android with configurable device presets. Each device runs as a separate analysis via the new `POST /api/analyze/batch` endpoint.
+- **Batch analysis API** — `POST /api/analyze/batch` accepts a list of device configs and launches concurrent analyses (one per device), sharing the existing concurrency semaphore.
+
 ## [0.25.4] - 2026-02-13
 
 ### Fixed

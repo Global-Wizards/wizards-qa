@@ -138,12 +138,14 @@ export const testPlansApi = {
   create: (plan) => api.post('/test-plans', plan).then((r) => r.data),
   update: (id, data) => api.put(`/test-plans/${id}`, data).then((r) => r.data),
   delete: (id) => api.delete(`/test-plans/${id}`).then((r) => r.data),
-  run: (id) => api.post(`/test-plans/${id}/run`).then((r) => r.data),
+  run: (id, opts = {}) => api.post(`/test-plans/${id}/run`, opts).then((r) => r.data),
 }
 
 export const analyzeApi = {
   start: (gameUrl, projectId, agentMode = false, profileParams = {}, modules = {}) =>
     api.post('/analyze', { gameUrl, projectId: projectId || '', agentMode, modules, ...profileParams }).then((r) => r.data),
+  batchAnalyze: (request) =>
+    api.post('/analyze/batch', request).then((r) => r.data),
   sendHint: (analysisId, message) =>
     api.post(`/analyses/${analysisId}/message`, { message }).then((r) => r.data),
   continue: (analysisId) =>

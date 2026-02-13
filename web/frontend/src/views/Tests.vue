@@ -168,14 +168,29 @@
                         <Pencil class="h-3 w-3 mr-1" />
                         Edit
                       </Button>
-                      <Button
-                        size="sm"
-                        :disabled="plan.status === 'running'"
-                        @click.stop="runPlan(plan)"
-                      >
-                        <Play class="h-3 w-3 mr-1" />
-                        Run
-                      </Button>
+                      <DropdownMenu>
+                        <DropdownMenuTrigger as-child>
+                          <Button
+                            size="sm"
+                            :disabled="plan.status === 'running'"
+                            @click.stop
+                          >
+                            <Play class="h-3 w-3 mr-1" />
+                            Run
+                            <ChevronDown class="h-3 w-3 ml-1" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuItem @click.stop="runPlan(plan, 'maestro')">
+                            <Smartphone class="h-3.5 w-3.5 mr-2" />
+                            Run with Maestro
+                          </DropdownMenuItem>
+                          <DropdownMenuItem @click.stop="runPlan(plan, 'browser')">
+                            <Globe class="h-3.5 w-3.5 mr-2" />
+                            Run in Browser
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -205,7 +220,7 @@
 import { ref, computed, h, onMounted, onUnmounted } from 'vue'
 import { refDebounced } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertCircle, Plus, Play, Trash2, Eye, Loader2, Pencil } from 'lucide-vue-next'
+import { AlertCircle, Plus, Play, Trash2, Eye, Loader2, Pencil, ChevronDown, Smartphone, Globe } from 'lucide-vue-next'
 import { createColumnHelper } from '@tanstack/vue-table'
 import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
@@ -219,6 +234,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DataTable } from '@/components/ui/data-table'
 import { DataTableColumnHeader } from '@/components/ui/data-table'
+import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import StatusBadge from '@/components/StatusBadge.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 
@@ -358,10 +374,14 @@ async function deleteSelected() {
   }
 }
 
-async function runPlan(plan) {
+async function runPlan(plan, mode = 'maestro') {
   runError.value = null
   try {
-    const data = await testPlansApi.run(plan.id)
+    const opts = { mode }
+    if (mode === 'browser') {
+      opts.viewport = 'desktop-std'
+    }
+    const data = await testPlansApi.run(plan.id, opts)
     plan.status = 'running'
     plan.lastRunId = data.testId
     const base = projectId.value ? `/projects/${projectId.value}` : ''

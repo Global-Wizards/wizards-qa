@@ -68,18 +68,50 @@
             <Monitor class="h-4 w-4 text-muted-foreground shrink-0" />
             <div class="flex items-center gap-2 flex-1">
               <label class="text-sm font-medium whitespace-nowrap">Device</label>
-              <Select :model-value="selectedViewport" @update:model-value="selectedViewport = $event">
-                <SelectTrigger class="w-[220px]">
-                  <SelectValue placeholder="Select device" />
+              <template v-if="!multiDeviceMode">
+                <Select :model-value="selectedViewport" @update:model-value="selectedViewport = $event">
+                  <SelectTrigger class="w-[220px]">
+                    <SelectValue placeholder="Select device" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectGroup>
+                      <SelectLabel>Recommended</SelectLabel>
+                      <SelectItem v-for="p in getRecommendedViewports()" :key="p.name" :value="p.name">
+                        {{ p.label }}
+                      </SelectItem>
+                    </SelectGroup>
+                    <SelectGroup v-for="cat in getViewportCategories()" :key="cat.name">
+                      <SelectLabel>{{ cat.name }}</SelectLabel>
+                      <SelectItem v-for="p in cat.presets" :key="p.name" :value="p.name">
+                        {{ p.label }}
+                      </SelectItem>
+                    </SelectGroup>
+                  </SelectContent>
+                </Select>
+                <span v-if="activeViewport" class="text-xs text-muted-foreground">
+                  {{ activeViewport.width }}&times;{{ activeViewport.height }}
+                </span>
+              </template>
+            </div>
+            <label class="flex items-center gap-2 text-xs cursor-pointer select-none text-muted-foreground whitespace-nowrap">
+              <input type="checkbox" v-model="multiDeviceMode" class="rounded border-gray-300" />
+              Multi-Device
+            </label>
+          </div>
+
+          <!-- Multi-device category selectors -->
+          <div v-if="multiDeviceMode" class="ml-7 space-y-2">
+            <div v-for="(cfg, category) in multiDevices" :key="category" class="flex items-center gap-3">
+              <label class="flex items-center gap-2 text-sm cursor-pointer select-none w-24">
+                <input type="checkbox" v-model="cfg.enabled" class="rounded border-gray-300" />
+                <span class="capitalize">{{ category === 'ios' ? 'iOS' : category === 'android' ? 'Android' : 'Desktop' }}</span>
+              </label>
+              <Select v-if="cfg.enabled" :model-value="cfg.viewport" @update:model-value="cfg.viewport = $event">
+                <SelectTrigger class="w-[200px] h-8 text-xs">
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectGroup>
-                    <SelectLabel>Recommended</SelectLabel>
-                    <SelectItem v-for="p in getRecommendedViewports()" :key="p.name" :value="p.name">
-                      {{ p.label }}
-                    </SelectItem>
-                  </SelectGroup>
-                  <SelectGroup v-for="cat in getViewportCategories()" :key="cat.name">
+                  <SelectGroup v-for="cat in viewportCategoriesForDevice(category)" :key="cat.name">
                     <SelectLabel>{{ cat.name }}</SelectLabel>
                     <SelectItem v-for="p in cat.presets" :key="p.name" :value="p.name">
                       {{ p.label }}
@@ -87,8 +119,8 @@
                   </SelectGroup>
                 </SelectContent>
               </Select>
-              <span v-if="activeViewport" class="text-xs text-muted-foreground">
-                {{ activeViewport.width }}&times;{{ activeViewport.height }}
+              <span v-if="cfg.enabled" class="text-[10px] text-muted-foreground">
+                {{ getViewportByName(cfg.viewport)?.width }}&times;{{ getViewportByName(cfg.viewport)?.height }}
               </span>
             </div>
           </div>
@@ -253,6 +285,33 @@
         />
       </template>
     </AnalysisProgressPanel>
+
+    <!-- Multi-device batch status cards -->
+    <div v-if="batchAnalysisIds.length > 1 && (status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'complete')" class="mt-4">
+      <Card>
+        <CardHeader class="pb-3">
+          <CardTitle class="text-sm">Multi-Device Analyses</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div class="grid gap-2 sm:grid-cols-3">
+            <div
+              v-for="entry in batchAnalysisIds"
+              :key="entry.analysisId"
+              class="rounded-md border p-3 text-center"
+            >
+              <p class="text-xs font-medium capitalize">{{ entry.device }}</p>
+              <p class="text-[10px] text-muted-foreground">{{ entry.viewport }}</p>
+              <router-link
+                :to="'/analyses/' + entry.analysisId"
+                class="text-[10px] text-primary hover:underline mt-1 block"
+              >
+                View Details
+              </router-link>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    </div>
 
     <!-- State 3: Results -->
     <div v-else-if="status === 'complete'" class="space-y-4">
@@ -595,7 +654,7 @@ import { useAnalysis } from '@/composables/useAnalysis'
 import { truncateUrl, isValidUrl, severityVariant } from '@/lib/utils'
 import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
 import { DEFAULT_VIEWPORT, getViewportByName, getViewportCategories, getRecommendedViewports } from '@/lib/viewports'
-import { testsApi, analysesApi, projectsApi } from '@/lib/api'
+import { testsApi, analysesApi, analyzeApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@vueuse/core'
 import { useProject } from '@/composables/useProject'
@@ -636,6 +695,16 @@ const moduleWording = useStorage('analyze-module-wording', true)
 const moduleGameDesign = useStorage('analyze-module-game-design', true)
 const moduleTestFlows = useStorage('analyze-module-test-flows', true)
 const selectedViewport = useStorage('analyze-viewport', DEFAULT_VIEWPORT)
+
+// Multi-device mode state
+const multiDeviceMode = useStorage('analyze-multi-device', false)
+const multiDevices = useStorage('analyze-multi-devices', {
+  desktop: { enabled: true, viewport: 'desktop-std' },
+  ios: { enabled: true, viewport: 'iphone-16' },
+  android: { enabled: true, viewport: 'pixel-9' },
+})
+const batchAnalysisIds = ref([]) // { analysisId, device, viewport }
+
 const recentAnalyses = ref([])
 const currentAnalysisId = ref(null)
 
@@ -692,6 +761,21 @@ const {
 
 
 const activeViewport = computed(() => getViewportByName(selectedViewport.value))
+
+// Filter viewport categories for multi-device mode based on device type
+function viewportCategoriesForDevice(deviceCategory) {
+  const allCats = getViewportCategories()
+  switch (deviceCategory) {
+    case 'desktop':
+      return allCats.filter(c => c.name === 'Desktop')
+    case 'ios':
+      return allCats.filter(c => c.name === 'iPhone' || c.name === 'iPad')
+    case 'android':
+      return allCats.filter(c => c.name === 'Android' || c.name === 'Android Tablet')
+    default:
+      return allCats
+  }
+}
 
 const activeProfile = computed(() => {
   if (selectedProfile.value === 'custom') return null
@@ -1138,6 +1222,42 @@ async function handleAnalyze() {
     testFlows: moduleTestFlows.value,
   }
   const params = { ...profileParams.value }
+
+  // Multi-device mode: launch batch analysis
+  if (multiDeviceMode.value) {
+    const devices = []
+    for (const [category, cfg] of Object.entries(multiDevices.value)) {
+      if (cfg.enabled) {
+        devices.push({ category, viewport: cfg.viewport })
+      }
+    }
+    if (devices.length === 0) {
+      analyzing.value = false
+      return
+    }
+    try {
+      const batchReq = {
+        gameUrl: gameUrl.value,
+        projectId: projectId.value || '',
+        agentMode: useAgentMode.value,
+        modules,
+        devices,
+        ...params,
+      }
+      const result = await analyzeApi.batchAnalyze(batchReq)
+      batchAnalysisIds.value = result.analyses || []
+      // Start tracking the first analysis in the main panel
+      if (result.analyses?.length > 0) {
+        const first = result.analyses[0]
+        await start(gameUrl.value, projectId.value, useAgentMode.value, { ...params, viewport: first.viewport }, modules)
+      }
+    } catch {
+      analyzing.value = false
+    }
+    return
+  }
+
+  // Single device mode
   if (selectedViewport.value && selectedViewport.value !== DEFAULT_VIEWPORT) {
     params.viewport = selectedViewport.value
   }

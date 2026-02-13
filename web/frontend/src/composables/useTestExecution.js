@@ -3,6 +3,7 @@ import { getWebSocket } from '@/lib/websocket'
 import { testsApi } from '@/lib/api'
 
 const MAX_LOGS = 500
+const MAX_STEP_SCREENSHOTS = 100
 
 export function useTestExecution() {
   const status = ref('idle') // idle, starting, running, completed, failed
@@ -16,6 +17,11 @@ export function useTestExecution() {
   const testId = ref('')
   const elapsedSeconds = ref(0)
   const startedAt = ref(null)
+
+  // Browser mode: per-step screenshots and command progress
+  const stepScreenshots = ref([]) // { flowName, stepIndex, command, screenshotB64, result, status }
+  const commandProgress = ref([]) // { flowName, stepIndex, command, status }
+  const activeFlow = ref(null) // { flowName, commandCount }
 
   let cleanups = []
   let timerInterval = null
@@ -196,7 +202,55 @@ export function useTestExecution() {
       }
     })
 
-    cleanups = [offStarted, offProgress, offCompleted, offFailed]
+    // Browser mode: flow started
+    const offFlowStarted = ws.on('test_flow_started', (data) => {
+      if (data.testId === tid) {
+        activeFlow.value = { flowName: data.flowName, commandCount: data.commandCount }
+        // Auto-switch to executing phase
+        if (phase.value === 'starting' || phase.value === 'preparing') {
+          phase.value = 'executing'
+        }
+      }
+    })
+
+    // Browser mode: per-command progress
+    const offCommandProgress = ws.on('test_command_progress', (data) => {
+      if (data.testId === tid) {
+        const existing = commandProgress.value.find(
+          (c) => c.flowName === data.flowName && c.stepIndex === data.stepIndex
+        )
+        if (existing) {
+          existing.status = data.status
+        } else {
+          commandProgress.value = [
+            ...commandProgress.value,
+            { flowName: data.flowName, stepIndex: data.stepIndex, command: data.command, status: data.status },
+          ]
+        }
+      }
+    })
+
+    // Browser mode: step screenshots
+    const offStepScreenshot = ws.on('test_step_screenshot', (data) => {
+      if (data.testId === tid) {
+        if (stepScreenshots.value.length >= MAX_STEP_SCREENSHOTS) {
+          stepScreenshots.value = stepScreenshots.value.slice(-MAX_STEP_SCREENSHOTS + 1)
+        }
+        stepScreenshots.value = [
+          ...stepScreenshots.value,
+          {
+            flowName: data.flowName,
+            stepIndex: data.stepIndex,
+            command: data.command,
+            screenshotB64: data.screenshotB64,
+            result: data.result,
+            status: data.status,
+          },
+        ]
+      }
+    })
+
+    cleanups = [offStarted, offProgress, offCompleted, offFailed, offFlowStarted, offCommandProgress, offStepScreenshot]
   }
 
   function startExecution(tid, pId, pName) {
@@ -209,6 +263,9 @@ export function useTestExecution() {
     progress.value = []
     result.value = null
     totalFlows.value = 0
+    stepScreenshots.value = []
+    commandProgress.value = []
+    activeFlow.value = null
 
     startTimer()
     setupListeners(tid)
@@ -324,5 +381,8 @@ export function useTestExecution() {
     startExecution,
     reconnect,
     stopListening,
+    stepScreenshots,
+    commandProgress,
+    activeFlow,
   }
 }

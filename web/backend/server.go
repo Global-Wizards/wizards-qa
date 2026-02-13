@@ -188,6 +188,7 @@ func (s *Server) setupRoutes() {
 		r.Post("/api/test-plans/{id}/run", s.handleRunTestPlan)
 		r.Delete("/api/test-plans/{id}", s.handleDeleteTestPlan)
 		r.Post("/api/analyze", s.handleAnalyzeGame)
+		r.Post("/api/analyze/batch", s.handleBatchAnalyze)
 		r.Get("/api/analyses", s.handleListAnalyses)
 		r.Get("/api/analyses/{id}", s.handleGetAnalysis)
 		r.Get("/api/analyses/{id}/status", s.handleGetAnalysisStatus)
@@ -679,6 +680,14 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Parse optional run mode and viewport from request body
+	var req struct {
+		Mode     string `json:"mode"`     // "maestro" (default) or "browser"
+		Viewport string `json:"viewport"` // viewport preset name for browser mode
+	}
+	// Body is optional — ignore decode errors for backward compat (e.g. empty body)
+	json.NewDecoder(r.Body).Decode(&req)
+
 	flowDir, err := s.prepareFlowDir(plan)
 	if err != nil {
 		respondError(w, http.StatusInternalServerError, "Failed to prepare flows: "+err.Error())
@@ -690,12 +699,24 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 	if claims := auth.UserFromContext(r.Context()); claims != nil {
 		createdByPlan = claims.UserID
 	}
-	s.launchTestRun(plan.ID, testID, flowDir, plan.Name, true, createdByPlan)
+
+	mode := "maestro"
+	if req.Mode == "browser" {
+		mode = "browser"
+		viewport := req.Viewport
+		if viewport == "" {
+			viewport = "desktop-std"
+		}
+		s.launchBrowserTestRun(plan.ID, testID, flowDir, plan.Name, viewport, true, createdByPlan)
+	} else {
+		s.launchTestRun(plan.ID, testID, flowDir, plan.Name, true, createdByPlan)
+	}
 
 	respondJSON(w, http.StatusAccepted, map[string]interface{}{
 		"testId":  testID,
 		"planId":  plan.ID,
 		"status":  store.StatusRunning,
+		"mode":    mode,
 		"message": "Test execution started",
 	})
 }

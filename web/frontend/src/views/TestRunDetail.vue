@@ -130,6 +130,17 @@
         </div>
       </div>
 
+      <!-- Active flow command progress (browser mode) -->
+      <div v-if="activeFlow && status === 'running'" class="border-t px-5 py-3 bg-muted/30">
+        <div class="flex items-center gap-2 mb-2">
+          <Loader2 class="h-3.5 w-3.5 animate-spin text-primary" />
+          <span class="text-sm font-medium">{{ activeFlow.flowName }}</span>
+          <span class="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">
+            {{ commandProgress.filter(c => c.flowName === activeFlow.flowName && c.status !== 'running').length }}/{{ activeFlow.commandCount }} commands
+          </span>
+        </div>
+      </div>
+
       <!-- C. Flow Results -->
       <div v-if="progress.length || pendingFlowSlots.length" class="border-t px-5 py-4">
         <h4 class="text-sm font-medium mb-3">Flow Results</h4>
@@ -138,32 +149,84 @@
           <div
             v-for="(flow, i) in progress"
             :key="flow.flowName"
-            class="flex items-center justify-between rounded-md border p-3 step-entry"
+            class="rounded-md border step-entry overflow-hidden"
             :style="{ animationDelay: `${i * 60}ms` }"
           >
-            <div class="flex items-center gap-2.5 min-w-0">
-              <div
-                :class="[
-                  'w-2.5 h-2.5 rounded-full shrink-0',
-                  flow.status === 'passed' ? 'bg-emerald-500' : 'bg-destructive',
-                ]"
-              />
-              <span class="text-sm font-medium truncate">{{ flow.flowName }}</span>
+            <div
+              class="flex items-center justify-between p-3"
+              :class="screenshotsForFlow(flow.flowName).length ? 'cursor-pointer hover:bg-muted/50' : ''"
+              @click="screenshotsForFlow(flow.flowName).length && (expandedFlows[flow.flowName] = !expandedFlows[flow.flowName])"
+            >
+              <div class="flex items-center gap-2.5 min-w-0">
+                <div
+                  :class="[
+                    'w-2.5 h-2.5 rounded-full shrink-0',
+                    flow.status === 'passed' ? 'bg-emerald-500' : 'bg-destructive',
+                  ]"
+                />
+                <span class="text-sm font-medium truncate">{{ flow.flowName }}</span>
+                <span
+                  v-if="screenshotsForFlow(flow.flowName).length"
+                  class="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded"
+                >
+                  {{ screenshotsForFlow(flow.flowName).length }} steps
+                </span>
+              </div>
+              <div class="flex items-center gap-2 shrink-0">
+                <span v-if="flow.duration" class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
+                  {{ flow.duration }}
+                </span>
+                <span
+                  :class="[
+                    'text-[11px] font-medium px-2 py-0.5 rounded-full',
+                    flow.status === 'passed'
+                      ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
+                      : 'bg-destructive/10 text-destructive',
+                  ]"
+                >
+                  {{ flow.status }}
+                </span>
+                <ChevronDown
+                  v-if="screenshotsForFlow(flow.flowName).length"
+                  :class="['h-4 w-4 text-muted-foreground transition-transform', expandedFlows[flow.flowName] ? 'rotate-180' : '']"
+                />
+              </div>
             </div>
-            <div class="flex items-center gap-2 shrink-0">
-              <span v-if="flow.duration" class="text-[11px] font-mono px-1.5 py-0.5 rounded bg-muted text-muted-foreground">
-                {{ flow.duration }}
-              </span>
-              <span
-                :class="[
-                  'text-[11px] font-medium px-2 py-0.5 rounded-full',
-                  flow.status === 'passed'
-                    ? 'bg-emerald-500/10 text-emerald-600 dark:text-emerald-400'
-                    : 'bg-destructive/10 text-destructive',
-                ]"
+
+            <!-- Step screenshots (expandable) -->
+            <div
+              v-if="expandedFlows[flow.flowName] && screenshotsForFlow(flow.flowName).length"
+              class="border-t px-3 pb-3 pt-2 space-y-2 bg-muted/30"
+            >
+              <div
+                v-for="step in screenshotsForFlow(flow.flowName)"
+                :key="`${step.flowName}-${step.stepIndex}`"
+                class="flex gap-3 items-start"
               >
-                {{ flow.status }}
-              </span>
+                <div v-if="step.screenshotB64" class="shrink-0">
+                  <img
+                    :src="'data:image/webp;base64,' + step.screenshotB64"
+                    class="w-32 h-auto rounded border cursor-pointer hover:opacity-80 transition-opacity"
+                    :alt="`Step ${step.stepIndex + 1}`"
+                    @click="openScreenshot(step)"
+                  />
+                </div>
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-center gap-2 mb-0.5">
+                    <span class="text-[10px] font-mono text-muted-foreground bg-muted px-1 rounded">
+                      #{{ step.stepIndex + 1 }}
+                    </span>
+                    <span
+                      :class="[
+                        'w-1.5 h-1.5 rounded-full shrink-0',
+                        step.status === 'passed' ? 'bg-emerald-500' : 'bg-destructive',
+                      ]"
+                    />
+                  </div>
+                  <p class="text-xs font-mono text-muted-foreground truncate">{{ step.command }}</p>
+                  <p v-if="step.result" class="text-[11px] text-muted-foreground/70 truncate mt-0.5">{{ step.result }}</p>
+                </div>
+              </div>
             </div>
           </div>
 
@@ -285,6 +348,32 @@
         </div>
       </div>
     </div>
+
+    <!-- Screenshot Lightbox -->
+    <Teleport to="body">
+      <div
+        v-if="lightboxScreenshot"
+        class="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4"
+        @click.self="lightboxScreenshot = null"
+      >
+        <div class="relative max-w-4xl w-full">
+          <button
+            class="absolute -top-10 right-0 text-white/80 hover:text-white"
+            @click="lightboxScreenshot = null"
+          >
+            <X class="h-6 w-6" />
+          </button>
+          <img
+            :src="'data:image/webp;base64,' + lightboxScreenshot.screenshotB64"
+            class="w-full h-auto rounded-lg"
+            :alt="`Step ${lightboxScreenshot.stepIndex + 1}`"
+          />
+          <div class="mt-2 text-sm text-white/80 text-center">
+            <span class="font-mono">{{ lightboxScreenshot.command }}</span>
+          </div>
+        </div>
+      </div>
+    </Teleport>
   </div>
 </template>
 
@@ -294,7 +383,7 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   Loader2, CheckCircle2, XCircle, Terminal, Copy, ChevronDown,
   ArrowDown, ArrowLeft, RefreshCw,
-  ListTree, ClipboardCheck,
+  ListTree, ClipboardCheck, X,
 } from 'lucide-vue-next'
 import { PlayCircle as PlayCircleIcon } from 'lucide-vue-next'
 import { testPlansApi } from '@/lib/api'
@@ -318,7 +407,22 @@ const {
   formatElapsed,
   startExecution,
   reconnect,
+  stepScreenshots,
+  commandProgress,
+  activeFlow,
 } = useTestExecution()
+
+// Step screenshots grouped by flow for expandable display
+const expandedFlows = ref({})
+function screenshotsForFlow(flowName) {
+  return stepScreenshots.value.filter((s) => s.flowName === flowName)
+}
+
+// Screenshot lightbox
+const lightboxScreenshot = ref(null)
+function openScreenshot(step) {
+  lightboxScreenshot.value = step
+}
 
 // Phase maps (matching AnalysisProgressPanel)
 const phaseIconMap = { ListTree, PlayCircle: PlayCircleIcon, ClipboardCheck }

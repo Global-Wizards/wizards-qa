@@ -127,6 +127,118 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// BatchDeviceConfig specifies a device for batch analysis.
+type BatchDeviceConfig struct {
+	Category string `json:"category"` // "desktop", "ios", "android"
+	Viewport string `json:"viewport"` // viewport preset name
+}
+
+// BatchAnalysisRequest runs analyses for multiple device viewports simultaneously.
+type BatchAnalysisRequest struct {
+	GameURL         string            `json:"gameUrl"`
+	ProjectID       string            `json:"projectId,omitempty"`
+	AgentMode       bool              `json:"agentMode"`
+	Modules         AnalysisModules   `json:"modules"`
+	Devices         []BatchDeviceConfig `json:"devices"`
+	Model           string            `json:"model,omitempty"`
+	MaxTokens       int               `json:"maxTokens,omitempty"`
+	AgentSteps      int               `json:"agentSteps,omitempty"`
+	Temperature     *float64          `json:"temperature,omitempty"`
+	Adaptive        bool              `json:"adaptive,omitempty"`
+	MaxTotalSteps   int               `json:"maxTotalSteps,omitempty"`
+	AdaptiveTimeout bool              `json:"adaptiveTimeout,omitempty"`
+	MaxTotalTimeout int               `json:"maxTotalTimeout,omitempty"`
+}
+
+func (s *Server) handleBatchAnalyze(w http.ResponseWriter, r *http.Request) {
+	var req BatchAnalysisRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid request body")
+		return
+	}
+
+	if req.GameURL == "" {
+		respondError(w, http.StatusBadRequest, "gameUrl is required")
+		return
+	}
+
+	parsed, err := url.ParseRequestURI(req.GameURL)
+	if err != nil || (parsed.Scheme != "http" && parsed.Scheme != "https") {
+		respondError(w, http.StatusBadRequest, "Invalid URL: must start with http:// or https://")
+		return
+	}
+
+	if len(req.Devices) == 0 {
+		respondError(w, http.StatusBadRequest, "At least one device is required")
+		return
+	}
+	if len(req.Devices) > 5 {
+		respondError(w, http.StatusBadRequest, "Maximum 5 devices per batch")
+		return
+	}
+
+	var createdBy string
+	if claims := auth.UserFromContext(r.Context()); claims != nil {
+		createdBy = claims.UserID
+	}
+
+	type analysisEntry struct {
+		AnalysisID string `json:"analysisId"`
+		Device     string `json:"device"`
+		Viewport   string `json:"viewport"`
+	}
+	var analyses []analysisEntry
+
+	for _, device := range req.Devices {
+		analysisID := newID("analysis")
+
+		// Create a per-device AnalysisRequest with the device viewport
+		perDevice := AnalysisRequest{
+			GameURL:         req.GameURL,
+			ProjectID:       req.ProjectID,
+			AgentMode:       req.AgentMode,
+			Modules:         req.Modules,
+			Model:           req.Model,
+			MaxTokens:       req.MaxTokens,
+			AgentSteps:      req.AgentSteps,
+			Temperature:     req.Temperature,
+			Adaptive:        req.Adaptive,
+			MaxTotalSteps:   req.MaxTotalSteps,
+			AdaptiveTimeout: req.AdaptiveTimeout,
+			MaxTotalTimeout: req.MaxTotalTimeout,
+			Viewport:        device.Viewport,
+		}
+
+		go func(id, cb string, dr AnalysisRequest) {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Panic in batch analysis %s: %v", id, r)
+					s.wsHub.Broadcast(ws.Message{
+						Type: "analysis_failed",
+						Data: map[string]string{
+							"analysisId": id,
+							"error":      fmt.Sprintf("panic: %v", r),
+						},
+					})
+				}
+			}()
+			s.executeAnalysis(id, cb, dr)
+		}(analysisID, createdBy, perDevice)
+
+		analyses = append(analyses, analysisEntry{
+			AnalysisID: analysisID,
+			Device:     device.Category,
+			Viewport:   device.Viewport,
+		})
+	}
+
+	respondJSON(w, http.StatusAccepted, map[string]interface{}{
+		"analyses": analyses,
+		"status":   "started",
+		"message":  fmt.Sprintf("Batch analysis started for %d devices", len(req.Devices)),
+	})
+}
+
 func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisRequest) {
 	gameURL := req.GameURL
 	agentMode := req.AgentMode
