@@ -78,11 +78,11 @@
 <script setup>
 import { ref, computed, reactive, onMounted, h } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { useIntervalFn } from '@vueuse/core'
+import { useIntervalFn, useClipboard } from '@vueuse/core'
 import { createColumnHelper } from '@tanstack/vue-table'
 import { analysesApi, projectsApi } from '@/lib/api'
 import { timeAgo, fullTimestamp } from '@/lib/dateUtils'
-import { Plus, RefreshCw, Trash2, Loader2, Sparkles, Eye, Type, Gamepad2, PlayCircle } from 'lucide-vue-next'
+import { Plus, RefreshCw, Trash2, Loader2, Sparkles, Eye, Type, Gamepad2, PlayCircle, Copy, Check } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -149,6 +149,9 @@ const filteredAnalyses = computed(() => {
   return list
 })
 
+// Clipboard
+const { copy, copied } = useClipboard({ copiedDuring: 2000 })
+
 // DataTable columns
 const analysisSorting = ref([])
 const columnHelper = createColumnHelper()
@@ -160,9 +163,30 @@ const analysisColumns = [
       const item = info.row.original
       return h('div', { class: 'min-w-0' }, [
         h('p', { class: 'text-sm font-medium truncate' }, item.gameName || 'Untitled'),
-        h('p', { class: 'text-xs text-muted-foreground truncate', title: item.gameUrl }, item.gameUrl),
+        item.gameUrl
+          ? h(Tooltip, null, {
+              default: () => h(TooltipTrigger, { asChild: true }, () =>
+                h('p', { class: 'text-xs text-muted-foreground truncate cursor-default' }, item.gameUrl)
+              ),
+              content: () => h(TooltipContent, { class: 'max-w-[400px]', side: 'bottom', onClick: (e) => e.stopPropagation() }, () =>
+                h('div', { class: 'flex flex-col gap-1' }, [
+                  h('p', { class: 'text-xs break-all select-all' }, item.gameUrl),
+                  h(Button, {
+                    variant: 'ghost',
+                    size: 'sm',
+                    class: 'h-6 text-xs w-full justify-start',
+                    onClick: (e) => { e.stopPropagation(); copy(item.gameUrl) },
+                  }, () => [
+                    h(copied.value ? Check : Copy, { class: 'h-3 w-3 mr-1' }),
+                    copied.value ? 'Copied!' : 'Copy URL',
+                  ]),
+                ])
+              ),
+            })
+          : null,
       ])
     },
+    meta: { class: 'max-w-[250px]' },
   }),
   columnHelper.accessor('status', {
     header: 'Status',

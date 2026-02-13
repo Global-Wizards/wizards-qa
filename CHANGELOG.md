@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.1] - 2026-02-12
+
+### Fixed
+- **AnalysisList URL overflow** — game URLs in the analyses table are now truncated with a max column width, with a tooltip showing the full URL and a copy button on hover.
+
 ## [0.25.0] - 2026-02-12
 
 ### Added
