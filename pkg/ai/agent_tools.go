@@ -192,6 +192,35 @@ func AgentTools(cfg AgentConfig) []ToolDefinition {
 	return tools
 }
 
+// Screenshot timeout limits — prevents slow WebGL games (SwiftShader) from
+// consuming the entire analysis timeout budget on screenshots.
+const (
+	screenshotTimeout     = 10 * time.Second // auto-screenshots after click/type/scroll/navigate
+	screenshotToolTimeout = 15 * time.Second // explicit screenshot tool
+)
+
+type ssResult struct {
+	b64 string
+	err error
+}
+
+// captureScreenshotWithTimeout wraps CaptureScreenshot with a timeout.
+// Returns empty string (no error) if the timeout fires — the caller
+// can continue without the image.
+func captureScreenshotWithTimeout(page BrowserPage, timeout time.Duration) (string, error) {
+	ch := make(chan ssResult, 1)
+	go func() {
+		b64, err := page.CaptureScreenshot()
+		ch <- ssResult{b64, err}
+	}()
+	select {
+	case res := <-ch:
+		return res.b64, res.err
+	case <-time.After(timeout):
+		return "", nil // skip screenshot, don't error
+	}
+}
+
 // BrowserToolExecutor executes browser tool calls against a BrowserPage.
 type BrowserToolExecutor struct {
 	Page BrowserPage
@@ -201,9 +230,12 @@ type BrowserToolExecutor struct {
 func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage) (textResult string, screenshotB64 string, err error) {
 	switch toolName {
 	case "screenshot":
-		b64, ssErr := e.Page.CaptureScreenshot()
+		b64, ssErr := captureScreenshotWithTimeout(e.Page, screenshotToolTimeout)
 		if ssErr != nil {
 			return "", "", fmt.Errorf("screenshot: %w", ssErr)
+		}
+		if b64 == "" {
+			return "Screenshot timed out — page may have complex rendering. Try again or continue without it.", "", nil
 		}
 		return "Screenshot captured successfully.", b64, nil
 
@@ -220,11 +252,8 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 		}
 		// Brief pause for the page to react
 		time.Sleep(250 * time.Millisecond)
-		// Auto-capture screenshot after click
-		b64, ssErr := e.Page.CaptureScreenshot()
-		if ssErr != nil {
-			return fmt.Sprintf("Clicked at (%d, %d). (screenshot failed)", params.X, params.Y), "", nil
-		}
+		// Auto-capture screenshot after click (with timeout to prevent slow WebGL from blocking)
+		b64, _ := captureScreenshotWithTimeout(e.Page, screenshotTimeout)
 		return fmt.Sprintf("Clicked at (%d, %d).", params.X, params.Y), b64, nil
 
 	case "type_text":
@@ -246,11 +275,8 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 		if err := e.Page.TypeText(params.Text); err != nil {
 			return "", "", fmt.Errorf("type_text: %w", err)
 		}
-		// Auto-capture screenshot after typing
-		b64, ssErr := e.Page.CaptureScreenshot()
-		if ssErr != nil {
-			return fmt.Sprintf("Typed %q. (screenshot failed)", params.Text), "", nil
-		}
+		// Auto-capture screenshot after typing (with timeout to prevent slow WebGL from blocking)
+		b64, _ := captureScreenshotWithTimeout(e.Page, screenshotTimeout)
 		return fmt.Sprintf("Typed %q.", params.Text), b64, nil
 
 	case "scroll":
@@ -282,11 +308,8 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 			return "", "", fmt.Errorf("scroll: %w", err)
 		}
 		time.Sleep(150 * time.Millisecond)
-		// Auto-capture screenshot after scroll
-		b64, ssErr := e.Page.CaptureScreenshot()
-		if ssErr != nil {
-			return fmt.Sprintf("Scrolled %s by %.0f pixels. (screenshot failed)", params.Direction, amount), "", nil
-		}
+		// Auto-capture screenshot after scroll (with timeout to prevent slow WebGL from blocking)
+		b64, _ := captureScreenshotWithTimeout(e.Page, screenshotTimeout)
 		return fmt.Sprintf("Scrolled %s by %.0f pixels.", params.Direction, amount), b64, nil
 
 	case "evaluate_js":
@@ -370,11 +393,8 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 		if err := e.Page.Navigate(params.URL); err != nil {
 			return "", "", fmt.Errorf("navigate: %w", err)
 		}
-		// Take a screenshot after navigation to show the result
-		b64, ssErr := e.Page.CaptureScreenshot()
-		if ssErr != nil {
-			return fmt.Sprintf("Navigated to %s (screenshot failed).", params.URL), "", nil
-		}
+		// Take a screenshot after navigation (with timeout to prevent slow WebGL from blocking)
+		b64, _ := captureScreenshotWithTimeout(e.Page, screenshotTimeout)
 		return fmt.Sprintf("Navigated to %s.", params.URL), b64, nil
 
 	default:

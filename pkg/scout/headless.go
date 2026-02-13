@@ -40,12 +40,31 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-// Click clicks at the given pixel coordinates.
+// Click clicks at the given pixel coordinates using JavaScript event dispatch.
+// This dispatches pointer + mouse events directly on the element at (x, y),
+// which is more compatible with canvas-based games (Phaser, PixiJS, etc.)
+// than CDP Input.dispatchMouseEvent, since canvas frameworks listen for
+// DOM-level pointer/mouse events on the canvas element.
 func (r *RodBrowserPage) Click(x, y int) error {
-	if err := r.page.Mouse.MoveTo(proto.NewPoint(float64(x), float64(y))); err != nil {
-		return fmt.Errorf("move to (%d,%d): %w", x, y, err)
+	result, err := r.page.Eval(`(x, y) => {
+		const el = document.elementFromPoint(x, y);
+		if (!el) return 'no_element';
+		const shared = { clientX: x, clientY: y, bubbles: true, cancelable: true, view: window };
+		const ptrOpts = { ...shared, pointerId: 1, pointerType: 'mouse', isPrimary: true };
+		el.dispatchEvent(new PointerEvent('pointerdown', { ...ptrOpts, button: 0, buttons: 1 }));
+		el.dispatchEvent(new MouseEvent('mousedown', { ...shared, button: 0, buttons: 1 }));
+		el.dispatchEvent(new PointerEvent('pointerup', { ...ptrOpts, button: 0, buttons: 0 }));
+		el.dispatchEvent(new MouseEvent('mouseup', { ...shared, button: 0, buttons: 0 }));
+		el.dispatchEvent(new MouseEvent('click', { ...shared, button: 0 }));
+		return 'ok';
+	}`, x, y)
+	if err != nil {
+		return fmt.Errorf("click at (%d,%d): %w", x, y, err)
 	}
-	return r.page.Mouse.Click(proto.InputMouseButtonLeft, 1)
+	if result.Value.Str() == "no_element" {
+		return fmt.Errorf("click at (%d,%d): no element at coordinates", x, y)
+	}
+	return nil
 }
 
 // TypeText types the given text by inserting it into the page.

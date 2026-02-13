@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.3] - 2026-02-13
+
+### Fixed
+- **Agent clicks don't work on canvas games (Phaser, PixiJS)** — CDP `Input.dispatchMouseEvent` via go-rod's `Mouse.Click()` doesn't reliably reach canvas framework event listeners. Replaced with JavaScript `dispatchEvent` that dispatches `pointerdown` + `mousedown` + `pointerup` + `mouseup` + `click` directly on `document.elementFromPoint(x, y)`, matching how Phaser/PixiJS receive input.
+- **Slow WebGL screenshots consume entire analysis timeout** — complex WebGL games rendered via SwiftShader (CPU) cause `CaptureScreenshot` to take 55-85 seconds per call. Auto-screenshots (after click/type/scroll/navigate) now have a 10-second timeout; the explicit screenshot tool has a 15-second timeout. If a screenshot times out, the agent continues without the image instead of blocking.
+
 ## [0.34.2] - 2026-02-13
 
 ### Fixed
