@@ -2,7 +2,7 @@
 import { SelectLabel } from 'reka-ui'
 import { cn } from '@/lib/utils'
 
-defineProps({
+const props = defineProps({
   class: { type: String, default: '' },
 })
 </script>
