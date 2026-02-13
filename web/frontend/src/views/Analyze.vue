@@ -153,6 +153,13 @@
               <PlayCircle class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Test Flows</span>
             </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none"
+                   title="Automatically run generated test flows in headless browser after analysis"
+                   :class="{ 'opacity-50': !moduleTestFlows }">
+              <input type="checkbox" v-model="moduleRunTests" :disabled="!moduleTestFlows" class="rounded border-gray-300" />
+              <FlaskConical class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Run Tests</span>
+            </label>
           </div>
         </div>
 
@@ -259,7 +266,7 @@
 
     <!-- State 2: Progress -->
     <AnalysisProgressPanel
-      v-else-if="status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan'"
+      v-else-if="status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'testing'"
       mode="progress"
       :game-url="gameUrl"
       :elapsed-seconds="elapsedSeconds"
@@ -267,6 +274,7 @@
       :agent-mode="agentMode"
       :phases="progressPhases"
       :show-agent-panel="agentMode && (agentExplorationStatus === 'active' || liveAgentSteps.length > 0)"
+      :show-testing-panel="testStepScreenshots.length > 0 || testFlowProgress.length > 0"
       :logs="logs"
       @cancel="handleReset"
       @copy-log="copyDebugLog"
@@ -284,10 +292,17 @@
           @expand-screenshot="expandStepScreenshot"
         />
       </template>
+      <template #test-execution>
+        <TestStepNavigator
+          v-if="testStepScreenshots.length"
+          :steps="testStepScreenshots"
+          :live="status === 'testing'"
+        />
+      </template>
     </AnalysisProgressPanel>
 
     <!-- Multi-device batch status cards -->
-    <div v-if="batchAnalysisIds.length > 1 && (status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'complete')" class="mt-4">
+    <div v-if="batchAnalysisIds.length > 1 && (status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'testing' || status === 'complete')" class="mt-4">
       <Card>
         <CardHeader class="pb-3">
           <CardTitle class="text-sm">Multi-Device Analyses</CardTitle>
@@ -658,7 +673,7 @@ import { testsApi, analysesApi, analyzeApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@vueuse/core'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor, FlaskConical } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -671,6 +686,7 @@ import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectGr
 import AnalysisProgressPanel from '@/components/AnalysisProgressPanel.vue'
 import AgentStepNavigator from '@/components/AgentStepNavigator.vue'
 import AgentExplorationPanel from '@/components/AgentExplorationPanel.vue'
+import TestStepNavigator from '@/components/TestStepNavigator.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -694,6 +710,8 @@ const moduleUiux = useStorage('analyze-module-uiux', true)
 const moduleWording = useStorage('analyze-module-wording', true)
 const moduleGameDesign = useStorage('analyze-module-game-design', true)
 const moduleTestFlows = useStorage('analyze-module-test-flows', true)
+const moduleRunTests = useStorage('analyze-module-run-tests', false)
+watch(moduleTestFlows, (val) => { if (!val) moduleRunTests.value = false })
 const selectedViewport = useStorage('analyze-viewport', DEFAULT_VIEWPORT)
 
 // Multi-device mode state
@@ -757,6 +775,10 @@ const {
   latestStepMessage,
   // Auto-created test plan
   autoTestPlanId,
+  // Inline browser test execution
+  testRunId,
+  testStepScreenshots,
+  testFlowProgress,
 } = useAnalysis()
 
 
@@ -1020,6 +1042,21 @@ const testPlanSubDetails = computed(() => {
   return details
 })
 
+const testingDetail = computed(() => {
+  const passed = testFlowProgress.value.filter(f => f.status === 'passed').length
+  const failed = testFlowProgress.value.filter(f => f.status === 'failed').length
+  const total = testFlowProgress.value.length
+  if (total > 0) {
+    const dur = stepDuration('testing')
+    return `${passed} passed, ${failed} failed of ${total} flow(s)${dur ? ` (${dur}s)` : ''}`
+  }
+  if (testStepScreenshots.length > 0) {
+    return `Running... ${testStepScreenshots.length} step(s) captured`
+  }
+  const dur = stepDuration('testing')
+  return dur ? `Running browser tests... (${dur}s)` : 'Starting browser tests...'
+})
+
 // Prefer persisted steps (have screenshots via URL), fall back to live or agentStepsList
 const navigatorSteps = computed(() => {
   if (persistedAgentSteps.value.length) return persistedAgentSteps.value
@@ -1063,6 +1100,9 @@ const failedPhaseLabel = computed(() => {
     test_plan_flows: 'Test Plan Creation',
     test_plan_saving: 'Test Plan Creation',
     test_plan_done: 'Test Plan Creation',
+    testing: 'Browser Testing',
+    testing_started: 'Browser Testing',
+    testing_done: 'Browser Testing',
     scouting: 'Page Scouting',
     scouted: 'Page Scouting',
     scenarios: 'Scenario Generation',
@@ -1101,6 +1141,16 @@ const progressPhases = computed(() => {
       status: granularStepStatus('test_plan'), detail: testPlanDetail.value,
       durationSeconds: stepDuration('test_plan'), subDetails: testPlanSubDetails.value },
   )
+  if (moduleRunTests.value) {
+    phases.push({
+      id: 'testing', label: 'Running browser tests', icon: 'FlaskConical', color: 'violet',
+      status: granularStepStatus('testing'),
+      detail: testingDetail.value,
+      durationSeconds: stepDuration('testing'),
+      subDetails: [],
+      isTestingSlot: true,
+    })
+  }
   return phases
 })
 
@@ -1142,7 +1192,7 @@ function expandStepScreenshot(entry) {
 }
 
 // Ordered step names for granular progress
-const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_prompt', 'flows_calling', 'flows_parsing', 'flows_validating', 'flows_retry', 'flows_done', 'saving', 'test_plan', 'test_plan_checking', 'test_plan_flows', 'test_plan_saving', 'test_plan_done', 'complete']
+const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_prompt', 'flows_calling', 'flows_parsing', 'flows_validating', 'flows_retry', 'flows_done', 'saving', 'test_plan', 'test_plan_checking', 'test_plan_flows', 'test_plan_saving', 'test_plan_done', 'testing', 'testing_started', 'testing_done', 'complete']
 
 function stepOrder(step) {
   const idx = STEP_ORDER.indexOf(step)
@@ -1164,6 +1214,7 @@ function granularStepStatus(groupStart) {
     scenarios: { start: 'scenarios', end: 'scenarios_done' },
     flows: { start: 'flows', end: 'saving' },
     test_plan: { start: 'test_plan', end: 'test_plan_done' },
+    testing: { start: 'testing', end: 'testing_done' },
   }
   const group = groupMap[groupStart]
   if (!group) return 'pending'
@@ -1220,6 +1271,7 @@ async function handleAnalyze() {
     wording: moduleWording.value,
     gameDesign: moduleGameDesign.value,
     testFlows: moduleTestFlows.value,
+    runTests: moduleRunTests.value,
   }
   const params = { ...profileParams.value }
 

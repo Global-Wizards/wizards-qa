@@ -763,6 +763,7 @@ func (s *Server) handleGetAnalysis(w http.ResponseWriter, r *http.Request) {
 		"partialResult": analysis.PartialResult,
 		"agentMode":     analysis.AgentMode,
 		"profile":       analysis.Profile,
+		"lastTestRunId": analysis.LastTestRunID,
 	}
 
 	if plan, _ := s.store.GetTestPlanByAnalysis(id); plan != nil {

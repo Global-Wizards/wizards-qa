@@ -172,6 +172,14 @@
             >
               <slot name="agent-exploration" />
             </div>
+
+            <!-- Test execution slot -->
+            <div
+              v-if="phase.isTestingSlot && showTestingPanel"
+              class="ml-10 my-1"
+            >
+              <slot name="test-execution" />
+            </div>
           </div>
         </div>
       </div>
@@ -275,7 +283,7 @@ import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import {
   Loader2, AlertCircle, CheckCircle2, Terminal, Copy, ChevronDown,
   ArrowDown, RefreshCw, PlayCircle,
-  Radar, Bot, Brain, ListTree, ClipboardCheck,
+  Radar, Bot, Brain, ListTree, ClipboardCheck, FlaskConical,
 } from 'lucide-vue-next'
 import { PlayCircle as PlayCircleIcon } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -289,6 +297,7 @@ const props = defineProps({
   agentMode: { type: Boolean, default: false },
   phases: { type: Array, default: () => [] },
   showAgentPanel: { type: Boolean, default: false },
+  showTestingPanel: { type: Boolean, default: false },
   logs: { type: Array, default: () => [] },
   errorMessage: { type: String, default: '' },
   failedPhaseLabel: { type: String, default: '' },
@@ -305,6 +314,7 @@ const phaseIconMap = {
   ListTree,
   PlayCircle: PlayCircleIcon,
   ClipboardCheck,
+  FlaskConical,
 }
 
 // --- Phase color map ---
@@ -350,6 +360,13 @@ const phaseColorMap = {
     text: 'text-sky-500',
     barActive: 'bg-sky-500',
     ping: 'border-2 border-sky-400',
+  },
+  violet: {
+    border: 'border-violet-400 dark:border-violet-600',
+    bg: 'bg-violet-50 dark:bg-violet-950',
+    text: 'text-violet-500',
+    barActive: 'bg-violet-500',
+    ping: 'border-2 border-violet-400',
   },
 }
 

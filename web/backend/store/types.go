@@ -148,8 +148,9 @@ type AnalysisRecord struct {
 	ErrorMessage  string      `json:"errorMessage,omitempty"`
 	Modules       string      `json:"modules,omitempty"`
 	PartialResult string      `json:"partialResult,omitempty"`
-	AgentMode     bool        `json:"agentMode"`
-	Profile       string      `json:"profile,omitempty"`
+	AgentMode      bool        `json:"agentMode"`
+	Profile        string      `json:"profile,omitempty"`
+	LastTestRunID  string      `json:"lastTestRunId,omitempty"`
 }
 
 type AgentStepRecord struct {

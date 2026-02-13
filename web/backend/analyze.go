@@ -28,6 +28,7 @@ type AnalysisModules struct {
 	Wording    *bool `json:"wording,omitempty"`
 	GameDesign *bool `json:"gameDesign,omitempty"`
 	TestFlows  *bool `json:"testFlows,omitempty"`
+	RunTests   *bool `json:"runTests,omitempty"`
 }
 
 type AnalysisRequest struct {
@@ -756,12 +757,71 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		})
 	}
 
+	// Auto-run browser tests if enabled
+	var testRunID string
+	if req.Modules.RunTests != nil && *req.Modules.RunTests && testPlanID != "" {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "testing",
+				Message: "Running browser tests...",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+
+		plan, planErr := s.store.GetTestPlan(testPlanID)
+		if planErr == nil {
+			flowDir2, flowErr := s.prepareFlowDir(plan)
+			if flowErr == nil {
+				defer os.RemoveAll(flowDir2)
+				testRunID = newID("test")
+
+				s.wsHub.Broadcast(ws.Message{
+					Type: "analysis_progress",
+					Data: AnalysisProgress{
+						Step:    "testing_started",
+						Message: fmt.Sprintf("Browser test run started: %s", testRunID),
+						Data: map[string]string{
+							"analysisId": analysisID,
+							"testId":     testRunID,
+							"testPlanId": testPlanID,
+						},
+					},
+				})
+
+				viewport := req.Viewport
+				if viewport == "" {
+					viewport = "desktop-std"
+				}
+				s.executeBrowserTestRun(testPlanID, testRunID, flowDir2, plan.Name, createdBy, viewport)
+
+				s.wsHub.Broadcast(ws.Message{
+					Type: "analysis_progress",
+					Data: AnalysisProgress{
+						Step:    "testing_done",
+						Message: "Browser tests completed",
+						Data:    map[string]string{"analysisId": analysisID, "testId": testRunID},
+					},
+				})
+
+				if err := s.store.UpdateAnalysisTestRunID(analysisID, testRunID); err != nil {
+					log.Printf("Warning: failed to update last_test_run_id for %s: %v", analysisID, err)
+				}
+			} else {
+				log.Printf("Warning: failed to prepare flow dir for auto-test on %s: %v", analysisID, flowErr)
+			}
+		} else {
+			log.Printf("Warning: failed to get test plan %s for auto-test: %v", testPlanID, planErr)
+		}
+	}
+
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_completed",
 		Data: map[string]interface{}{
 			"analysisId": analysisID,
 			"result":     result,
 			"testPlanId": testPlanID,
+			"testRunId":  testRunID,
 		},
 	})
 }

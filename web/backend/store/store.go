@@ -308,12 +308,12 @@ func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, game
 
 func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 	row := s.db.QueryRow(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at, COALESCE(error_message,''), COALESCE(modules,''), COALESCE(partial_result,''), COALESCE(agent_mode,0), COALESCE(profile,'') FROM analyses WHERE id = ?`, id,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at, COALESCE(error_message,''), COALESCE(modules,''), COALESCE(partial_result,''), COALESCE(agent_mode,0), COALESCE(profile,''), COALESCE(last_test_run_id,'') FROM analyses WHERE id = ?`, id,
 	)
 	var a AnalysisRecord
 	var resultJSON sql.NullString
 	var agentModeInt int
-	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt, &a.ErrorMessage, &a.Modules, &a.PartialResult, &agentModeInt, &a.Profile)
+	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt, &a.ErrorMessage, &a.Modules, &a.PartialResult, &agentModeInt, &a.Profile, &a.LastTestRunID)
 	if err != nil {
 		return nil, fmt.Errorf("analysis not found: %s", id)
 	}
@@ -421,6 +421,12 @@ func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
 		steps = append(steps, step)
 	}
 	return steps, rows.Err()
+}
+
+func (s *Store) UpdateAnalysisTestRunID(id, testRunID string) error {
+	now := time.Now().Format(time.RFC3339)
+	_, err := s.db.Exec(`UPDATE analyses SET last_test_run_id = ?, updated_at = ? WHERE id = ?`, testRunID, now, id)
+	return err
 }
 
 func (s *Store) UpdateAnalysisError(id, errorMessage string) error {

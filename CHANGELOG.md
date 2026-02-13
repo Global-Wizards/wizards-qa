@@ -5,6 +5,14 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.0] - 2026-02-13
+
+### Added
+- **Integrated browser test execution in analysis** — new opt-in "Run Tests" toggle in Analysis Modules automatically runs browser tests after flow generation completes, with real-time progress shown inline via TestStepNavigator.
+- **Testing progress phase in analysis panel** — new violet "Running browser tests" phase in the progress timeline with step screenshots, flow progress tracking, and live test WS event integration.
+- **Re-run tests from analysis detail** — completed analyses with test plans show a "Run Tests" button and a "Test Results" tab displaying pass rate and per-flow results.
+- **`lastTestRunId` on analysis records** — analyses now persist the ID of the last browser test run for quick access to results.
+
 ## [0.27.0] - 2026-02-12
 
 ### Added

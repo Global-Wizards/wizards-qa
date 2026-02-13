@@ -34,6 +34,10 @@
           </div>
         </div>
         <div class="flex items-center gap-2 shrink-0">
+          <Button v-if="hasTestPlan" variant="default" size="sm" @click="runTests" :disabled="runningTests">
+            <FlaskConical class="h-4 w-4 mr-1" />
+            {{ runningTests ? 'Running...' : 'Run Tests' }}
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger as-child>
               <Button variant="outline" size="sm">
@@ -73,6 +77,9 @@
           <TabsTrigger v-if="isAgentMode" value="exploration">
             Exploration
           </TabsTrigger>
+          <TabsTrigger v-if="lastTestRunId" value="test-results">
+            Test Results
+          </TabsTrigger>
         </TabsList>
 
         <div class="mt-6">
@@ -97,6 +104,40 @@
           <TabsContent v-if="isAgentMode" value="exploration">
             <AgentStepNavigator :analysis-id="route.params.id" :initial-steps="agentSteps" />
           </TabsContent>
+          <TabsContent v-if="lastTestRunId" value="test-results">
+            <div v-if="testResultLoading" class="flex items-center gap-2 text-muted-foreground py-8 justify-center">
+              Loading test results...
+            </div>
+            <div v-else-if="testResult" class="space-y-4">
+              <div class="flex items-center gap-3">
+                <Badge :variant="testResult.status === 'passed' ? 'default' : 'destructive'">
+                  {{ testResult.status }}
+                </Badge>
+                <span class="text-sm text-muted-foreground">
+                  {{ testResult.successRate != null ? `${Math.round(testResult.successRate * 100)}% pass rate` : '' }}
+                  {{ testResult.duration ? `· ${testResult.duration}` : '' }}
+                </span>
+              </div>
+              <div v-if="testResult.flows?.length" class="space-y-2">
+                <div
+                  v-for="flow in testResult.flows"
+                  :key="flow.name"
+                  class="flex items-center justify-between p-3 rounded-md border"
+                >
+                  <span class="text-sm font-medium">{{ flow.name }}</span>
+                  <div class="flex items-center gap-2">
+                    <span v-if="flow.duration" class="text-xs text-muted-foreground">{{ flow.duration }}</span>
+                    <Badge :variant="flow.status === 'passed' ? 'default' : 'destructive'" class="text-xs">
+                      {{ flow.status }}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div v-else class="text-sm text-muted-foreground py-8 text-center">
+              Test result not found
+            </div>
+          </TabsContent>
         </div>
       </Tabs>
     </template>
@@ -106,10 +147,10 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { analysesApi } from '@/lib/api'
+import { analysesApi, testPlansApi, testsApi } from '@/lib/api'
 import { truncateUrl } from '@/lib/utils'
 import { formatDate } from '@/lib/dateUtils'
-import { ArrowLeft, Download } from 'lucide-vue-next'
+import { ArrowLeft, Download, FlaskConical } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
@@ -131,11 +172,17 @@ const analysisData = ref(null)
 const agentSteps = ref([])
 const activeTab = ref('overview')
 
+const runningTests = ref(false)
+const testResult = ref(null)
+const testResultLoading = ref(false)
+
 const analysis = computed(() => analysisData.value?.result?.analysis || null)
 const pageMeta = computed(() => analysisData.value?.result?.pageMeta || null)
 const flows = computed(() => analysisData.value?.result?.flows || [])
 const isAgentMode = computed(() => analysisData.value?.result?.mode === 'agent')
 const framework = computed(() => pageMeta.value?.framework || '')
+const lastTestRunId = computed(() => analysisData.value?.lastTestRunId || '')
+const hasTestPlan = computed(() => !!analysisData.value?.testPlanId)
 
 const gameName = computed(() => {
   return analysis.value?.gameInfo?.name || pageMeta.value?.title || 'Analysis'
@@ -169,6 +216,33 @@ function exportAnalysis(format) {
   })
 }
 
+async function runTests() {
+  const planId = analysisData.value?.testPlanId
+  if (!planId) return
+  runningTests.value = true
+  try {
+    const data = await testPlansApi.run(planId, { mode: 'browser' })
+    const basePath = route.params.projectId ? `/projects/${route.params.projectId}` : ''
+    router.push({ path: `${basePath}/tests/run/${data.testId}`, query: { fresh: '1' } })
+  } catch (err) {
+    console.error('Failed to run tests:', err)
+  } finally {
+    runningTests.value = false
+  }
+}
+
+async function loadTestResult(testRunId) {
+  if (!testRunId) return
+  testResultLoading.value = true
+  try {
+    testResult.value = await testsApi.get(testRunId)
+  } catch {
+    testResult.value = null
+  } finally {
+    testResultLoading.value = false
+  }
+}
+
 onMounted(async () => {
   try {
     const data = await analysesApi.get(route.params.id)
@@ -185,6 +259,10 @@ onMounted(async () => {
     }
 
     analysisData.value = data
+
+    if (data.lastTestRunId) {
+      loadTestResult(data.lastTestRunId)
+    }
 
     if (data.result?.mode === 'agent') {
       try {

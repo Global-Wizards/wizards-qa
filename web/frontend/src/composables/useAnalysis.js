@@ -32,6 +32,10 @@ const STEP_TO_STATUS = {
   test_plan_flows: 'creating_test_plan',
   test_plan_saving: 'creating_test_plan',
   test_plan_done: 'creating_test_plan',
+  // Browser test execution steps
+  testing: 'testing',
+  testing_started: 'testing',
+  testing_done: 'testing',
   // Agent mode steps
   agent_start: 'analyzing',
   agent_step: 'analyzing',
@@ -84,6 +88,11 @@ export function useAnalysis() {
   // Auto-created test plan ID (set on analysis completion)
   const autoTestPlanId = ref(null)
 
+  // Browser test execution state (inline during analysis)
+  const testRunId = ref(null)
+  const testStepScreenshots = ref([])
+  const testFlowProgress = ref([])
+
   let hintCooldownTimer = null
   let statusPollInterval = null
 
@@ -118,7 +127,7 @@ export function useAnalysis() {
     statusPollInterval = setInterval(async () => {
       if (!analysisId.value) return
       // Only poll when in an active (non-terminal) state
-      const activeStates = ['scouting', 'analyzing', 'generating', 'creating_test_plan']
+      const activeStates = ['scouting', 'analyzing', 'generating', 'creating_test_plan', 'testing']
       if (!activeStates.includes(status.value)) return
       try {
         const statusData = await analysesApi.status(analysisId.value)
@@ -226,6 +235,11 @@ export function useAnalysis() {
         }
       }
 
+      // Extract testRunId from testing_started progress event
+      if (progress.step === 'testing_started' && progressData.testId) {
+        testRunId.value = progressData.testId
+      }
+
       // Track granular step and timings
       if (progress.step) {
         const now = Date.now()
@@ -299,6 +313,24 @@ export function useAnalysis() {
       liveAgentSteps.value = [...liveAgentSteps.value.slice(-(MAX_LIVE_STEPS - 1)), hintEntry]
     })
 
+    // Test execution WS listeners (inline browser tests during analysis)
+    const offTestProgress = ws.on('test_progress', (data) => {
+      if (!testRunId.value || data.testId !== testRunId.value) return
+      if (data.flowName) {
+        testFlowProgress.value = [...testFlowProgress.value,
+          { flowName: data.flowName, status: data.status, duration: data.duration || '' }]
+      }
+    })
+
+    const offTestStepScreenshot = ws.on('test_step_screenshot', (data) => {
+      if (!testRunId.value || data.testId !== testRunId.value) return
+      testStepScreenshots.value = [...testStepScreenshots.value, {
+        flowName: data.flowName, stepIndex: data.stepIndex, command: data.command,
+        screenshotB64: data.screenshotB64, result: data.result, status: data.status,
+        reasoning: data.reasoning || '',
+      }]
+    })
+
     const offCompleted = ws.on('analysis_completed', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
       stopStatusPolling()
@@ -316,6 +348,7 @@ export function useAnalysis() {
       agentSteps.value = result.agentSteps || []
       agentMode.value = result.mode === 'agent'
       autoTestPlanId.value = data.testPlanId || null
+      testRunId.value = data.testRunId || null
       status.value = 'complete'
       currentStep.value = 'complete'
       latestScreenshot.value = null
@@ -348,7 +381,7 @@ export function useAnalysis() {
       loadPersistedSteps(data.analysisId)
     })
 
-    cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offCompleted, offFailed]
+    cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offTestProgress, offTestStepScreenshot, offCompleted, offFailed]
 
     startStatusPolling()
   }
@@ -375,6 +408,9 @@ export function useAnalysis() {
     agentStepTotal.value = 0
     latestStepMessage.value = ''
     autoTestPlanId.value = null
+    testRunId.value = null
+    testStepScreenshots.value = []
+    testFlowProgress.value = []
 
     startElapsedTimer()
     setupListeners()
@@ -595,6 +631,9 @@ export function useAnalysis() {
     latestStepMessage.value = ''
     persistedAgentSteps.value = []
     autoTestPlanId.value = null
+    testRunId.value = null
+    testStepScreenshots.value = []
+    testFlowProgress.value = []
     if (hintCooldownTimer) {
       clearTimeout(hintCooldownTimer)
       hintCooldownTimer = null
@@ -652,5 +691,9 @@ export function useAnalysis() {
     latestStepMessage,
     // Auto-created test plan
     autoTestPlanId,
+    // Inline browser test execution
+    testRunId,
+    testStepScreenshots,
+    testFlowProgress,
   }
 }
