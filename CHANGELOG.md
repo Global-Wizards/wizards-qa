@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.6] - 2026-02-13
+
+### Fixed
+- **FindingsTab dark mode backgrounds** — Replaced hardcoded light/dark color pairs (`bg-green-50/50 dark:bg-green-950/20`, etc.) with theme-agnostic mid-range colors at low opacity (`bg-green-500/[0.06]`) that render correctly in both light and dark modes. Finding cards now use plain `bg-card` without dark-mode overrides, and badges/borders use the same opacity-based approach (`bg-green-500/10`, `border-green-500/20`).
+
 ## [0.34.5] - 2026-02-13
 
 ### Improved

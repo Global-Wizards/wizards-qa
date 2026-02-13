@@ -81,17 +81,17 @@
     <!-- Grouped findings sections -->
     <div v-if="filteredFindings.length" class="space-y-6">
       <!-- Section 1: What's Working Well (green) -->
-      <div v-if="groupedFindings.positive.length" class="rounded-lg border-l-4 border-green-500 bg-green-50/50 dark:bg-green-950/20 p-4 space-y-3">
+      <div v-if="groupedFindings.positive.length" class="rounded-lg border-l-4 border-green-500 bg-green-500/[0.06] p-4 space-y-3">
         <div class="flex items-center gap-2">
-          <h3 class="text-sm font-semibold text-green-800 dark:text-green-300">What's Working Well</h3>
-          <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">
+          <h3 class="text-sm font-semibold text-green-700 dark:text-green-300">What's Working Well</h3>
+          <span class="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">
             {{ groupedFindings.positive.length }}
           </span>
         </div>
         <div class="space-y-3">
-          <div v-for="(finding, i) in groupedFindings.positive" :key="'p-' + i" class="rounded-md border border-green-200 dark:border-green-800/40 bg-card dark:bg-green-950/30 p-4 space-y-2">
+          <div v-for="(finding, i) in groupedFindings.positive" :key="'p-' + i" class="rounded-md border border-green-500/20 bg-card p-4 space-y-2">
             <div class="flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/40 dark:text-green-300">positive</span>
+              <span class="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">positive</span>
               <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
               <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
             </div>
@@ -106,17 +106,17 @@
       </div>
 
       <!-- Section 2: Suggestions (amber) -->
-      <div v-if="groupedFindings.suggestion.length" class="rounded-lg border-l-4 border-amber-500 bg-amber-50/50 dark:bg-amber-950/20 p-4 space-y-3">
+      <div v-if="groupedFindings.suggestion.length" class="rounded-lg border-l-4 border-amber-500 bg-amber-500/[0.06] p-4 space-y-3">
         <div class="flex items-center gap-2">
-          <h3 class="text-sm font-semibold text-amber-800 dark:text-amber-300">Suggestions</h3>
-          <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">
+          <h3 class="text-sm font-semibold text-amber-700 dark:text-amber-300">Suggestions</h3>
+          <span class="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">
             {{ groupedFindings.suggestion.length }}
           </span>
         </div>
         <div class="space-y-3">
-          <div v-for="(finding, i) in groupedFindings.suggestion" :key="'s-' + i" class="rounded-md border border-amber-200 dark:border-amber-800/40 bg-card dark:bg-amber-950/30 p-4 space-y-2">
+          <div v-for="(finding, i) in groupedFindings.suggestion" :key="'s-' + i" class="rounded-md border border-amber-500/20 bg-card p-4 space-y-2">
             <div class="flex flex-wrap items-center gap-2">
-              <span class="inline-flex items-center rounded-full bg-amber-100 px-2 py-0.5 text-xs font-medium text-amber-800 dark:bg-amber-900/40 dark:text-amber-300">{{ finding.severity }}</span>
+              <span class="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">{{ finding.severity }}</span>
               <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
               <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
             </div>
@@ -131,10 +131,10 @@
       </div>
 
       <!-- Section 3: Bugs & Issues (red) -->
-      <div v-if="groupedFindings.bug.length" class="rounded-lg border-l-4 border-red-500 bg-red-50/50 dark:bg-red-950/20 p-4 space-y-3">
+      <div v-if="groupedFindings.bug.length" class="rounded-lg border-l-4 border-red-500 bg-red-500/[0.06] p-4 space-y-3">
         <div class="flex items-center gap-2">
-          <h3 class="text-sm font-semibold text-red-800 dark:text-red-300">Bugs & Issues</h3>
-          <span class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/40 dark:text-red-300">
+          <h3 class="text-sm font-semibold text-red-700 dark:text-red-300">Bugs & Issues</h3>
+          <span class="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">
             {{ groupedFindings.bug.length }}
           </span>
         </div>
@@ -145,13 +145,13 @@
             :class="[
               'rounded-md border p-4 space-y-2',
               finding.severity === 'critical'
-                ? 'border-red-300 dark:border-red-700/60 bg-red-50 dark:bg-red-950/40'
-                : 'border-red-200 dark:border-red-800/40 bg-card dark:bg-red-950/30'
+                ? 'border-red-500/30 bg-red-500/10'
+                : 'border-red-500/20 bg-card'
             ]"
           >
             <div class="flex flex-wrap items-center gap-2">
-              <span v-if="finding.severity === 'critical'" class="inline-flex items-center rounded-full bg-red-100 px-2 py-0.5 text-xs font-medium text-red-800 dark:bg-red-900/40 dark:text-red-300">critical</span>
-              <span v-else class="inline-flex items-center rounded-full bg-orange-100 px-2 py-0.5 text-xs font-medium text-orange-800 dark:bg-orange-900/40 dark:text-orange-300">major</span>
+              <span v-if="finding.severity === 'critical'" class="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">critical</span>
+              <span v-else class="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-700 dark:text-orange-300">major</span>
               <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
               <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
             </div>
