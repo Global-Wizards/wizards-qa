@@ -3,9 +3,11 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sort"
@@ -17,6 +19,7 @@ import (
 	"github.com/Global-Wizards/wizards-qa/pkg/scout"
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
+	"github.com/go-chi/chi/v5"
 	"gopkg.in/yaml.v3"
 )
 
@@ -62,6 +65,15 @@ func (s *Server) launchBrowserTestRun(planID, testID, flowDir, planName, viewpor
 
 // executeBrowserTestRun runs test flows in headless Chrome using the browser automation infrastructure.
 func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, createdBy, viewport string) {
+	// Acquire browser test concurrency slot (only one Chrome for tests at a time)
+	select {
+	case s.browserTestSem <- struct{}{}:
+		defer func() { <-s.browserTestSem }()
+	case <-s.serverCtx.Done():
+		s.finishTestRun(planID, testID, planName, time.Now(), nil, fmt.Errorf("server shutting down"), createdBy)
+		return
+	}
+
 	startTime := time.Now()
 
 	// Parse all flow files
@@ -212,16 +224,30 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 				s.broadcastTestLog(testID, planID, fmt.Sprintf("  ✅ Step %d: %s → %s", ci+1, cmdDesc, result))
 			}
 
-			// Broadcast step screenshot
+			// Save step screenshot to disk and broadcast URL (not base64)
 			if screenshot != "" {
+				screenshotURL := ""
+				dataDir := s.store.DataDir()
+				if dataDir != "" {
+					dstDir := filepath.Join(dataDir, "test-screenshots", testID)
+					if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
+						fname := fmt.Sprintf("flow-%s-step-%d.webp", flow.Name, ci)
+						dstPath := filepath.Join(dstDir, fname)
+						if imgData, decErr := base64.StdEncoding.DecodeString(screenshot); decErr == nil {
+							if writeErr := os.WriteFile(dstPath, imgData, 0644); writeErr == nil {
+								screenshotURL = fmt.Sprintf("/api/tests/%s/steps/%s/%d/screenshot", testID, flow.Name, ci)
+							}
+						}
+					}
+				}
 				s.wsHub.Broadcast(ws.Message{
 					Type: "test_step_screenshot",
 					Data: map[string]interface{}{
 						"testId":        testID,
 						"flowName":      flow.Name,
 						"stepIndex":     ci,
-						"command":        cmdDesc,
-						"screenshotB64": screenshot,
+						"command":       cmdDesc,
+						"screenshotUrl": screenshotURL,
 						"result":        result,
 						"status":        status,
 						"reasoning":     reasoning,
@@ -1012,4 +1038,39 @@ func describeCommand(cmd interface{}) string {
 		}
 	}
 	return fmt.Sprintf("%v", cmd)
+}
+
+// handleTestStepScreenshot serves a saved test step screenshot from disk.
+func (s *Server) handleTestStepScreenshot(w http.ResponseWriter, r *http.Request) {
+	testID := chi.URLParam(r, "testId")
+	flowName := chi.URLParam(r, "flowName")
+	stepIndexStr := chi.URLParam(r, "stepIndex")
+
+	stepIndex, err := strconv.Atoi(stepIndexStr)
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid step index")
+		return
+	}
+
+	dataDir := s.store.DataDir()
+	if dataDir == "" {
+		respondError(w, http.StatusNotFound, "Screenshot storage not configured")
+		return
+	}
+
+	// Sanitize to prevent directory traversal
+	testID = filepath.Base(testID)
+	flowName = filepath.Base(flowName)
+	filename := fmt.Sprintf("flow-%s-step-%d.webp", flowName, stepIndex)
+	fullPath := filepath.Join(dataDir, "test-screenshots", testID, filename)
+
+	imgData, err := os.ReadFile(fullPath)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Screenshot file not found")
+		return
+	}
+
+	w.Header().Set("Content-Type", "image/webp")
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(imgData)
 }

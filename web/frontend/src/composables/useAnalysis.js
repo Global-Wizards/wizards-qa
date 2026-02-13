@@ -296,13 +296,15 @@ export function useAnalysis() {
 
     const offAgentScreenshot = ws.on('agent_screenshot', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
-      latestScreenshot.value = data.imageData
-      // Store screenshot on the step for inline thumbnails
+      // Use URL-based screenshots instead of base64 to save memory
+      const url = data.screenshotUrl || ''
+      latestScreenshot.value = url
+      // Store screenshot URL on the step for inline thumbnails
       if (liveAgentSteps.value.length > 0) {
         const last = liveAgentSteps.value[liveAgentSteps.value.length - 1]
-        if (!last.screenshotB64) {
+        if (!last.screenshotUrl) {
           const updated = [...liveAgentSteps.value]
-          updated[updated.length - 1] = { ...last, hasScreenshot: true, screenshotB64: data.imageData }
+          updated[updated.length - 1] = { ...last, hasScreenshot: true, screenshotUrl: url }
           liveAgentSteps.value = updated
         }
       }
@@ -337,7 +339,7 @@ export function useAnalysis() {
       if (!testRunId.value || data.testId !== testRunId.value) return
       testStepScreenshots.value = [...testStepScreenshots.value.slice(-(MAX_LIVE_STEPS - 1)), {
         flowName: data.flowName, stepIndex: data.stepIndex, command: data.command,
-        screenshotB64: data.screenshotB64, result: data.result, status: data.status,
+        screenshotUrl: data.screenshotUrl || '', result: data.result, status: data.status,
         reasoning: data.reasoning || '',
       }]
 

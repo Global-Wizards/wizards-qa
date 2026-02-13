@@ -51,9 +51,9 @@
       <!-- Right panel: Step detail -->
       <div class="flex-1 overflow-y-auto p-4 space-y-3" v-if="selectedStep">
         <!-- Screenshot -->
-        <div v-if="selectedStep.screenshotB64">
+        <div v-if="selectedStep.screenshotUrl || selectedStep.screenshotB64">
           <img
-            :src="'data:image/webp;base64,' + selectedStep.screenshotB64"
+            :src="selectedStep.screenshotUrl || ('data:image/webp;base64,' + selectedStep.screenshotB64)"
             class="w-full max-w-md rounded border cursor-pointer"
             alt="Step screenshot"
             @click="screenshotDialogOpen = true"
@@ -96,8 +96,8 @@
         </DialogHeader>
         <div class="mt-4">
           <img
-            v-if="selectedStep?.screenshotB64"
-            :src="'data:image/webp;base64,' + selectedStep.screenshotB64"
+            v-if="selectedStep?.screenshotUrl || selectedStep?.screenshotB64"
+            :src="selectedStep.screenshotUrl || ('data:image/webp;base64,' + selectedStep.screenshotB64)"
             class="w-full rounded-md border"
             alt="Test step screenshot"
           />

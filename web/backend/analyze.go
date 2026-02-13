@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -243,14 +242,22 @@ func (s *Server) handleBatchAnalyze(w http.ResponseWriter, r *http.Request) {
 func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisRequest) {
 	gameURL := req.GameURL
 	agentMode := req.AgentMode
-	// Acquire concurrency slot
+	// Acquire concurrency slot (released before inline test run to avoid two Chrome instances)
 	select {
 	case s.analysisSem <- struct{}{}:
-		defer func() { <-s.analysisSem }()
+		// Released explicitly below, not via defer
 	case <-s.serverCtx.Done():
 		s.broadcastAnalysisError(analysisID, "Server shutting down")
 		return
 	}
+	analysisSemHeld := true
+	releaseAnalysisSem := func() {
+		if analysisSemHeld {
+			<-s.analysisSem
+			analysisSemHeld = false
+		}
+	}
+	defer releaseAnalysisSem()
 
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_progress",
@@ -471,6 +478,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		// Track latest reasoning text and last inserted step ID for screenshot association
 		var latestReasoning string
 		var lastStepDBID int64
+		var lastStepNumber int
 
 		for stderrScanner.Scan() {
 			line := stderrScanner.Text()
@@ -507,6 +515,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 							Error:      strFromMap(detailData, "error"),
 							Reasoning:  latestReasoning,
 						}
+						lastStepNumber = stepRecord.StepNumber
 						if dbID, saveErr := s.store.SaveAgentStep(stepRecord); saveErr != nil {
 							log.Printf("Warning: failed to save agent step %d for %s: %v", stepRecord.StepNumber, analysisID, saveErr)
 						} else {
@@ -525,7 +534,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 						},
 					})
 				case "agent_screenshot":
-					// Read screenshot file from tmpDir and broadcast as base64
+					// Read screenshot file from tmpDir, persist to data dir, broadcast URL (not base64)
 					filename := filepath.Base(message) // strip directory components
 					if filename == "." || filename == "/" || strings.ContainsAny(filename, `/\`) {
 						break
@@ -536,15 +545,6 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 					if aa != nil {
 						screenshotPath := filepath.Join(aa.tmpDir, "agent-screenshots", filename)
 						if imgData, readErr := os.ReadFile(screenshotPath); readErr == nil {
-							s.wsHub.Broadcast(ws.Message{
-								Type: "agent_screenshot",
-								Data: map[string]string{
-									"analysisId": analysisID,
-									"imageData":  base64.StdEncoding.EncodeToString(imgData),
-									"filename":   filename,
-								},
-							})
-
 							// Persist screenshot to data dir
 							dataDir := s.store.DataDir()
 							if dataDir != "" {
@@ -552,13 +552,22 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 								if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
 									dstPath := filepath.Join(dstDir, filename)
 									if cpErr := os.WriteFile(dstPath, imgData, 0644); cpErr == nil {
-										// Update the matching agent step with screenshot path
 										if lastStepDBID > 0 {
 											s.store.UpdateAgentStepScreenshot(lastStepDBID, filename)
 										}
 									}
 								}
 							}
+
+							// Broadcast URL reference instead of base64 data to save memory
+							s.wsHub.Broadcast(ws.Message{
+								Type: "agent_screenshot",
+								Data: map[string]string{
+									"analysisId":    analysisID,
+									"screenshotUrl": fmt.Sprintf("/api/analyses/%s/steps/%d/screenshot", analysisID, lastStepNumber),
+									"filename":      filename,
+								},
+							})
 						}
 					}
 				case "user_hint":
@@ -586,20 +595,27 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 					}
 				}(analysisID, step)
 			} else {
+				// Cap at 1000 lines, rotating old lines out
+				const maxStderrLines = 1000
+				if len(stderrLines) >= maxStderrLines {
+					stderrLines = stderrLines[1:]
+				}
 				stderrLines = append(stderrLines, line)
 				log.Printf("Analysis %s stderr: %s", analysisID, line)
 			}
 		}
 	}()
 
-	// Collect all stdout
+	// Collect all stdout (capped at 10MB to prevent OOM)
+	const maxOutputSize = 10 * 1024 * 1024
 	var outputBuf bytes.Buffer
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
-		line := scanner.Text()
-		outputBuf.WriteString(line)
-		outputBuf.WriteString("\n")
+		if outputBuf.Len() < maxOutputSize {
+			outputBuf.WriteString(scanner.Text())
+			outputBuf.WriteString("\n")
+		}
 	}
 
 	if scanErr := scanner.Err(); scanErr != nil {
@@ -777,6 +793,10 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 			},
 		})
 	}
+
+	// Release the analysis semaphore before running browser tests so that
+	// the CLI Chrome process is fully dead before the test Chrome starts.
+	releaseAnalysisSem()
 
 	// Auto-run browser tests if enabled
 	var testRunID string
@@ -1277,19 +1297,27 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 					}
 				}(analysisID, progressStep)
 			} else {
+				// Cap at 1000 lines, rotating old lines out
+				const maxStderrLines = 1000
+				if len(stderrLines) >= maxStderrLines {
+					stderrLines = stderrLines[1:]
+				}
 				stderrLines = append(stderrLines, line)
 				log.Printf("Analysis %s stderr: %s", analysisID, line)
 			}
 		}
 	}()
 
-	// Collect all stdout
+	// Collect all stdout (capped at 10MB to prevent OOM)
+	const maxOutputSize = 10 * 1024 * 1024
 	var outputBuf bytes.Buffer
 	scanner := bufio.NewScanner(stdout)
 	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
 	for scanner.Scan() {
-		outputBuf.WriteString(scanner.Text())
-		outputBuf.WriteString("\n")
+		if outputBuf.Len() < maxOutputSize {
+			outputBuf.WriteString(scanner.Text())
+			outputBuf.WriteString("\n")
+		}
 	}
 
 	<-stderrDone

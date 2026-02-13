@@ -28,7 +28,7 @@ primary_region = "iad"
   PORT = "8080"
 
 [vm]
-  memory = "2gb"
+  memory = "4gb"
   cpu_kind = "shared"
   cpus = 2
 

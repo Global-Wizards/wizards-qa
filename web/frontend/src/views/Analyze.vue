@@ -567,7 +567,6 @@
           <div class="flex flex-wrap gap-2">
             <Button v-if="autoTestPlanId" @click="navigateToTestPlan">View Test Plan</Button>
             <Button v-else @click="navigateToNewPlan">Create Test Plan</Button>
-            <Button variant="secondary" @click="runFlowsNow">Run Flows Now</Button>
             <Button variant="outline" @click="viewCurrentAnalysis">
               <ExternalLink class="h-4 w-4 mr-1" />
               View Full Analysis
@@ -669,7 +668,7 @@ import { useAnalysis } from '@/composables/useAnalysis'
 import { truncateUrl, isValidUrl, severityVariant } from '@/lib/utils'
 import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
 import { DEFAULT_VIEWPORT, getViewportByName, getViewportCategories, getRecommendedViewports } from '@/lib/viewports'
-import { testsApi, analysesApi, analyzeApi, projectsApi } from '@/lib/api'
+import { analysesApi, analyzeApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@vueuse/core'
 import { useProject } from '@/composables/useProject'
@@ -1171,7 +1170,7 @@ function expandAgentScreenshot(step) {
 function expandLiveScreenshot() {
   if (latestScreenshot.value) {
     agentScreenshotStep.value = {
-      screenshotB64: latestScreenshot.value,
+      screenshotUrl: latestScreenshot.value,
       stepNumber: agentStepCurrent.value || '?',
       toolName: 'Live Screenshot',
       result: 'Current game state',
@@ -1182,8 +1181,7 @@ function expandLiveScreenshot() {
 
 function expandStepScreenshot(entry) {
   agentScreenshotStep.value = {
-    screenshotB64: entry.screenshotB64,
-    screenshotUrl: entry.screenshotUrl,
+    screenshotUrl: entry.screenshotUrl || entry.screenshotB64,
     stepNumber: entry.stepNumber,
     toolName: entry.toolName,
     result: entry.result,
@@ -1357,22 +1355,12 @@ function navigateToNewPlan() {
 
 function navigateToTestPlan() {
   const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push({ path: `${basePath}/tests`, query: { tab: 'plans' } })
+  router.push(`${basePath}/tests/plans/${autoTestPlanId.value}`)
 }
 
 function navigateToFlows() {
   const basePath = projectId.value ? `/projects/${projectId.value}` : ''
   router.push(`${basePath}/flows`)
-}
-
-async function runFlowsNow() {
-  try {
-    await testsApi.run({ gameUrl: gameUrl.value })
-    const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-    router.push(`${basePath}/tests`)
-  } catch (err) {
-    console.error('Failed to run flows:', err)
-  }
 }
 
 const canContinue = ref(false)

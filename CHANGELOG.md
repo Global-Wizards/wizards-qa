@@ -5,6 +5,40 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.31.0] - 2026-02-13
+
+### Memory Optimization — Prevent OOM Crashes
+
+#### Changed
+- **Analysis concurrency reduced from 3 to 1** — each analysis spawns headless Chrome (200-400MB), so running 3 concurrently easily exceeded 2GB. Analyses now queue sequentially.
+- **Analysis semaphore released before inline test run** — the CLI Chrome process is now fully dead before browser test Chrome starts, preventing two concurrent Chrome instances under one analysis.
+- **Browser test concurrency limited to 1** — new `browserTestSem` prevents multiple browser test runs from launching Chrome simultaneously.
+- **Agent screenshots broadcast as URLs instead of base64** — `agent_screenshot` WebSocket messages now send a `/api/analyses/{id}/steps/{step}/screenshot` URL instead of inline base64 data, eliminating 30-100KB per screenshot from transient WS memory.
+- **Test step screenshots saved to disk** — `test_step_screenshot` WebSocket messages now save screenshots to `{dataDir}/test-screenshots/{testId}/` and broadcast a URL reference, replacing 30-100KB base64 strings per step.
+- **CLI stdout buffer capped at 10MB** — prevents unbounded memory growth from large analysis JSON output.
+- **Stderr lines capped at 1000** — rotating buffer prevents unbounded memory growth from verbose CLI stderr.
+- **Fly.io memory increased from 2GB to 4GB** — safe baseline for Go server + headless Chrome + SQLite.
+
+#### Added
+- **`browserTestSem`** on Server struct — concurrency limiter for browser test runs (capacity 1).
+- **Stale `runningTests` cleanup goroutine** — periodically removes entries older than 30 minutes that leaked from crashed/timed-out test runs.
+- **`GET /api/tests/{testId}/steps/{flowName}/{stepIndex}/screenshot`** — new endpoint to serve test step screenshots from disk.
+
+#### Fixed
+- **Frontend updated for URL-based screenshots** — `useAnalysis.js`, `TestStepNavigator.vue`, `AgentExplorationPanel.vue`, and `useTestExecution.js` now use `screenshotUrl` with backward-compatible `screenshotB64` fallback.
+
+## [0.30.0] - 2026-02-13
+
+### Changed
+- **Analysis-integrated Tests view** — the Tests view now focuses on analysis-created test plans as the primary workflow. Removed the "New Test Plan" button and updated the subtitle to reflect analysis-driven workflow.
+- **Analysis column in test plans table** — test plans now show a "View Analysis" link to their source analysis, or "Manual" for legacy plans.
+- **Single browser Run button** — replaced the Maestro/Browser run mode dropdown with a single "Run" button that defaults to browser mode in both the Tests list and EditTestPlan views.
+- **Direct plan navigation from analysis** — "View Test Plan" on the Analyze results page now navigates directly to the plan editor instead of the Tests list.
+
+### Removed
+- **"Run Flows Now" button** — removed from the Analyze results page (redundant with the test plan workflow).
+- **Maestro run option** — hidden from the Tests and EditTestPlan run buttons (browser mode is now the default).
+
 ## [0.29.0] - 2026-02-13
 
 ### Added

@@ -49,6 +49,7 @@ type Server struct {
 	serverCtx        context.Context
 	cancelCtx        context.CancelFunc
 	analysisSem      chan struct{} // limits concurrent analyses
+	browserTestSem   chan struct{} // limits concurrent browser test runs
 	activeAnalyses   map[string]*activeAnalysis
 	activeAnalysesMu sync.Mutex
 	runningTests     map[string]*runningTest
@@ -113,12 +114,17 @@ func NewServer(port string) *Server {
 		jwtSecret:      jwtSecret,
 		serverCtx:      ctx,
 		cancelCtx:      cancel,
-		analysisSem:    make(chan struct{}, 3), // max 3 concurrent analyses
+		analysisSem:    make(chan struct{}, 1), // max 1 concurrent analysis (Chrome uses 200-400MB)
+		browserTestSem: make(chan struct{}, 1), // max 1 concurrent browser test run
 		activeAnalyses: make(map[string]*activeAnalysis),
 		runningTests:   make(map[string]*runningTest),
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
+
+	// Periodic cleanup of stale runningTests entries (e.g. from crashes/timeouts)
+	go s.cleanupStaleRunningTests()
+
 	return s
 }
 
@@ -199,6 +205,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/analyses/{id}/steps/{stepNumber}/screenshot", s.handleAgentStepScreenshot)
 		r.Post("/api/analyses/{id}/message", s.handleSendAgentMessage)
 		r.Post("/api/analyses/{id}/continue", s.handleContinueAnalysis)
+		r.Get("/api/tests/{testId}/steps/{flowName}/{stepIndex}/screenshot", s.handleTestStepScreenshot)
 
 		// Project routes
 		r.Get("/api/projects", s.handleListProjects)
@@ -1182,6 +1189,28 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 		fs := http.StripPrefix(pathPrefix, http.FileServer(root))
 		fs.ServeHTTP(w, r)
 	})
+}
+
+// cleanupStaleRunningTests periodically removes runningTests entries older than 30 minutes.
+// This prevents memory leaks from test runs that crash or timeout without calling finishTestRun.
+func (s *Server) cleanupStaleRunningTests() {
+	ticker := time.NewTicker(5 * time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ticker.C:
+			s.runningTestsMu.Lock()
+			for id, rt := range s.runningTests {
+				if time.Since(rt.StartedAt) > 30*time.Minute {
+					log.Printf("Cleaning up stale running test %s (started %s ago)", id, time.Since(rt.StartedAt).Round(time.Second))
+					delete(s.runningTests, id)
+				}
+			}
+			s.runningTestsMu.Unlock()
+		case <-s.serverCtx.Done():
+			return
+		}
+	}
 }
 
 var startTime = time.Now()
