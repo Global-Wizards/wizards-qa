@@ -45,13 +45,15 @@ export class WebSocketManager {
     }
 
     this.ws.onmessage = (event) => {
+      let message
       try {
-        const message = JSON.parse(event.data)
-        this._emit(message.type, message.data)
-        this._emit('message', message)
+        message = JSON.parse(event.data)
       } catch (err) {
         console.warn('WebSocket: failed to parse message:', err.message)
+        return
       }
+      this._emit(message.type, message.data)
+      this._emit('message', message)
     }
 
     this.ws.onclose = () => {
@@ -112,7 +114,13 @@ export class WebSocketManager {
   }
 
   _emit(event, data) {
-    this.listeners.get(event)?.forEach((cb) => cb(data))
+    this.listeners.get(event)?.forEach((cb) => {
+      try {
+        cb(data)
+      } catch (err) {
+        console.error(`WebSocket listener error [${event}]:`, err)
+      }
+    })
   }
 
   send(data) {

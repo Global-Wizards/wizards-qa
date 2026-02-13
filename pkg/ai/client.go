@@ -122,14 +122,21 @@ func (c *ClaudeClient) doRequest(reqBody []byte) ([]byte, error) {
 
 // unmarshalTextResponse parses a claudeResponse and returns the first text content block.
 func unmarshalTextResponse(body []byte) (string, error) {
+	text, _, err := unmarshalTextResponseWithUsage(body)
+	return text, err
+}
+
+// unmarshalTextResponseWithUsage parses a claudeResponse and returns the first text content block
+// along with the usage data from the response.
+func unmarshalTextResponseWithUsage(body []byte) (string, claudeResponse, error) {
 	var claudeResp claudeResponse
 	if err := json.Unmarshal(body, &claudeResp); err != nil {
-		return "", fmt.Errorf("failed to parse response: %w", err)
+		return "", claudeResp, fmt.Errorf("failed to parse response: %w", err)
 	}
 	if len(claudeResp.Content) == 0 {
-		return "", fmt.Errorf("empty response from API")
+		return "", claudeResp, fmt.Errorf("empty response from API")
 	}
-	return claudeResp.Content[0].Text, nil
+	return claudeResp.Content[0].Text, claudeResp, nil
 }
 
 // callAPIOnce makes a single API request to Claude
@@ -148,7 +155,14 @@ func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return unmarshalTextResponse(body)
+	text, resp, err := unmarshalTextResponseWithUsage(body)
+	if err != nil {
+		return "", err
+	}
+	if c.OnUsage != nil {
+		c.OnUsage(resp.Usage.InputTokens, resp.Usage.OutputTokens, 0, 0)
+	}
+	return text, nil
 }
 
 // AnalyzeWithImages sends a multimodal request with multiple images and an optional system prompt.
@@ -177,7 +191,14 @@ func (c *ClaudeClient) AnalyzeWithImages(systemPrompt string, prompt string, ima
 	if err != nil {
 		return "", err
 	}
-	return unmarshalTextResponse(body)
+	text, resp, err := unmarshalTextResponseWithUsage(body)
+	if err != nil {
+		return "", err
+	}
+	if c.OnUsage != nil {
+		c.OnUsage(resp.Usage.InputTokens, resp.Usage.OutputTokens, 0, 0)
+	}
+	return text, nil
 }
 
 // --- Tool Use types ---
@@ -296,6 +317,10 @@ func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessag
 	log.Printf("CallWithTools: completed in %s (in=%d out=%d cache_create=%d cache_read=%d tokens, stop=%s)",
 		elapsed, toolResp.Usage.InputTokens, toolResp.Usage.OutputTokens,
 		toolResp.Usage.CacheCreationInputTokens, toolResp.Usage.CacheReadInputTokens, toolResp.StopReason)
+	if c.OnUsage != nil {
+		c.OnUsage(toolResp.Usage.InputTokens, toolResp.Usage.OutputTokens,
+			toolResp.Usage.CacheCreationInputTokens, toolResp.Usage.CacheReadInputTokens)
+	}
 	return &toolResp, nil
 }
 
@@ -383,5 +408,12 @@ func (c *ClaudeClient) AnalyzeWithImage(prompt string, imageB64 string) (string,
 	if err != nil {
 		return "", err
 	}
-	return unmarshalTextResponse(body)
+	text, resp, err := unmarshalTextResponseWithUsage(body)
+	if err != nil {
+		return "", err
+	}
+	if c.OnUsage != nil {
+		c.OnUsage(resp.Usage.InputTokens, resp.Usage.OutputTokens, 0, 0)
+	}
+	return text, nil
 }

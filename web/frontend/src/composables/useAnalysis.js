@@ -85,6 +85,7 @@ export function useAnalysis() {
   const autoTestPlanId = ref(null)
 
   let hintCooldownTimer = null
+  let statusPollInterval = null
 
   let cleanups = []
   let elapsedTimer = null
@@ -110,6 +111,55 @@ export function useAnalysis() {
     const m = Math.floor(seconds / 60)
     const s = seconds % 60
     return `${m}m ${s}s`
+  }
+
+  function startStatusPolling() {
+    stopStatusPolling()
+    statusPollInterval = setInterval(async () => {
+      if (!analysisId.value) return
+      // Only poll when in an active (non-terminal) state
+      const activeStates = ['scouting', 'analyzing', 'generating', 'creating_test_plan']
+      if (!activeStates.includes(status.value)) return
+      try {
+        const statusData = await analysesApi.status(analysisId.value)
+        if (statusData.status === 'completed') {
+          stopStatusPolling()
+          const fullData = await analysesApi.get(analysisId.value)
+          if (fullData.result) {
+            pageMeta.value = fullData.result.pageMeta || null
+            analysis.value = fullData.result.analysis || null
+            flows.value = fullData.result.flows || []
+            agentSteps.value = fullData.result.agentSteps || []
+            agentMode.value = fullData.result.mode === 'agent'
+          }
+          autoTestPlanId.value = fullData.testPlanId || null
+          status.value = 'complete'
+          currentStep.value = 'complete'
+          latestScreenshot.value = null
+          agentReasoning.value = ''
+          stopElapsedTimer()
+          clearLocalStorage()
+          loadPersistedSteps(analysisId.value)
+        } else if (statusData.status === 'failed') {
+          stopStatusPolling()
+          error.value = statusData.error || 'Analysis failed'
+          failedStep.value = currentStep.value || null
+          status.value = 'error'
+          stopElapsedTimer()
+          clearLocalStorage()
+          loadPersistedSteps(analysisId.value)
+        }
+      } catch {
+        // Status endpoint unavailable — ignore and retry next interval
+      }
+    }, 15000)
+  }
+
+  function stopStatusPolling() {
+    if (statusPollInterval) {
+      clearInterval(statusPollInterval)
+      statusPollInterval = null
+    }
   }
 
   async function sendHint(message) {
@@ -251,6 +301,7 @@ export function useAnalysis() {
 
     const offCompleted = ws.on('analysis_completed', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
+      stopStatusPolling()
 
       // End the last step's timing
       const now = Date.now()
@@ -278,6 +329,7 @@ export function useAnalysis() {
 
     const offFailed = ws.on('analysis_failed', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
+      stopStatusPolling()
 
       // End the last step's timing
       const now = Date.now()
@@ -297,6 +349,8 @@ export function useAnalysis() {
     })
 
     cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offCompleted, offFailed]
+
+    startStatusPolling()
   }
 
   async function start(gameUrl, projectId, useAgentMode = false, profileParams = {}, modules = {}) {
@@ -514,6 +568,7 @@ export function useAnalysis() {
 
   function reset() {
     stopListening()
+    stopStatusPolling()
     stopElapsedTimer()
     clearLocalStorage()
     status.value = 'idle'
@@ -547,12 +602,14 @@ export function useAnalysis() {
   }
 
   function stopListening() {
+    stopStatusPolling()
     cleanups.forEach((fn) => fn())
     cleanups = []
   }
 
   onUnmounted(() => {
     stopListening()
+    stopStatusPolling()
     stopElapsedTimer()
     if (hintCooldownTimer) clearTimeout(hintCooldownTimer)
   })

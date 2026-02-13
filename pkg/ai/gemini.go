@@ -117,5 +117,9 @@ func (g *GeminiClient) callAPIOnce(prompt string) (string, error) {
 		return "", fmt.Errorf("empty response from API")
 	}
 
+	if g.OnUsage != nil {
+		g.OnUsage(geminiResp.UsageMetadata.PromptTokenCount, geminiResp.UsageMetadata.CandidatesTokenCount, 0, 0)
+	}
+
 	return geminiResp.Candidates[0].Content.Parts[0].Text, nil
 }

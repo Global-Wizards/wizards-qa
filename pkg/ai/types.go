@@ -8,6 +8,59 @@ import (
 	"time"
 )
 
+// TokenUsage tracks cumulative token consumption across API calls.
+type TokenUsage struct {
+	InputTokens              int
+	OutputTokens             int
+	CacheCreationInputTokens int
+	CacheReadInputTokens     int
+	TotalTokens              int // InputTokens + OutputTokens (convenience)
+	APICallCount             int
+}
+
+// Add merges usage from a single API call into the running total.
+func (u *TokenUsage) Add(input, output, cacheCreate, cacheRead int) {
+	u.InputTokens += input
+	u.OutputTokens += output
+	u.CacheCreationInputTokens += cacheCreate
+	u.CacheReadInputTokens += cacheRead
+	u.TotalTokens += input + output
+	u.APICallCount++
+}
+
+// EstimatedCost calculates the estimated cost in USD based on the model's pricing.
+func (u *TokenUsage) EstimatedCost(model string) float64 {
+	p, ok := ModelPricingTable[model]
+	if !ok {
+		return 0
+	}
+	cost := float64(u.InputTokens) * p.InputPerMTok / 1_000_000
+	cost += float64(u.OutputTokens) * p.OutputPerMTok / 1_000_000
+	cost += float64(u.CacheCreationInputTokens) * p.CacheCreatePerMTok / 1_000_000
+	cost += float64(u.CacheReadInputTokens) * p.CacheReadPerMTok / 1_000_000
+	return cost
+}
+
+// ModelPricing holds per-million-token prices in USD.
+type ModelPricing struct {
+	InputPerMTok       float64
+	OutputPerMTok      float64
+	CacheCreatePerMTok float64
+	CacheReadPerMTok   float64
+}
+
+// ModelPricingTable maps model IDs to their pricing.
+var ModelPricingTable = map[string]ModelPricing{
+	// Claude Sonnet 4.5
+	"claude-sonnet-4-5-20250929": {InputPerMTok: 3.0, OutputPerMTok: 15.0, CacheCreatePerMTok: 3.75, CacheReadPerMTok: 0.30},
+	// Claude Haiku 4.5
+	"claude-haiku-4-5-20251001": {InputPerMTok: 0.80, OutputPerMTok: 4.0, CacheCreatePerMTok: 1.0, CacheReadPerMTok: 0.08},
+	// Gemini
+	"gemini-2.0-flash":                {InputPerMTok: 0.10, OutputPerMTok: 0.40},
+	"gemini-2.5-flash-preview-05-20":  {InputPerMTok: 0.15, OutputPerMTok: 0.60},
+	"gemini-pro":                      {InputPerMTok: 0.50, OutputPerMTok: 1.50},
+}
+
 // AnalysisResult represents the result of analyzing a game
 type AnalysisResult struct {
 	GameInfo     GameInfo            `json:"gameInfo,omitempty"`
@@ -895,7 +948,7 @@ IMPORTANT RULES:
 - Use percentage-based coordinates that match what you see in the screenshots
 - NEVER use extendedWaitUntil with only timeout and no condition. extendedWaitUntil REQUIRES either "visible" or "notVisible" — timeout alone is INVALID.
 - For "wait for page to load" scenarios, wait for a specific visible element (a button, heading, or game text).
-- NEVER use {visible: "..."} with tapOn. The "visible" field is ONLY for extendedWaitUntil. For tapOn, use tapOn: "text" directly.
+- NEVER use {visible: "..."} or {notVisible: "..."} with tapOn, assertVisible, assertNotVisible, or any other command. These fields are ONLY valid inside extendedWaitUntil. For other commands, use a plain string: tapOn: "text", assertVisible: "text".
 
 FLOW COMPOSITION — SHARED SETUP:
 - The FIRST flow MUST be a "setup" flow named exactly "setup". It contains the common steps that every test needs: opening the browser, waiting for the game to load, dismissing any splash screens, skipping tutorials, and reaching the main game state.

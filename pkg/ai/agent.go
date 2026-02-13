@@ -534,6 +534,7 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 			onProgress(step, message)
 		}
 	}
+	defer a.emitCostEstimate(progress)
 
 	// --- Resume path: skip exploration + synthesis if checkpoint has analysis ---
 	if opts.resumeData != nil && opts.resumeData.Step == "synthesized" && len(opts.resumeData.Analysis) > 0 {

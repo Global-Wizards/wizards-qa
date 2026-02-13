@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.6] - 2026-02-12
+
+### Fixed
+- **Generated flow YAML produces invalid syntax errors** — replaced hand-rolled `commandToYAML` string formatting with `fixCommandData` + `yaml.Marshal` in both `executor.go` and `analyzer.go`. This fixes: unescaped quotes in string values breaking YAML, embedded newlines splitting values across lines, `[]interface{}` sub-values rendering as Go debug strings (`[map[key:value]]`), and `visible`/`notVisible` fields leaking into commands like `tapOn` and `assertVisible` where they aren't valid. The new `fixCommandData` function fixes AI mistakes at the data level (alias translation, structure flattening, newline stripping) before delegating to Go's YAML library for correct serialization.
+
 ## [0.23.5] - 2026-02-12
 
 ### Fixed

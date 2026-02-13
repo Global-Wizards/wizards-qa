@@ -35,6 +35,7 @@ type BaseClient struct {
 	MaxTokens   int
 	HTTPClient  *http.Client
 	caller      APICallerOnce
+	OnUsage     func(input, output, cacheCreate, cacheRead int) // optional callback for token usage tracking
 }
 
 // NewBaseClient creates a BaseClient with standard HTTP settings.

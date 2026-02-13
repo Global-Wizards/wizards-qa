@@ -194,9 +194,12 @@ func (v *Validator) validateSpecificCommand(cmdName string, value interface{}, c
 				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (tapOn): empty text selector", cmdNum))
 			}
 		case map[string]interface{}:
-			// Warn on invalid visible field (only valid in extendedWaitUntil)
+			// Warn on invalid visible/notVisible fields (only valid in extendedWaitUntil)
 			if _, hasVisible := val["visible"]; hasVisible {
-				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (tapOn): 'visible' is not a valid tapOn selector — use tapOn: \"text\" instead", cmdNum))
+				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (tapOn): 'visible' is not a valid selector — use tapOn: \"text\" instead", cmdNum))
+			}
+			if _, hasNotVisible := val["notVisible"]; hasNotVisible {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (tapOn): 'notVisible' is not a valid selector — use tapOn: \"text\" instead", cmdNum))
 			}
 			// Check for point coordinates
 			if point, ok := val["point"]; ok {
@@ -223,6 +226,13 @@ func (v *Validator) validateSpecificCommand(cmdName string, value interface{}, c
 			if str == "" {
 				result.Errors = append(result.Errors, fmt.Sprintf("command %d (%s): empty assertion", cmdNum, cmdName))
 				result.Valid = false
+			}
+		} else if val, ok := value.(map[string]interface{}); ok {
+			if _, has := val["visible"]; has {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (%s): 'visible' is not a valid selector — use %s: \"text\" instead", cmdNum, cmdName, cmdName))
+			}
+			if _, has := val["notVisible"]; has {
+				result.Warnings = append(result.Warnings, fmt.Sprintf("command %d (%s): 'notVisible' is not a valid selector — use %s: \"text\" instead", cmdNum, cmdName, cmdName))
 			}
 		}
 

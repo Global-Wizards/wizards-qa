@@ -16,6 +16,7 @@ import (
 
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
+	"gopkg.in/yaml.v3"
 )
 
 // runningTest tracks the live state of a running test execution for reconnection support.
@@ -493,11 +494,29 @@ func (s *Server) regenerateFlowsFromAnalysis(analysisID string) error {
 			sb.WriteString("---\n")
 		}
 
-		// Commands — serialize using Maestro-compatible formatting
+		// Commands — serialize using yaml.Marshal for correct escaping
 		if commands, ok := flowMap["commands"].([]interface{}); ok {
 			for _, cmd := range commands {
 				if cmdMap, ok := cmd.(map[string]interface{}); ok {
-					sb.WriteString(commandToYAML(cmdMap))
+					// Extract comment before fixing
+					if comment, ok := cmdMap["comment"].(string); ok && comment != "" {
+						sb.WriteString(fmt.Sprintf("# %s\n", strings.ReplaceAll(comment, "\n", " ")))
+					}
+					if fixed := fixCommandData(cmdMap, maestroCommandAliases); fixed != nil {
+						var toMarshal interface{} = fixed
+						// Single key with empty string → plain command (e.g. "- takeScreenshot")
+						if len(fixed) == 1 {
+							for k, v := range fixed {
+								if s, ok := v.(string); ok && s == "" {
+									toMarshal = k
+								}
+							}
+						}
+						cmdYAML, err := yaml.Marshal([]interface{}{toMarshal})
+						if err == nil {
+							sb.Write(cmdYAML)
+						}
+					}
 				}
 			}
 		}
@@ -513,83 +532,86 @@ func (s *Server) regenerateFlowsFromAnalysis(analysisID string) error {
 	return nil
 }
 
-// commandToYAML converts a command map to Maestro-compatible YAML string.
-// Ported from pkg/ai/analyzer.go to avoid cross-module import.
-func commandToYAML(cmd map[string]interface{}) string {
-	var sb strings.Builder
-
+// fixCommandData fixes AI mistakes at the data level before yaml.Marshal.
+// It translates command aliases, flattens invalid nested structures, strips
+// newlines from string values, and removes invalid extendedWaitUntil blocks.
+func fixCommandData(cmd map[string]interface{}, aliases map[string]string) map[string]interface{} {
+	fixed := make(map[string]interface{})
 	for key, value := range cmd {
-		// Translate invalid command aliases to correct Maestro names
-		if corrected, ok := maestroCommandAliases[key]; ok {
-			key = corrected
+		if key == "comment" {
+			continue // handled separately before marshaling
 		}
-		// Skip extendedWaitUntil commands that have no visible/notVisible condition
-		if key == "extendedWaitUntil" {
-			if m, ok := value.(map[string]interface{}); ok {
-				_, hasVisible := m["visible"]
-				_, hasNotVisible := m["notVisible"]
-				if !hasVisible && !hasNotVisible {
-					continue
-				}
-			}
+		if corrected, ok := aliases[key]; ok {
+			key = corrected
 		}
 		switch v := value.(type) {
 		case string:
-			if key == "comment" {
-				sb.WriteString(fmt.Sprintf("# %s\n", v))
-			} else if v == "" {
-				sb.WriteString(fmt.Sprintf("- %s\n", key))
-			} else if strings.ContainsAny(v, ",:%{}[]") {
-				sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, v))
-			} else {
-				sb.WriteString(fmt.Sprintf("- %s: %s\n", key, v))
-			}
+			fixed[key] = strings.ReplaceAll(v, "\n", " ")
 		case map[string]interface{}:
 			// Flatten openLink: {url: "..."} → openLink: "..."
 			if key == "openLink" {
 				if urlVal, ok := v["url"]; ok {
-					urlStr := fmt.Sprintf("%v", urlVal)
-					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, urlStr))
+					fixed[key] = strings.ReplaceAll(fmt.Sprintf("%v", urlVal), "\n", " ")
 					continue
 				}
 			}
-			// Flatten {visible: "..."} or {notVisible: "..."} for any command except
-			// extendedWaitUntil. The AI sometimes applies extendedWaitUntil's selector
-			// syntax to tapOn, assertVisible, assertNotVisible, etc.
+			// Flatten {visible: "..."} or {notVisible: "..."} for non-extendedWaitUntil
 			if key != "extendedWaitUntil" {
 				if visVal, ok := v["visible"]; ok {
-					visStr := fmt.Sprintf("%v", visVal)
-					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, visStr))
+					fixed[key] = strings.ReplaceAll(fmt.Sprintf("%v", visVal), "\n", " ")
 					continue
 				}
 				if nvVal, ok := v["notVisible"]; ok {
-					nvStr := fmt.Sprintf("%v", nvVal)
-					sb.WriteString(fmt.Sprintf("- %s: \"%s\"\n", key, nvStr))
+					fixed[key] = strings.ReplaceAll(fmt.Sprintf("%v", nvVal), "\n", " ")
 					continue
 				}
 			}
-			sb.WriteString(fmt.Sprintf("- %s:\n", key))
-			for subKey, subValue := range v {
-				subStr := fmt.Sprintf("%v", subValue)
-				if strings.ContainsAny(subStr, ",:%{}[]") {
-					sb.WriteString(fmt.Sprintf("    %s: \"%s\"\n", subKey, subStr))
-				} else {
-					sb.WriteString(fmt.Sprintf("    %s: %v\n", subKey, subValue))
+			// Skip extendedWaitUntil with only timeout (no visible/notVisible)
+			if key == "extendedWaitUntil" {
+				_, hasVisible := v["visible"]
+				_, hasNotVisible := v["notVisible"]
+				if !hasVisible && !hasNotVisible {
+					continue
 				}
 			}
-		case float64:
-			// JSON numbers are float64; convert to int when possible
-			if v == float64(int64(v)) {
-				sb.WriteString(fmt.Sprintf("- %s: %d\n", key, int64(v)))
-			} else {
-				sb.WriteString(fmt.Sprintf("- %s: %v\n", key, v))
+			// Recursively clean sub-map values
+			cleanedSub := make(map[string]interface{})
+			for sk, sv := range v {
+				switch subV := sv.(type) {
+				case string:
+					cleanedSub[sk] = strings.ReplaceAll(subV, "\n", " ")
+				case []interface{}:
+					cleanedSub[sk] = fixCommandList(subV, aliases)
+				default:
+					cleanedSub[sk] = sv
+				}
 			}
+			fixed[key] = cleanedSub
+		case []interface{}:
+			fixed[key] = fixCommandList(v, aliases)
 		default:
-			sb.WriteString(fmt.Sprintf("- %s: %v\n", key, v))
+			fixed[key] = value
 		}
 	}
+	if len(fixed) == 0 {
+		return nil
+	}
+	return fixed
+}
 
-	return sb.String()
+// fixCommandList recursively fixes a list of command maps (e.g. repeat.commands).
+func fixCommandList(items []interface{}, aliases map[string]string) []interface{} {
+	var result []interface{}
+	for _, item := range items {
+		if m, ok := item.(map[string]interface{}); ok {
+			if fixed := fixCommandData(m, aliases); fixed != nil {
+				result = append(result, fixed)
+			}
+		} else {
+			result = append(result, item)
+		}
+	}
+	return result
 }
 
 // sanitizeFlowName replaces unsafe characters in flow names for use as filenames.
