@@ -1050,8 +1050,8 @@ const testingDetail = computed(() => {
     const dur = stepDuration('testing')
     return `${passed} passed, ${failed} failed of ${total} flow(s)${dur ? ` (${dur}s)` : ''}`
   }
-  if (testStepScreenshots.length > 0) {
-    return `Running... ${testStepScreenshots.length} step(s) captured`
+  if (testStepScreenshots.value.length > 0) {
+    return `Running... ${testStepScreenshots.value.length} step(s) captured`
   }
   const dur = stepDuration('testing')
   return dur ? `Running browser tests... (${dur}s)` : 'Starting browser tests...'

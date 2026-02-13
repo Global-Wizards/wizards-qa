@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.28.1] - 2026-02-13
+
+### Fixed
+- **`testingDetail` computed broken** — added missing `.value` on `testStepScreenshots` ref inside computed, which caused step count to never display during the testing phase.
+- **`runTests` module not persisted to database** — added `runTests` to the modules JSON serialization so the flag survives persistence and reload.
+- **Test state leaking on resume** — `continueAnalysis()` now resets `testRunId`, `testStepScreenshots`, and `testFlowProgress` to prevent stale test data from a previous run.
+
+### Changed
+- **Capped `testStepScreenshots` array** — applied the same `MAX_LIVE_STEPS` (50) rotation used by `liveAgentSteps` to prevent unbounded memory growth from base64 screenshots.
+
 ## [0.28.0] - 2026-02-13
 
 ### Added

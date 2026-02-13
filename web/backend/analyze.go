@@ -269,6 +269,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 			"wording":   req.Modules.Wording == nil || *req.Modules.Wording,
 			"gameDesign": req.Modules.GameDesign == nil || *req.Modules.GameDesign,
 			"testFlows": req.Modules.TestFlows == nil || *req.Modules.TestFlows,
+			"runTests":  req.Modules.RunTests != nil && *req.Modules.RunTests,
 		}
 		if b, err := json.Marshal(m); err == nil {
 			modulesJSON = string(b)

@@ -324,7 +324,7 @@ export function useAnalysis() {
 
     const offTestStepScreenshot = ws.on('test_step_screenshot', (data) => {
       if (!testRunId.value || data.testId !== testRunId.value) return
-      testStepScreenshots.value = [...testStepScreenshots.value, {
+      testStepScreenshots.value = [...testStepScreenshots.value.slice(-(MAX_LIVE_STEPS - 1)), {
         flowName: data.flowName, stepIndex: data.stepIndex, command: data.command,
         screenshotB64: data.screenshotB64, result: data.result, status: data.status,
         reasoning: data.reasoning || '',
@@ -446,6 +446,9 @@ export function useAnalysis() {
     liveAgentSteps.value = []
     latestScreenshot.value = null
     agentReasoning.value = ''
+    testRunId.value = null
+    testStepScreenshots.value = []
+    testFlowProgress.value = []
 
     startElapsedTimer()
     setupListeners()
