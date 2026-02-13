@@ -51,11 +51,24 @@ var deprecatedCommands = map[string]string{
 	"wait":        "extendedWaitUntil",
 }
 
+// flowValidationDebug holds debug context for troubleshooting validation failures.
+type flowValidationDebug struct {
+	RawContent       string `json:"rawContent"`
+	MetadataSection  string `json:"metadataSection"`
+	CommandsSection  string `json:"commandsSection"`
+	SeparatorFound   bool   `json:"separatorFound"`
+	ParsedMetadata   any    `json:"parsedMetadata,omitempty"`
+	ParsedCommands   any    `json:"parsedCommands,omitempty"`
+	ContentLength    int    `json:"contentLength"`
+	LineCount        int    `json:"lineCount"`
+}
+
 // flowValidationResult is the JSON response for the validate endpoint.
 type flowValidationResult struct {
-	Valid    bool     `json:"valid"`
-	Errors   []string `json:"errors"`
-	Warnings []string `json:"warnings"`
+	Valid    bool                  `json:"valid"`
+	Errors   []string             `json:"errors"`
+	Warnings []string             `json:"warnings"`
+	Debug    *flowValidationDebug `json:"debug,omitempty"`
 }
 
 // validateMaestroYAML validates raw YAML content as a Maestro flow.
@@ -82,11 +95,37 @@ func validateMaestroYAML(content string) *flowValidationResult {
 	}
 
 	// Phase 2: Parse Maestro flow structure (metadata + commands split by ---)
-	appId, url, commands, parseErrors := parseMaestroContent(content)
+	appId, url, commands, parseErrors, debugMeta, debugCmds, sepFound := parseMaestroContent(content)
+
+	// Build debug info
+	debug := &flowValidationDebug{
+		RawContent:      content,
+		MetadataSection: debugMeta,
+		CommandsSection: debugCmds,
+		SeparatorFound:  sepFound,
+		ContentLength:   len(content),
+		LineCount:       strings.Count(content, "\n") + 1,
+	}
+	result.Debug = debug
+
 	if len(parseErrors) > 0 {
 		result.Valid = false
 		result.Errors = append(result.Errors, parseErrors...)
 		return result
+	}
+
+	// Attach parsed structures to debug
+	if debugMeta != "" {
+		var pm interface{}
+		if yaml.Unmarshal([]byte(debugMeta), &pm) == nil {
+			debug.ParsedMetadata = pm
+		}
+	}
+	if debugCmds != "" {
+		var pc interface{}
+		if yaml.Unmarshal([]byte(debugCmds), &pc) == nil {
+			debug.ParsedCommands = pc
+		}
 	}
 
 	// Phase 3: Structure validation
@@ -110,7 +149,7 @@ func validateMaestroYAML(content string) *flowValidationResult {
 }
 
 // parseMaestroContent splits a Maestro flow on "---" and parses metadata + commands.
-func parseMaestroContent(content string) (appId, url string, commands []interface{}, errors []string) {
+func parseMaestroContent(content string) (appId, url string, commands []interface{}, errors []string, debugMeta string, debugCmds string, sepFound bool) {
 	data := []byte(content)
 	parts := bytes.Split(data, []byte("\n---\n"))
 
@@ -125,8 +164,11 @@ func parseMaestroContent(content string) (appId, url string, commands []interfac
 		}
 	}
 
+	sepFound = len(parts) > 1
+
 	if len(parts) == 1 {
 		// No --- separator: try to parse as a single document
+		debugMeta = string(data)
 		// Could be just a command list, or metadata + commands mixed
 		var rawList []interface{}
 		if err := yaml.Unmarshal(data, &rawList); err == nil && len(rawList) > 0 {
@@ -151,6 +193,11 @@ func parseMaestroContent(content string) (appId, url string, commands []interfac
 
 		errors = append(errors, "Could not parse flow structure — expected a YAML list of commands or a metadata map")
 		return
+	}
+
+	debugMeta = string(parts[0])
+	if len(parts) > 1 {
+		debugCmds = string(parts[1])
 	}
 
 	// Parse metadata (before ---)

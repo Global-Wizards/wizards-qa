@@ -200,6 +200,71 @@
                         </div>
                       </div>
 
+                      <!-- Debug console (shows when validation has errors) -->
+                      <div
+                        v-if="flow.validation && !flow.validation.valid && flow.validation.debug"
+                        class="mb-2 border border-border rounded-md overflow-hidden"
+                      >
+                        <button
+                          class="flex items-center gap-2 w-full px-3 py-2 text-xs font-medium text-muted-foreground bg-muted/50 hover:bg-muted transition-colors cursor-pointer"
+                          @click="toggleDebug(flow.name)"
+                        >
+                          <Bug class="h-3.5 w-3.5" />
+                          <component :is="debugOpen.has(flow.name) ? ChevronDown : ChevronRight" class="h-3 w-3" />
+                          Debug Console
+                          <span class="ml-auto flex items-center gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              class="h-5 px-1.5 text-xs"
+                              @click.stop="copyDebugInfo(flow)"
+                            >
+                              <component :is="debugCopied ? Check : Copy" class="h-3 w-3 mr-1" />
+                              {{ debugCopied ? 'Copied' : 'Copy' }}
+                            </Button>
+                          </span>
+                        </button>
+                        <div v-if="debugOpen.has(flow.name)" class="px-3 py-2 text-xs font-mono bg-background space-y-3 max-h-[400px] overflow-auto">
+                          <div>
+                            <p class="text-muted-foreground font-sans font-medium mb-1">Content Info</p>
+                            <p>Length: {{ flow.validation.debug.contentLength }} chars, {{ flow.validation.debug.lineCount }} lines</p>
+                            <p>Separator (---): {{ flow.validation.debug.separatorFound ? 'found' : 'NOT found' }}</p>
+                          </div>
+                          <div v-if="flow.validation.debug.metadataSection">
+                            <p class="text-muted-foreground font-sans font-medium mb-1">Metadata Section (above ---)</p>
+                            <pre class="whitespace-pre-wrap break-all bg-muted/30 rounded p-2 border border-border">{{ flow.validation.debug.metadataSection }}</pre>
+                          </div>
+                          <div v-if="flow.validation.debug.commandsSection">
+                            <p class="text-muted-foreground font-sans font-medium mb-1">Commands Section (below ---)</p>
+                            <pre class="whitespace-pre-wrap break-all bg-muted/30 rounded p-2 border border-border">{{ flow.validation.debug.commandsSection }}</pre>
+                          </div>
+                          <div v-if="flow.validation.debug.parsedMetadata">
+                            <p class="text-muted-foreground font-sans font-medium mb-1">Parsed Metadata (JSON)</p>
+                            <pre class="whitespace-pre-wrap break-all bg-muted/30 rounded p-2 border border-border">{{ JSON.stringify(flow.validation.debug.parsedMetadata, null, 2) }}</pre>
+                          </div>
+                          <div v-if="flow.validation.debug.parsedCommands">
+                            <p class="text-muted-foreground font-sans font-medium mb-1">Parsed Commands (JSON)</p>
+                            <pre class="whitespace-pre-wrap break-all bg-muted/30 rounded p-2 border border-border">{{ JSON.stringify(flow.validation.debug.parsedCommands, null, 2) }}</pre>
+                          </div>
+                          <div>
+                            <p class="text-muted-foreground font-sans font-medium mb-1">Errors</p>
+                            <ul class="list-disc list-inside space-y-0.5">
+                              <li v-for="(err, i) in flow.validation.errors" :key="i" class="text-destructive">{{ err }}</li>
+                            </ul>
+                          </div>
+                          <div v-if="flow.validation.warnings?.length">
+                            <p class="text-muted-foreground font-sans font-medium mb-1">Warnings</p>
+                            <ul class="list-disc list-inside space-y-0.5">
+                              <li v-for="(w, i) in flow.validation.warnings" :key="i" class="text-yellow-600 dark:text-yellow-400">{{ w }}</li>
+                            </ul>
+                          </div>
+                          <div>
+                            <p class="text-muted-foreground font-sans font-medium mb-1">Raw Content</p>
+                            <pre class="whitespace-pre-wrap break-all bg-muted/30 rounded p-2 border border-border max-h-[200px] overflow-auto">{{ flow.validation.debug.rawContent }}</pre>
+                          </div>
+                        </div>
+                      </div>
+
                       <div class="border rounded-md overflow-hidden">
                         <Codemirror
                           :model-value="flow.content"
@@ -257,7 +322,8 @@
 <script setup>
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX } from 'lucide-vue-next'
+import { useClipboard } from '@vueuse/core'
+import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX, Bug, Copy, Check, ChevronDown, ChevronRight } from 'lucide-vue-next'
 import { Codemirror } from 'vue-codemirror'
 import { yaml } from '@codemirror/lang-yaml'
 import { oneDark } from '@codemirror/theme-one-dark'
@@ -300,6 +366,49 @@ let snapshot = null
 // Validation state
 const validatingAll = ref(false)
 const validationSummary = ref(null)
+
+// Debug console state
+const debugOpen = ref(new Set())
+const { copy: copyToClipboard, copied: debugCopied } = useClipboard({ copiedDuring: 2000 })
+
+function toggleDebug(flowName) {
+  const next = new Set(debugOpen.value)
+  if (next.has(flowName)) next.delete(flowName)
+  else next.add(flowName)
+  debugOpen.value = next
+}
+
+function copyDebugInfo(flow) {
+  const d = flow.validation?.debug
+  if (!d) return
+  const lines = [
+    `=== FLOW VALIDATION DEBUG ===`,
+    `Flow: ${flow.name}`,
+    `Timestamp: ${new Date().toISOString()}`,
+    `Content: ${d.contentLength} chars, ${d.lineCount} lines`,
+    `Separator (---): ${d.separatorFound ? 'found' : 'NOT found'}`,
+    ``,
+    `--- ERRORS ---`,
+    ...flow.validation.errors.map(e => `  • ${e}`),
+  ]
+  if (flow.validation.warnings?.length) {
+    lines.push(``, `--- WARNINGS ---`, ...flow.validation.warnings.map(w => `  • ${w}`))
+  }
+  if (d.metadataSection) {
+    lines.push(``, `--- METADATA SECTION (above ---) ---`, d.metadataSection)
+  }
+  if (d.commandsSection) {
+    lines.push(``, `--- COMMANDS SECTION (below ---) ---`, d.commandsSection)
+  }
+  if (d.parsedMetadata) {
+    lines.push(``, `--- PARSED METADATA (JSON) ---`, JSON.stringify(d.parsedMetadata, null, 2))
+  }
+  if (d.parsedCommands) {
+    lines.push(``, `--- PARSED COMMANDS (JSON) ---`, JSON.stringify(d.parsedCommands, null, 2))
+  }
+  lines.push(``, `--- RAW CONTENT ---`, d.rawContent)
+  copyToClipboard(lines.join('\n'))
+}
 
 // Variables as entries for editing
 const variableEntries = ref([])
