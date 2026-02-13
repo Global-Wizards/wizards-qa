@@ -113,7 +113,7 @@
     </div>
 
     <!-- D. Timeline -->
-    <div ref="timelineRef" class="max-h-[500px] overflow-y-auto px-4 py-3 relative">
+    <div ref="timelineRef" class="max-h-[500px] overflow-y-auto px-4 py-3 relative scrollbar-thin" @scroll="handleTimelineScroll">
       <!-- Vertical connector line -->
       <div v-if="steps.length > 0" class="absolute left-[27px] top-4 bottom-4 w-px bg-border" />
 
@@ -154,7 +154,7 @@
               <!-- Step card -->
               <div
                 :class="[
-                  'flex-1 rounded-md border p-2.5 transition-all cursor-pointer hover:bg-accent/50',
+                  'flex-1 rounded-md border p-2.5 transition-all cursor-pointer hover:bg-accent/50 overflow-hidden min-w-0',
                   isLatestStep(i) && explorationStatus === 'active' ? 'border-primary/30 glow-primary-sm' : '',
                   entry.error ? 'border-red-200 dark:border-red-800/50' : '',
                 ]"
@@ -194,7 +194,7 @@
                 />
 
                 <!-- Reasoning (collapsed: 2-line clamp) -->
-                <p v-if="entry.reasoning" :class="['text-xs text-muted-foreground mt-1.5', expandedSteps[i] ? '' : 'line-clamp-2']">
+                <p v-if="entry.reasoning" :class="['text-xs text-muted-foreground mt-1.5 break-words', expandedSteps[i] ? '' : 'line-clamp-2']">
                   {{ entry.reasoning }}
                 </p>
 
@@ -207,15 +207,15 @@
                 <template v-if="expandedSteps[i]">
                   <div v-if="entry.input" class="mt-2 text-xs">
                     <span class="text-muted-foreground font-medium">Input:</span>
-                    <pre class="bg-muted rounded px-2 py-1 mt-0.5 overflow-x-auto text-[11px] whitespace-pre-wrap">{{ typeof entry.input === 'string' ? entry.input : JSON.stringify(entry.input, null, 2) }}</pre>
+                    <pre class="bg-muted rounded px-2 py-1 mt-0.5 overflow-hidden text-[11px] whitespace-pre-wrap break-words">{{ typeof entry.input === 'string' ? entry.input : JSON.stringify(entry.input, null, 2) }}</pre>
                   </div>
                   <div v-if="entry.result" class="mt-2 text-xs">
                     <span class="text-muted-foreground font-medium">Result:</span>
-                    <p class="text-muted-foreground mt-0.5 whitespace-pre-wrap">{{ entry.result }}</p>
+                    <p class="text-muted-foreground mt-0.5 whitespace-pre-wrap break-words">{{ entry.result }}</p>
                   </div>
                   <div v-if="entry.error" class="mt-2 text-xs">
                     <span class="font-medium text-red-500">Error:</span>
-                    <p class="text-red-500 mt-0.5 whitespace-pre-wrap">{{ entry.error }}</p>
+                    <p class="text-red-500 mt-0.5 whitespace-pre-wrap break-words">{{ entry.error }}</p>
                   </div>
                 </template>
 
@@ -241,6 +241,18 @@
           </div>
         </div>
       </div>
+
+      <!-- Bottom fade gradient -->
+      <div v-if="steps.length > 3" class="sticky bottom-0 left-0 right-0 h-8 bg-gradient-to-t from-card to-transparent pointer-events-none" />
+
+      <!-- Scroll-to-bottom button -->
+      <button
+        v-if="userScrolledAway && explorationStatus === 'active'"
+        class="sticky bottom-2 left-1/2 -translate-x-1/2 z-20 bg-primary text-primary-foreground rounded-full p-1.5 shadow-lg hover:bg-primary/90 transition-opacity"
+        @click="scrollToBottom"
+      >
+        <ChevronDown class="h-4 w-4" />
+      </button>
     </div>
 
     <!-- E. Hint Input Bar / Completion Footer -->
@@ -285,7 +297,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onUnmounted } from 'vue'
 import {
-  Loader2, CheckCircle, MessageCircle, Send,
+  Loader2, CheckCircle, MessageCircle, Send, ChevronDown,
   MousePointerClick, Type, ArrowDown, Camera, Search, Terminal, Code,
   Globe, Clock, Plus, Timer, Circle, Zap, Brain,
 } from 'lucide-vue-next'
@@ -489,6 +501,20 @@ function isLatestStep(index) {
 
 // --- Minimap scroll ---
 const timelineRef = ref(null)
+const userScrolledAway = ref(false)
+
+function handleTimelineScroll() {
+  const el = timelineRef.value
+  if (!el) return
+  userScrolledAway.value = el.scrollHeight - el.scrollTop - el.clientHeight > 120
+}
+
+function scrollToBottom() {
+  const el = timelineRef.value
+  if (!el) return
+  el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+  userScrolledAway.value = false
+}
 
 function scrollToStep(minimapIndex) {
   const toolName = toolSteps.value[minimapIndex]
@@ -531,11 +557,8 @@ onUnmounted(() => {
 // --- Auto-scroll timeline ---
 watch(() => props.steps.length, () => {
   nextTick(() => {
-    const el = timelineRef.value
-    if (!el) return
-    const isNearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80
-    if (isNearBottom) {
-      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    if (!userScrolledAway.value) {
+      scrollToBottom()
     }
   })
 })

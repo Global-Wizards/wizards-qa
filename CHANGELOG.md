@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.4] - 2026-02-13
+
+### Improved
+- **Agent exploration panel scrolling & overflow** — Added a floating "scroll to bottom" button that appears when the user scrolls away during active exploration, allowing one-click return to auto-follow mode. Fixed long text in expanded step details (result, error, input, reasoning) overflowing card boundaries by adding `break-words` and `overflow-hidden`. Styled the timeline scrollbar to be thin (4px) for both vertical and horizontal axes. Added a subtle bottom fade gradient to visually hint at scrollable content.
+
 ## [0.34.3] - 2026-02-13
 
 ### Fixed
