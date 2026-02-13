@@ -10,6 +10,7 @@ const LS_KEY = 'wizards-qa-running-analysis'
 
 // Map granular step names to coarse status for backward compat
 const STEP_TO_STATUS = {
+  queued: 'scouting',
   scouting: 'scouting',
   scouted: 'scouting',
   scouted_detail: 'scouting',

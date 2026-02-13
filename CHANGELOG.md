@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.4] - 2026-02-13
+
+### Fixed
+- **New analysis returns 404 while queued behind another** — the analysis DB record was only saved after acquiring the concurrency semaphore, so if another analysis was already running, the status endpoint returned 404 for the queued analysis. Now saves the record immediately with step "queued" before waiting for the semaphore.
+
 ## [0.32.3] - 2026-02-13
 
 ### Fixed

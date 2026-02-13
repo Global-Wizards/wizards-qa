@@ -242,31 +242,6 @@ func (s *Server) handleBatchAnalyze(w http.ResponseWriter, r *http.Request) {
 func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisRequest) {
 	gameURL := req.GameURL
 	agentMode := req.AgentMode
-	// Acquire concurrency slot (released before inline test run to avoid two Chrome instances)
-	select {
-	case s.analysisSem <- struct{}{}:
-		// Released explicitly below, not via defer
-	case <-s.serverCtx.Done():
-		s.broadcastAnalysisError(analysisID, "Server shutting down")
-		return
-	}
-	analysisSemHeld := true
-	releaseAnalysisSem := func() {
-		if analysisSemHeld {
-			<-s.analysisSem
-			analysisSemHeld = false
-		}
-	}
-	defer releaseAnalysisSem()
-
-	s.wsHub.Broadcast(ws.Message{
-		Type: "analysis_progress",
-		Data: AnalysisProgress{
-			Step:    "scouting",
-			Message: "Scouting page...",
-			Data:    map[string]string{"analysisId": analysisID, "gameUrl": gameURL},
-		},
-	})
 
 	// Serialize modules to JSON for persistence
 	modulesJSON := ""
@@ -321,12 +296,12 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		}
 	}
 
-	// Save "running" record immediately so the job is persisted
+	// Save record BEFORE acquiring semaphore so status endpoint returns it while queued
 	runningRecord := store.AnalysisRecord{
 		ID:        analysisID,
 		GameURL:   gameURL,
 		Status:    store.StatusRunning,
-		Step:      "scouting",
+		Step:      "queued",
 		CreatedAt: time.Now().Format(time.RFC3339),
 		UpdatedAt: time.Now().Format(time.RFC3339),
 		CreatedBy: createdBy,
@@ -338,6 +313,36 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	if err := s.store.SaveAnalysis(runningRecord); err != nil {
 		log.Printf("Warning: failed to save running analysis record for %s: %v", analysisID, err)
 	}
+
+	// Acquire concurrency slot (released before inline test run to avoid two Chrome instances)
+	select {
+	case s.analysisSem <- struct{}{}:
+		// Released explicitly below, not via defer
+	case <-s.serverCtx.Done():
+		s.store.UpdateAnalysisStatus(analysisID, store.StatusFailed, "shutdown")
+		s.broadcastAnalysisError(analysisID, "Server shutting down")
+		return
+	}
+	analysisSemHeld := true
+	releaseAnalysisSem := func() {
+		if analysisSemHeld {
+			<-s.analysisSem
+			analysisSemHeld = false
+		}
+	}
+	defer releaseAnalysisSem()
+
+	// Update step now that we have the semaphore
+	s.store.UpdateAnalysisStatus(analysisID, store.StatusRunning, "scouting")
+
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_progress",
+		Data: AnalysisProgress{
+			Step:    "scouting",
+			Message: "Scouting page...",
+			Data:    map[string]string{"analysisId": analysisID, "gameUrl": gameURL},
+		},
+	})
 
 	cliPath := envOrDefault("WIZARDS_QA_CLI_PATH", "wizards-qa")
 
