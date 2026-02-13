@@ -65,10 +65,11 @@ type flowValidationDebug struct {
 
 // flowValidationResult is the JSON response for the validate endpoint.
 type flowValidationResult struct {
-	Valid    bool                  `json:"valid"`
-	Errors   []string             `json:"errors"`
-	Warnings []string             `json:"warnings"`
-	Debug    *flowValidationDebug `json:"debug,omitempty"`
+	Valid            bool                  `json:"valid"`
+	Errors           []string             `json:"errors"`
+	Warnings         []string             `json:"warnings"`
+	Debug            *flowValidationDebug `json:"debug,omitempty"`
+	NormalizedContent string              `json:"normalizedContent,omitempty"`
 }
 
 // validateMaestroYAML validates raw YAML content as a Maestro flow.

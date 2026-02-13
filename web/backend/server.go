@@ -435,6 +435,19 @@ func (s *Server) handleValidateFlow(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	result := validateMaestroYAML(req.Content)
+
+	// If validation failed, try normalizing and re-validating.
+	// If normalized version is better, offer it as a suggested fix.
+	if !result.Valid {
+		normalized := normalizeFlowYAML(req.Content)
+		if normalized != req.Content {
+			fixResult := validateMaestroYAML(normalized)
+			if fixResult.Valid || len(fixResult.Errors) < len(result.Errors) {
+				result.NormalizedContent = normalized
+			}
+		}
+	}
+
 	respondJSON(w, http.StatusOK, result)
 }
 

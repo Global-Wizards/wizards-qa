@@ -200,6 +200,21 @@
                         </div>
                       </div>
 
+                      <!-- Auto-fix suggestion -->
+                      <div
+                        v-if="flow.validation && flow.validation.normalizedContent"
+                        class="flex items-center gap-2 rounded-md border border-blue-200 dark:border-blue-900 bg-blue-50 dark:bg-blue-950/30 px-3 py-2 mb-2"
+                      >
+                        <Wand2 class="h-4 w-4 text-blue-600 dark:text-blue-400 shrink-0" />
+                        <span class="text-sm text-blue-800 dark:text-blue-300 flex-1">
+                          Auto-fix available — removes invalid <code class="bg-blue-100 dark:bg-blue-900/50 px-1 rounded text-xs">visible:</code> / <code class="bg-blue-100 dark:bg-blue-900/50 px-1 rounded text-xs">notVisible:</code> fields and fixes blank lines
+                        </span>
+                        <Button size="sm" variant="outline" class="shrink-0" @click="applyAutoFix(flow)">
+                          <Wand2 class="h-3.5 w-3.5 mr-1" />
+                          Apply Fix
+                        </Button>
+                      </div>
+
                       <!-- Debug console (shows when validation has errors) -->
                       <div
                         v-if="flow.validation && !flow.validation.valid && flow.validation.debug"
@@ -323,7 +338,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClipboard } from '@vueuse/core'
-import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX, Bug, Copy, Check, ChevronDown, ChevronRight } from 'lucide-vue-next'
+import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX, Bug, Copy, Check, ChevronDown, ChevronRight, Wand2 } from 'lucide-vue-next'
 import { Codemirror } from 'vue-codemirror'
 import { yaml } from '@codemirror/lang-yaml'
 import { oneDark } from '@codemirror/theme-one-dark'
@@ -376,6 +391,16 @@ function toggleDebug(flowName) {
   if (next.has(flowName)) next.delete(flowName)
   else next.add(flowName)
   debugOpen.value = next
+}
+
+function applyAutoFix(flow) {
+  if (!flow.validation?.normalizedContent) return
+  flow.content = flow.validation.normalizedContent
+  flow.validation = null
+  validationSummary.value = null
+  const next = new Set(dirtyFlows.value)
+  next.add(flow.name)
+  dirtyFlows.value = next
 }
 
 function copyDebugInfo(flow) {
