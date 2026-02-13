@@ -165,6 +165,7 @@ func runMigrations(db *sql.DB) error {
 		`ALTER TABLE test_results ADD COLUMN plan_id TEXT DEFAULT ''`,
 		`ALTER TABLE agent_steps ADD COLUMN thinking_ms INTEGER DEFAULT 0`,
 		`ALTER TABLE analyses ADD COLUMN last_test_run_id TEXT DEFAULT ''`,
+		`ALTER TABLE test_plans ADD COLUMN mode TEXT DEFAULT ''`,
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {

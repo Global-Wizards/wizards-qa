@@ -5,6 +5,18 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.0] - 2026-02-13
+
+### Added
+- **Agent-driven test execution** — New `agent` test mode where an AI agent autonomously executes test scenarios using browser tools, replacing the YAML-based Maestro flow pipeline. The agent receives structured test scenarios from analysis results, navigates the game, performs actions, verifies outcomes, and reports pass/fail for each scenario. Eliminates the indirection of generating YAML flows as an intermediate step.
+- **`report_result` tool** — New tool for the test executor agent to report pass/fail verdict with reasoning for each scenario.
+- **`mode` field on test plans** — Test plans now track their execution mode (`"agent"` or empty for legacy). Agent-mode plans are auto-created from analysis scenarios.
+
+### Changed
+- **Analysis pipeline no longer generates YAML flows in agent mode** — `AnalyzeFromURLWithAgent` skips the `generateFlowsStructured` step entirely. Scenarios from the analysis result are stored in the DB and executed directly by the agent.
+- **Auto-created test plans use scenario names** — Instead of reading YAML filenames from disk, agent-mode test plans store scenario names in the `FlowNames` field.
+- **Default test mode is now `agent`** — The "Run Tests" button on the Analysis Detail page now uses agent mode instead of browser mode.
+
 ## [0.34.6] - 2026-02-13
 
 ### Fixed

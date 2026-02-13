@@ -689,17 +689,11 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 
 	// Parse optional run mode and viewport from request body
 	var req struct {
-		Mode     string `json:"mode"`     // "maestro" (default) or "browser"
-		Viewport string `json:"viewport"` // viewport preset name for browser mode
+		Mode     string `json:"mode"`     // "maestro" (default), "browser", or "agent"
+		Viewport string `json:"viewport"` // viewport preset name for browser/agent mode
 	}
 	// Body is optional — ignore decode errors for backward compat (e.g. empty body)
 	json.NewDecoder(r.Body).Decode(&req)
-
-	flowDir, err := s.prepareFlowDir(plan)
-	if err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to prepare flows: "+err.Error())
-		return
-	}
 
 	testID := newID("test")
 	var createdByPlan string
@@ -707,15 +701,38 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 		createdByPlan = claims.UserID
 	}
 
-	mode := "maestro"
-	if req.Mode == "browser" {
-		mode = "browser"
+	mode := req.Mode
+	switch mode {
+	case "agent":
+		if plan.AnalysisID == "" {
+			respondError(w, http.StatusBadRequest, "Agent mode requires an analysis-linked plan")
+			return
+		}
+		viewport := req.Viewport
+		if viewport == "" {
+			viewport = "desktop-std"
+		}
+		s.launchAgentTestRun(plan.ID, testID, plan.AnalysisID, plan.Name, viewport, createdByPlan)
+
+	case "browser":
+		flowDir, err := s.prepareFlowDir(plan)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to prepare flows: "+err.Error())
+			return
+		}
 		viewport := req.Viewport
 		if viewport == "" {
 			viewport = "desktop-std"
 		}
 		s.launchBrowserTestRun(plan.ID, testID, flowDir, plan.Name, viewport, true, createdByPlan)
-	} else {
+
+	default:
+		mode = "maestro"
+		flowDir, err := s.prepareFlowDir(plan)
+		if err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to prepare flows: "+err.Error())
+			return
+		}
 		s.launchTestRun(plan.ID, testID, flowDir, plan.Name, true, createdByPlan)
 	}
 

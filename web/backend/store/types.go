@@ -114,6 +114,7 @@ type TestPlan struct {
 	CreatedBy   string            `json:"createdBy,omitempty"`
 	ProjectID   string            `json:"projectId,omitempty"`
 	AnalysisID  string            `json:"analysisId,omitempty"`
+	Mode        string            `json:"mode,omitempty"` // "agent" or "" (empty = legacy maestro/browser)
 }
 
 type TestPlanSummary struct {

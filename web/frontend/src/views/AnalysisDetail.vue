@@ -225,7 +225,7 @@ async function runTests() {
   if (!planId) return
   runningTests.value = true
   try {
-    const data = await testPlansApi.run(planId, { mode: 'browser' })
+    const data = await testPlansApi.run(planId, { mode: 'agent' })
     const basePath = route.params.projectId ? `/projects/${route.params.projectId}` : ''
     router.push({ path: `${basePath}/tests/run/${data.testId}`, query: { fresh: '1' } })
   } catch (err) {

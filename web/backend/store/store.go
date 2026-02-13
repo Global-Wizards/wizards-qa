@@ -525,9 +525,9 @@ func (s *Store) SaveTestPlan(plan TestPlan) error {
 	}
 
 	_, err := s.db.Exec(
-		`INSERT OR REPLACE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_by, project_id, analysis_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		plan.ID, plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Status, plan.LastRunID, createdBy, plan.ProjectID, plan.AnalysisID, plan.CreatedAt,
+		`INSERT OR REPLACE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_by, project_id, analysis_id, mode, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		plan.ID, plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Status, plan.LastRunID, createdBy, plan.ProjectID, plan.AnalysisID, plan.Mode, plan.CreatedAt,
 	)
 	return err
 }
@@ -603,11 +603,11 @@ func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 
 func (s *Store) GetTestPlan(id string) (*TestPlan, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, description, game_url, flow_names, variables, status, last_run_id, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(analysis_id,''), created_at FROM test_plans WHERE id = ?`, id,
+		`SELECT id, name, description, game_url, flow_names, variables, status, last_run_id, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(analysis_id,''), COALESCE(mode,''), created_at FROM test_plans WHERE id = ?`, id,
 	)
 	var p TestPlan
 	var flowNamesJSON, variablesJSON sql.NullString
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.GameURL, &flowNamesJSON, &variablesJSON, &p.Status, &p.LastRunID, &p.CreatedBy, &p.ProjectID, &p.AnalysisID, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.GameURL, &flowNamesJSON, &variablesJSON, &p.Status, &p.LastRunID, &p.CreatedBy, &p.ProjectID, &p.AnalysisID, &p.Mode, &p.CreatedAt)
 	if err != nil {
 		return nil, fmt.Errorf("test plan not found: %s", id)
 	}

@@ -542,32 +542,10 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 		if err := json.Unmarshal(opts.resumeData.Analysis, &comprehensiveResult); err == nil {
 			progress("analyzed", "Resumed from checkpoint — skipping exploration + synthesis")
 			result := comprehensiveResult.ToAnalysisResult()
-			scenarios := comprehensiveResult.Scenarios
-
-			if !modules.TestFlows {
-				progress("flows_done", "Test flow generation skipped (module disabled)")
-				return pageMeta, result, nil, nil, nil
+			if len(comprehensiveResult.Scenarios) > 0 {
+				progress("scenarios_done", fmt.Sprintf("%d scenarios available for agent testing", len(comprehensiveResult.Scenarios)))
 			}
-
-			scenarioNames := make([]string, 0, len(scenarios))
-			for _, s := range scenarios {
-				scenarioNames = append(scenarioNames, s.Name)
-			}
-			progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows: %s", len(scenarios), strings.Join(scenarioNames, ", ")))
-			// Flow generation without screenshots (text-only fallback)
-			flows, flowErr := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, nil, progress)
-			if flowErr != nil {
-				return pageMeta, result, nil, nil, fmt.Errorf("flow generation failed: %w", flowErr)
-			}
-			for _, flow := range flows {
-				flow.URL = gameURL
-			}
-			totalCommands := 0
-			for _, f := range flows {
-				totalCommands += len(f.Commands)
-			}
-			progress("flows_done", fmt.Sprintf("Generated %d flows with %d total commands", len(flows), totalCommands))
-			return pageMeta, result, flows, nil, nil
+			return pageMeta, result, nil, nil, nil
 		}
 	}
 
@@ -607,63 +585,9 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 		}
 	}
 
-	// Skip flow generation if test flows module is disabled
-	if !modules.TestFlows {
-		progress("flows_done", "Test flow generation skipped (module disabled)")
-		return pageMeta, result, nil, agentSteps, nil
-	}
-
-	// Step 2: Flow generation — collect last 5 agent screenshots for grounding
-	var flowScreenshots []string
-	for i := len(agentSteps) - 1; i >= 0 && len(flowScreenshots) < 5; i-- {
-		if agentSteps[i].ScreenshotB64 != "" {
-			flowScreenshots = append(flowScreenshots, agentSteps[i].ScreenshotB64)
-		}
-	}
-	// Add initial screenshot from pageMeta if we have fewer than 5
-	if len(flowScreenshots) < 5 && pageMeta.ScreenshotB64 != "" {
-		flowScreenshots = append(flowScreenshots, pageMeta.ScreenshotB64)
-	}
-
-	scenarioNames := make([]string, 0, len(scenarios))
-	for _, s := range scenarios {
-		scenarioNames = append(scenarioNames, s.Name)
-	}
-	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows: %s", len(scenarios), strings.Join(scenarioNames, ", ")))
-
-	// Retry flow generation up to 3 times with backoff
-	var flows []*MaestroFlow
-	flowRetryCfg := &retry.Config{
-		MaxAttempts:  3,
-		InitialDelay: 5 * time.Second,
-		MaxDelay:     30 * time.Second,
-		Multiplier:   2.0,
-	}
-	flowAttempt := 0
-	flowErr := retry.Do(ctx, flowRetryCfg, func() error {
-		flowAttempt++
-		if flowAttempt > 1 {
-			progress("flows_retry", fmt.Sprintf("Retrying flow generation (attempt %d/%d)...", flowAttempt, flowRetryCfg.MaxAttempts))
-		}
-		var err error
-		flows, err = a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, flowScreenshots, progress)
-		return err
-	})
-	if flowErr != nil {
-		return pageMeta, result, nil, agentSteps, fmt.Errorf("flow generation failed: %w", flowErr)
-	}
-
-	for _, flow := range flows {
-		flow.URL = gameURL
-	}
-
-	totalCommands := 0
-	for _, f := range flows {
-		totalCommands += len(f.Commands)
-	}
-	progress("flows_done", fmt.Sprintf("Generated %d flows with %d total commands", len(flows), totalCommands))
-
-	return pageMeta, result, flows, agentSteps, nil
+	// Scenarios are stored in the analysis result and executed directly by the agent test executor.
+	// No YAML flow generation needed — the agent uses browser tools to execute scenarios autonomously.
+	return pageMeta, result, nil, agentSteps, nil
 }
 
 // formatToolAction creates a human-readable description of a tool call.

@@ -768,11 +768,6 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 			}
 		}
 
-		// Save generated flows for this device (prefix filenames with device category to avoid collisions)
-		if err := s.store.SaveGeneratedFlows(analysisID, tmpDir, device.Category); err != nil {
-			log.Printf("Warning: failed to save generated flows for %s [%s]: %v", analysisID, device.Category, err)
-		}
-
 		// Extract flows and prefix names with device category
 		deviceFlowCount := 0
 		if flows, ok := result["flows"]; ok {
@@ -1465,25 +1460,23 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		}
 	}
 
-	s.wsHub.Broadcast(ws.Message{
-		Type: "analysis_progress",
-		Data: AnalysisProgress{
-			Step:    "saving",
-			Message: "Saving generated flows...",
-			Data:    map[string]string{"analysisId": analysisID},
-		},
-	})
-
-	if err := s.store.SaveGeneratedFlows(analysisID, tmpDir); err != nil {
-		log.Printf("Warning: failed to save generated flows for %s: %v", analysisID, err)
-	}
-
-	flowCount := 0
-	if flows, ok := result["flows"]; ok {
-		if flowSlice, ok := flows.([]interface{}); ok {
-			flowCount = len(flowSlice)
+	// Save generated flows to disk for non-agent analyses (agent mode uses scenarios directly)
+	if !agentMode {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "saving",
+				Message: "Saving generated flows...",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+		if err := s.store.SaveGeneratedFlows(analysisID, tmpDir); err != nil {
+			log.Printf("Warning: failed to save generated flows for %s: %v", analysisID, err)
 		}
 	}
+
+	// Count scenarios (agent mode) or flows (legacy mode) for the analysis record
+	flowCount := countScenariosOrFlows(result, agentMode)
 
 	gameName := ""
 	framework := ""
@@ -1507,17 +1500,17 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		log.Printf("Warning: failed to update analysis record for %s: %v", analysisID, err)
 	}
 
-	// Auto-create a test plan from generated flows
+	// Auto-create a test plan
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_progress",
 		Data: AnalysisProgress{
 			Step:    "test_plan",
-			Message: fmt.Sprintf("Creating test plan from %d flows...", flowCount),
+			Message: fmt.Sprintf("Creating test plan from %d scenarios...", flowCount),
 			Data:    map[string]string{"analysisId": analysisID},
 		},
 	})
 
-	testPlanID := s.autoCreateTestPlan(analysisID, gameURL, gameName, req.ProjectID, createdBy, flowCount)
+	testPlanID := s.autoCreateTestPlan(analysisID, gameURL, gameName, req.ProjectID, createdBy, flowCount, agentMode)
 
 	if testPlanID != "" {
 		s.wsHub.Broadcast(ws.Message{
@@ -1552,58 +1545,68 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	// the CLI Chrome process is fully dead before the test Chrome starts.
 	releaseAnalysisSem()
 
-	// Auto-run browser tests if enabled
+	// Auto-run tests if enabled
 	var testRunID string
 	if req.Modules.RunTests != nil && *req.Modules.RunTests && testPlanID != "" {
+		testMode := "agent"
+		if !agentMode {
+			testMode = "browser"
+		}
+
 		s.wsHub.Broadcast(ws.Message{
 			Type: "analysis_progress",
 			Data: AnalysisProgress{
 				Step:    "testing",
-				Message: "Running browser tests...",
+				Message: fmt.Sprintf("Running %s tests...", testMode),
 				Data:    map[string]string{"analysisId": analysisID},
 			},
 		})
 
 		plan, planErr := s.store.GetTestPlan(testPlanID)
 		if planErr == nil {
-			flowDir2, flowErr := s.prepareFlowDir(plan)
-			if flowErr == nil {
-				defer os.RemoveAll(flowDir2)
-				testRunID = newID("test")
+			testRunID = newID("test")
 
-				s.wsHub.Broadcast(ws.Message{
-					Type: "analysis_progress",
-					Data: AnalysisProgress{
-						Step:    "testing_started",
-						Message: fmt.Sprintf("Browser test run started: %s", testRunID),
-						Data: map[string]string{
-							"analysisId": analysisID,
-							"testId":     testRunID,
-							"testPlanId": testPlanID,
-						},
+			s.wsHub.Broadcast(ws.Message{
+				Type: "analysis_progress",
+				Data: AnalysisProgress{
+					Step:    "testing_started",
+					Message: fmt.Sprintf("Test run started (%s mode): %s", testMode, testRunID),
+					Data: map[string]string{
+						"analysisId": analysisID,
+						"testId":     testRunID,
+						"testPlanId": testPlanID,
 					},
-				})
+				},
+			})
 
-				viewport := req.Viewport
-				if viewport == "" {
-					viewport = "desktop-std"
-				}
-				s.executeBrowserTestRun(testPlanID, testRunID, flowDir2, plan.Name, createdBy, viewport)
+			viewport := req.Viewport
+			if viewport == "" {
+				viewport = "desktop-std"
+			}
 
-				s.wsHub.Broadcast(ws.Message{
-					Type: "analysis_progress",
-					Data: AnalysisProgress{
-						Step:    "testing_done",
-						Message: "Browser tests completed",
-						Data:    map[string]string{"analysisId": analysisID, "testId": testRunID},
-					},
-				})
-
-				if err := s.store.UpdateAnalysisTestRunID(analysisID, testRunID); err != nil {
-					log.Printf("Warning: failed to update last_test_run_id for %s: %v", analysisID, err)
-				}
+			if agentMode {
+				s.executeAgentTestRun(testPlanID, testRunID, plan.AnalysisID, plan.Name, createdBy, viewport)
 			} else {
-				log.Printf("Warning: failed to prepare flow dir for auto-test on %s: %v", analysisID, flowErr)
+				flowDir2, flowErr := s.prepareFlowDir(plan)
+				if flowErr == nil {
+					defer os.RemoveAll(flowDir2)
+					s.executeBrowserTestRun(testPlanID, testRunID, flowDir2, plan.Name, createdBy, viewport)
+				} else {
+					log.Printf("Warning: failed to prepare flow dir for auto-test on %s: %v", analysisID, flowErr)
+				}
+			}
+
+			s.wsHub.Broadcast(ws.Message{
+				Type: "analysis_progress",
+				Data: AnalysisProgress{
+					Step:    "testing_done",
+					Message: "Tests completed",
+					Data:    map[string]string{"analysisId": analysisID, "testId": testRunID},
+				},
+			})
+
+			if err := s.store.UpdateAnalysisTestRunID(analysisID, testRunID); err != nil {
+				log.Printf("Warning: failed to update last_test_run_id for %s: %v", analysisID, err)
 			}
 		} else {
 			log.Printf("Warning: failed to get test plan %s for auto-test: %v", testPlanID, planErr)
@@ -1803,9 +1806,11 @@ func (s *Server) handleContinueAnalysis(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// autoCreateTestPlan creates a test plan linked to the analysis if flows were generated.
+// autoCreateTestPlan creates a test plan linked to the analysis.
+// For agent mode, it uses scenario names from the analysis result.
+// For legacy mode, it uses flow filenames from the generated directory.
 // Returns the plan ID or "" if skipped. Idempotent via GetTestPlanByAnalysis.
-func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, createdBy string, flowCount int) string {
+func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, createdBy string, flowCount int, agentMode bool) string {
 	if flowCount == 0 {
 		return ""
 	}
@@ -1824,10 +1829,25 @@ func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, cr
 		return existing.ID
 	}
 
-	// Get flow filenames from the generated directory
-	flowNames, err := s.store.ListGeneratedFlowNames(analysisID)
-	if err != nil || len(flowNames) == 0 {
-		log.Printf("Warning: auto-create test plan skipped for %s: no generated flows found", analysisID)
+	var flowNames []string
+	planMode := ""
+
+	if agentMode {
+		// Extract scenario names from analysis result
+		flowNames = s.extractScenarioNames(analysisID)
+		planMode = "agent"
+	} else {
+		// Get flow filenames from the generated directory
+		var err error
+		flowNames, err = s.store.ListGeneratedFlowNames(analysisID)
+		if err != nil || len(flowNames) == 0 {
+			log.Printf("Warning: auto-create test plan skipped for %s: no generated flows found", analysisID)
+			return ""
+		}
+	}
+
+	if len(flowNames) == 0 {
+		log.Printf("Warning: auto-create test plan skipped for %s: no scenarios/flows found", analysisID)
 		return ""
 	}
 
@@ -1835,7 +1855,7 @@ func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, cr
 		Type: "analysis_progress",
 		Data: AnalysisProgress{
 			Step:    "test_plan_flows",
-			Message: fmt.Sprintf("Found %d flow files: %s", len(flowNames), strings.Join(flowNames, ", ")),
+			Message: fmt.Sprintf("Found %d scenarios: %s", len(flowNames), strings.Join(flowNames, ", ")),
 			Data:    map[string]string{"analysisId": analysisID},
 		},
 	})
@@ -1866,6 +1886,7 @@ func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, cr
 		CreatedBy:  createdBy,
 		ProjectID:  projectID,
 		AnalysisID: analysisID,
+		Mode:       planMode,
 	}
 
 	if err := s.store.SaveTestPlan(plan); err != nil {
@@ -1873,8 +1894,57 @@ func (s *Server) autoCreateTestPlan(analysisID, gameURL, gameName, projectID, cr
 		return ""
 	}
 
-	log.Printf("Auto-created test plan %s for analysis %s (%d flows)", plan.ID, analysisID, len(flowNames))
+	log.Printf("Auto-created test plan %s for analysis %s (%d scenarios, mode=%s)", plan.ID, analysisID, len(flowNames), planMode)
 	return plan.ID
+}
+
+// extractScenarioNames gets scenario names from the analysis result stored in DB.
+func (s *Server) extractScenarioNames(analysisID string) []string {
+	analysis, err := s.store.GetAnalysis(analysisID)
+	if err != nil {
+		return nil
+	}
+	resultMap, ok := analysis.Result.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+	// Try analysis.scenarios first, then top-level scenarios
+	analysisData, ok := resultMap["analysis"].(map[string]interface{})
+	if !ok {
+		analysisData = resultMap
+	}
+	scenariosRaw, ok := analysisData["scenarios"].([]interface{})
+	if !ok {
+		return nil
+	}
+	var names []string
+	for _, s := range scenariosRaw {
+		if m, ok := s.(map[string]interface{}); ok {
+			if name, ok := m["name"].(string); ok && name != "" {
+				names = append(names, name)
+			}
+		}
+	}
+	return names
+}
+
+// countScenariosOrFlows counts scenarios (agent mode) or flows (legacy mode) from the CLI result.
+func countScenariosOrFlows(result map[string]interface{}, agentMode bool) int {
+	if agentMode {
+		// Count scenarios from the analysis sub-object
+		if analysisData, ok := result["analysis"].(map[string]interface{}); ok {
+			if scenarios, ok := analysisData["scenarios"].([]interface{}); ok {
+				return len(scenarios)
+			}
+		}
+	}
+	// Count flows (legacy)
+	if flows, ok := result["flows"]; ok {
+		if flowSlice, ok := flows.([]interface{}); ok {
+			return len(flowSlice)
+		}
+	}
+	return 0
 }
 
 func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis *store.AnalysisRecord) {
@@ -2154,25 +2224,23 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 		}
 	}
 
-	s.wsHub.Broadcast(ws.Message{
-		Type: "analysis_progress",
-		Data: AnalysisProgress{
-			Step:    "saving",
-			Message: "Saving generated flows...",
-			Data:    map[string]string{"analysisId": analysisID},
-		},
-	})
-
-	if err := s.store.SaveGeneratedFlows(analysisID, tmpDir); err != nil {
-		log.Printf("Warning: failed to save generated flows for %s: %v", analysisID, err)
-	}
-
-	flowCount := 0
-	if flows, ok := result["flows"]; ok {
-		if flowSlice, ok := flows.([]interface{}); ok {
-			flowCount = len(flowSlice)
+	// Save generated flows to disk for non-agent analyses (agent mode uses scenarios directly)
+	if !analysis.AgentMode {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "saving",
+				Message: "Saving generated flows...",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+		if err := s.store.SaveGeneratedFlows(analysisID, tmpDir); err != nil {
+			log.Printf("Warning: failed to save generated flows for %s: %v", analysisID, err)
 		}
 	}
+
+	// Count scenarios (agent mode) or flows (legacy mode) for the analysis record
+	flowCount := countScenariosOrFlows(result, analysis.AgentMode)
 
 	gameName := ""
 	framework := ""
@@ -2201,17 +2269,17 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 		log.Printf("Warning: failed to update analysis record for %s: %v", analysisID, err)
 	}
 
-	// Auto-create a test plan from generated flows
+	// Auto-create a test plan
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_progress",
 		Data: AnalysisProgress{
 			Step:    "test_plan",
-			Message: fmt.Sprintf("Creating test plan from %d flows...", flowCount),
+			Message: fmt.Sprintf("Creating test plan from %d scenarios...", flowCount),
 			Data:    map[string]string{"analysisId": analysisID},
 		},
 	})
 
-	testPlanID := s.autoCreateTestPlan(analysisID, analysis.GameURL, gameName, analysis.ProjectID, createdBy, flowCount)
+	testPlanID := s.autoCreateTestPlan(analysisID, analysis.GameURL, gameName, analysis.ProjectID, createdBy, flowCount, analysis.AgentMode)
 
 	if testPlanID != "" {
 		s.wsHub.Broadcast(ws.Message{
