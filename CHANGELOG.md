@@ -5,6 +5,35 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.24.1] - 2026-02-12
+
+### Fixed
+- **Maestro YAML fixing** — `fixCommandData()` no longer replaces the entire command with the `visible` text when other keys (e.g. `point`) exist. `tapOn: {point: "88%,5%", visible: "Game Rules"}` now correctly becomes `tapOn: {point: "88%,5%"}` instead of `tapOn: "Game Rules"`.
+- **Blank lines in YAML** — new `stripInvalidVisibleLines()` pre-pass removes blank lines from the commands section (which break YAML mapping blocks) and strips `visible:`/`notVisible:` lines from non-`extendedWaitUntil` command blocks.
+- **AI prompt** — added explicit WRONG/RIGHT examples for `tapOn` with `point` + `visible` to reduce AI generation of invalid Maestro YAML.
+
+## [0.24.0] - 2026-02-12
+
+### Added
+- **UI library integration** — integrated Inspira UI, Echo Editor (Tiptap), TanStack Table, Vee-Validate + Zod, date-fns, and VueUse Motion into the Vue frontend.
+- **Textarea component** (`ui/textarea/`) — reusable Textarea matching the existing Input pattern, replacing inline `<textarea>` elements across ProjectForm, NewTestPlan, and EditTestPlan.
+- **Form validation components** (`ui/form/`) — Vee-Validate wrappers (FormField, FormItem, FormLabel, FormControl, FormMessage, FormDescription) providing schema-driven validation with Zod and inline error display.
+- **DataTable component** (`ui/data-table/`) — TanStack Table wrapper with sortable column headers, global filtering, and row selection, integrated with existing Table UI primitives.
+- **NumberTicker component** (`ui/number-ticker/`) — animated counting component using `@vueuse/motion`, replaces hand-rolled requestAnimationFrame animation in StatCard.
+- **AnimatedGradientText component** (`ui/animated-gradient-text/`) — shimmer gradient effect used for brand text on the Login page.
+- **Zod form schemas** (`lib/formSchemas.js`) — centralized validation schemas for login, registration, project, and test plan forms.
+
+### Changed
+- **Tests.vue** — refactored test results table from manual sorting/selection/filtering logic to TanStack Table with `useVueTable()`, column definitions via `createColumnHelper()`, and `FlexRender`-based rendering. Supports sorting, global search filtering, and checkbox row selection.
+- **Login.vue** — replaced individual refs with `useForm()` + Zod schema validation, added FormField/FormItem/FormMessage wrappers for inline error display, and replaced plain brand text with AnimatedGradientText.
+- **ProjectForm.vue** — replaced reactive form with `useForm()` + Zod validation for name and gameUrl fields, added Echo Editor for rich text description editing.
+- **NewTestPlan.vue** — wrapped Details step fields with `useForm()` + `testPlanDetailsSchema`, replaced `detailsValid` computed with `meta.valid`, and swapped inline textarea with Textarea component.
+- **EditTestPlan.vue** — replaced inline `<textarea>` with Textarea component.
+- **StatCard.vue** — replaced ~30-line manual requestAnimationFrame animation with NumberTicker component.
+- **dateUtils.js** — rewritten with date-fns (`format`, `formatDistanceToNowStrict`), same API signatures, zero consumer changes.
+- **tailwind.config.js** — added `@inspira-ui/plugins` plugin.
+- **main.js** — registered MotionPlugin and EchoEditor as global Vue plugins.
+
 ## [0.23.6] - 2026-02-12
 
 ### Fixed

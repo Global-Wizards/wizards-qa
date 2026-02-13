@@ -1073,10 +1073,56 @@ var maestroCommandAliasesCLI = map[string]string{
 	"openBrowser": "openLink",
 }
 
+// stripInvalidVisibleLinesCLI removes blank lines from the commands section and
+// strips visible:/notVisible: lines from non-extendedWaitUntil command blocks.
+// This catches AI patterns where blank lines between mapping fields break YAML
+// parsing and where visible: is sprinkled after arbitrary commands.
+func stripInvalidVisibleLinesCLI(content string) string {
+	// Split metadata from commands on the --- separator
+	parts := strings.SplitN(content, "---\n", 2)
+	var meta, cmds string
+	if len(parts) == 2 {
+		meta = parts[0] + "---\n"
+		cmds = parts[1]
+	} else {
+		cmds = content
+	}
+
+	lines := strings.Split(cmds, "\n")
+	var out []string
+	inExtendedWait := false
+	for _, line := range lines {
+		trimmed := strings.TrimSpace(line)
+		// Remove blank lines in the commands section
+		if trimmed == "" {
+			continue
+		}
+		// Track whether we're inside an extendedWaitUntil block
+		if strings.Contains(line, "- extendedWaitUntil") {
+			inExtendedWait = true
+			out = append(out, line)
+			continue
+		}
+		// A new command starts (indented "- ") — exit extendedWaitUntil tracking
+		if strings.Contains(line, "- ") && !strings.HasPrefix(trimmed, "visible:") && !strings.HasPrefix(trimmed, "notVisible:") && !strings.HasPrefix(trimmed, "timeout:") && !strings.HasPrefix(trimmed, "point:") {
+			inExtendedWait = false
+		}
+		// Strip visible:/notVisible: lines that are NOT inside extendedWaitUntil
+		if !inExtendedWait && (strings.HasPrefix(trimmed, "visible:") || strings.HasPrefix(trimmed, "notVisible:")) {
+			continue
+		}
+		out = append(out, line)
+	}
+
+	return meta + strings.Join(out, "\n")
+}
+
 // normalizeFlowYAML applies regex-based safety-net fixes to generated YAML.
 // This catches issues that the structured commandToYAML serialization may miss.
 func normalizeFlowYAML(content string) string {
-	result := openLinkObjRegexCLI.ReplaceAllString(content, `$1: "$2"`)
+	// First pass: strip blank lines and invalid visible/notVisible lines
+	result := stripInvalidVisibleLinesCLI(content)
+	result = openLinkObjRegexCLI.ReplaceAllString(result, `$1: "$2"`)
 	skipExtended := func(match string) string {
 		if strings.Contains(match, "extendedWaitUntil") {
 			return match
@@ -1190,15 +1236,23 @@ func fixCommandData(cmd map[string]interface{}, aliases map[string]string) map[s
 					continue
 				}
 			}
-			// Flatten {visible: "..."} or {notVisible: "..."} for non-extendedWaitUntil
+			// Strip visible/notVisible from non-extendedWaitUntil commands
 			if key != "extendedWaitUntil" {
-				if visVal, ok := v["visible"]; ok {
-					fixed[key] = strings.ReplaceAll(fmt.Sprintf("%v", visVal), "\n", " ")
-					continue
-				}
-				if nvVal, ok := v["notVisible"]; ok {
-					fixed[key] = strings.ReplaceAll(fmt.Sprintf("%v", nvVal), "\n", " ")
-					continue
+				_, hasVis := v["visible"]
+				_, hasNV := v["notVisible"]
+				if hasVis || hasNV {
+					if hasVis && len(v) == 1 {
+						// visible is the only key — flatten to string
+						fixed[key] = strings.ReplaceAll(fmt.Sprintf("%v", v["visible"]), "\n", " ")
+						continue
+					}
+					if hasNV && len(v) == 1 {
+						fixed[key] = strings.ReplaceAll(fmt.Sprintf("%v", v["notVisible"]), "\n", " ")
+						continue
+					}
+					// Has other keys too (e.g. point) — strip visible/notVisible, keep the rest
+					delete(v, "visible")
+					delete(v, "notVisible")
 				}
 			}
 			// Skip extendedWaitUntil with only timeout (no visible/notVisible)

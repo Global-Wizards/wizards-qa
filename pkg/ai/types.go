@@ -949,6 +949,10 @@ IMPORTANT RULES:
 - NEVER use extendedWaitUntil with only timeout and no condition. extendedWaitUntil REQUIRES either "visible" or "notVisible" — timeout alone is INVALID.
 - For "wait for page to load" scenarios, wait for a specific visible element (a button, heading, or game text).
 - NEVER use {visible: "..."} or {notVisible: "..."} with tapOn, assertVisible, assertNotVisible, or any other command. These fields are ONLY valid inside extendedWaitUntil. For other commands, use a plain string: tapOn: "text", assertVisible: "text".
+- WRONG: {"tapOn": {"point": "50%,80%", "visible": "Play"}} — visible is INVALID here, Maestro will reject it
+- RIGHT: {"tapOn": {"point": "50%,80%"}} — just the point, no visible
+- WRONG: {"tapOn": {"visible": "Play"}} — use a plain string instead
+- RIGHT: {"tapOn": "Play"} — plain string for text-based tap
 
 FLOW COMPOSITION — SHARED SETUP:
 - The FIRST flow MUST be a "setup" flow named exactly "setup". It contains the common steps that every test needs: opening the browser, waiting for the game to load, dismissing any splash screens, skipping tutorials, and reaching the main game state.
