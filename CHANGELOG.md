@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.23.5] - 2026-02-12
+
+### Fixed
+- **Test plan editor "flow not found" after deploy** — analysis-linked test plans failed to load flows in the editor when generated flow files were lost on Fly.io's ephemeral storage after redeploy. The editor now automatically regenerates flows from the stored analysis result when they're missing, using the same `regenerateFlowsFromAnalysis` fallback already used by the test runner.
+
 ## [0.23.4] - 2026-02-12
 
 ### Added

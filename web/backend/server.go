@@ -549,12 +549,32 @@ func (s *Server) handleGetTestPlan(w http.ResponseWriter, r *http.Request) {
 			Error   string `json:"error,omitempty"`
 		}
 		var flows []flowEntry
+		needsRegen := false
 		for _, name := range plan.FlowNames {
 			fd, err := s.store.GetFlow(name)
 			if err != nil {
+				needsRegen = true
 				flows = append(flows, flowEntry{Name: name, Error: err.Error()})
 			} else {
 				flows = append(flows, flowEntry{Name: fd.Name, Content: fd.Content})
+			}
+		}
+		// If any flows were missing and the plan is linked to an analysis,
+		// try regenerating from the analysis result (handles ephemeral storage loss).
+		if needsRegen && plan.AnalysisID != "" {
+			if rErr := s.regenerateFlowsFromAnalysis(plan.AnalysisID); rErr != nil {
+				log.Printf("Warning: could not regenerate flows for analysis %s: %v", plan.AnalysisID, rErr)
+			} else {
+				// Retry loading all flows after regeneration
+				flows = flows[:0]
+				for _, name := range plan.FlowNames {
+					fd, err := s.store.GetFlow(name)
+					if err != nil {
+						flows = append(flows, flowEntry{Name: name, Error: err.Error()})
+					} else {
+						flows = append(flows, flowEntry{Name: fd.Name, Content: fd.Content})
+					}
+				}
 			}
 		}
 		respondJSON(w, http.StatusOK, map[string]interface{}{
