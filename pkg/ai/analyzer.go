@@ -1057,10 +1057,11 @@ var extendedWaitTimeoutOnlyRegexCLI = regexp.MustCompile(`(?m)^[ \t]*- extendedW
 
 // selectorVisibleRegexCLI matches any command followed by visible: on the next indented line.
 // The replacement function skips extendedWaitUntil (which legitimately uses visible:).
-var selectorVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*- \w+):\s*\n\s+visible:\s*"?([^"\n]+)"?\s*$`)
+// Handles both "- cmd:\n  visible:" and "- cmd: value\n  visible:" patterns.
+var selectorVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*- \w+):.*\n\s+visible:\s*"?([^"\n]+)"?\s*$`)
 
 // selectorNotVisibleRegexCLI — same but for notVisible:
-var selectorNotVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*- \w+):\s*\n\s+notVisible:\s*"?([^"\n]+)"?\s*$`)
+var selectorNotVisibleRegexCLI = regexp.MustCompile(`(?m)^(\s*- \w+):.*\n\s+notVisible:\s*"?([^"\n]+)"?\s*$`)
 
 // bareVisibleRegexCLI matches a bare "visible:" line NOT preceded by extendedWaitUntil or tapOn,
 // wrapping it in an extendedWaitUntil block.
@@ -1193,19 +1194,22 @@ func flowToYAML(flow *MaestroFlow) string {
 		if comment, ok := cmd["comment"].(string); ok && comment != "" {
 			sb.WriteString(fmt.Sprintf("# %s\n", strings.ReplaceAll(comment, "\n", " ")))
 		}
-		if fixed := fixCommandData(cmd, maestroCommandAliasesCLI); fixed != nil {
-			var toMarshal interface{} = fixed
-			// Single key with empty string → plain command (e.g. "- takeScreenshot")
-			if len(fixed) == 1 {
-				for k, v := range fixed {
-					if s, ok := v.(string); ok && s == "" {
-						toMarshal = k
+		// Split out spurious visible/notVisible into separate extendedWaitUntil commands
+		for _, splitCmd := range splitVisibleFromCommand(cmd) {
+			if fixed := fixCommandData(splitCmd, maestroCommandAliasesCLI); fixed != nil {
+				var toMarshal interface{} = fixed
+				// Single key with empty string → plain command (e.g. "- takeScreenshot")
+				if len(fixed) == 1 {
+					for k, v := range fixed {
+						if s, ok := v.(string); ok && s == "" {
+							toMarshal = k
+						}
 					}
 				}
-			}
-			cmdYAML, err := yaml.Marshal([]interface{}{toMarshal})
-			if err == nil {
-				sb.Write(cmdYAML)
+				cmdYAML, err := yaml.Marshal([]interface{}{toMarshal})
+				if err == nil {
+					sb.Write(cmdYAML)
+				}
 			}
 		}
 	}
@@ -1286,6 +1290,40 @@ func fixCommandData(cmd map[string]interface{}, aliases map[string]string) map[s
 		return nil
 	}
 	return fixed
+}
+
+// splitVisibleFromCommand extracts top-level visible/notVisible from a non-extendedWaitUntil
+// command and returns the original command (cleaned) plus a separate extendedWaitUntil command.
+// e.g. {openLink: "url", visible: "text"} → [{openLink: "url"}, {extendedWaitUntil: {visible: "text"}}]
+func splitVisibleFromCommand(cmd map[string]interface{}) []map[string]interface{} {
+	if _, isExtWait := cmd["extendedWaitUntil"]; isExtWait {
+		return []map[string]interface{}{cmd}
+	}
+	vis, hasVis := cmd["visible"]
+	nv, hasNV := cmd["notVisible"]
+	if !hasVis && !hasNV {
+		return []map[string]interface{}{cmd}
+	}
+
+	// Clone original without visible/notVisible
+	cleaned := make(map[string]interface{})
+	for k, v := range cmd {
+		if k != "visible" && k != "notVisible" {
+			cleaned[k] = v
+		}
+	}
+
+	// Build extendedWaitUntil with the extracted condition
+	waitInner := make(map[string]interface{})
+	if hasVis {
+		waitInner["visible"] = vis
+	}
+	if hasNV {
+		waitInner["notVisible"] = nv
+	}
+	waitCmd := map[string]interface{}{"extendedWaitUntil": waitInner}
+
+	return []map[string]interface{}{cleaned, waitCmd}
 }
 
 // fixCommandList recursively fixes a list of command maps (e.g. repeat.commands).

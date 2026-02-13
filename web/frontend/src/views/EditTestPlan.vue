@@ -394,13 +394,10 @@ function toggleDebug(flowName) {
 }
 
 function applyAutoFix(flow) {
-  if (!flow.validation?.normalizedContent) return
-  flow.content = flow.validation.normalizedContent
-  flow.validation = null
-  validationSummary.value = null
-  const next = new Set(dirtyFlows.value)
-  next.add(flow.name)
-  dirtyFlows.value = next
+  const content = flow.validation?.normalizedContent
+  if (!content) return
+  // Use onFlowEdit to ensure change detection and save enablement
+  onFlowEdit(flow, content)
 }
 
 function copyDebugInfo(flow) {

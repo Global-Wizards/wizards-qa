@@ -5,6 +5,13 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.25.4] - 2026-02-13
+
+### Fixed
+- **Root cause fix for YAML "mapping values" errors** — AI-generated commands with spurious `visible:`/`notVisible:` as top-level sibling keys (e.g. `{openLink: "url", visible: "text"}`) are now split into two proper commands: the original + an `extendedWaitUntil`. Applied in both CLI and web backend flow generation/regeneration paths.
+- **Regex fix for selectorVisible patterns** — now matches commands with values on the same line (e.g. `- openLink: url\n  visible:` was previously missed).
+- **Auto-fix "Apply Fix" button now enables Save** — uses the same code path as manual editing so the save button activates correctly.
+
 ## [0.25.3] - 2026-02-13
 
 ### Fixed
