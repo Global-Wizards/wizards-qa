@@ -1544,6 +1544,26 @@ function buildDebugLogText() {
     lines.push('')
   }
 
+  // Test flow progress
+  if (testFlowProgress.value.length) {
+    lines.push(`--- Test Flow Results (${testFlowProgress.value.length}) ---`)
+    testFlowProgress.value.forEach((f) => {
+      const dur = f.duration ? ` (${f.duration})` : ''
+      lines.push(`  ${f.flowName}: ${f.status}${dur}`)
+    })
+    lines.push('')
+  }
+
+  // Test step details (skip base64 screenshots)
+  if (testStepScreenshots.value.length) {
+    lines.push(`--- Test Steps (${testStepScreenshots.value.length}) ---`)
+    testStepScreenshots.value.forEach((s) => {
+      const reason = s.reasoning ? ` | ${s.reasoning.slice(0, 100)}` : ''
+      lines.push(`  ${s.flowName} step ${s.stepIndex}: ${s.command} → ${s.status}${reason}`)
+    })
+    lines.push('')
+  }
+
   // Last agent reasoning
   if (agentReasoning.value) {
     lines.push('--- Last Agent Reasoning ---')

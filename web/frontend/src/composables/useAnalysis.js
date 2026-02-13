@@ -274,6 +274,12 @@ export function useAnalysis() {
         timestamp: Date.now(),
       }
       liveAgentSteps.value = [...liveAgentSteps.value.slice(-(MAX_LIVE_STEPS - 1)), newStep]
+
+      // Debug log entry for agent step
+      const durLabel = data.durationMs != null ? ` (${data.durationMs}ms)` : ''
+      const errLabel = data.error ? ` ERROR: ${data.error.slice(0, 120)}` : ''
+      logs.value = [...logs.value.slice(-(MAX_LOGS - 1)),
+        `[Agent] Step ${data.stepNumber}: ${data.toolName || 'unknown'}${durLabel}${errLabel}`]
     })
 
     const offAgentReasoning = ws.on('agent_reasoning', (data) => {
@@ -319,6 +325,11 @@ export function useAnalysis() {
       if (data.flowName) {
         testFlowProgress.value = [...testFlowProgress.value,
           { flowName: data.flowName, status: data.status, duration: data.duration || '' }]
+
+        // Debug log entry for test flow result
+        const durLabel = data.duration ? ` (${data.duration})` : ''
+        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)),
+          `[Test] Flow "${data.flowName}" ${data.status}${durLabel}`]
       }
     })
 
@@ -329,6 +340,10 @@ export function useAnalysis() {
         screenshotB64: data.screenshotB64, result: data.result, status: data.status,
         reasoning: data.reasoning || '',
       }]
+
+      // Debug log entry for test step
+      logs.value = [...logs.value.slice(-(MAX_LOGS - 1)),
+        `[Test] ${data.flowName} step ${data.stepIndex}: ${data.command} → ${data.status}`]
     })
 
     const offCompleted = ws.on('analysis_completed', (data) => {
@@ -349,6 +364,10 @@ export function useAnalysis() {
       agentMode.value = result.mode === 'agent'
       autoTestPlanId.value = data.testPlanId || null
       testRunId.value = data.testRunId || null
+
+      // Debug log entry for completion
+      logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Complete] Analysis finished successfully`]
+
       status.value = 'complete'
       currentStep.value = 'complete'
       latestScreenshot.value = null
@@ -373,6 +392,29 @@ export function useAnalysis() {
       error.value = data.error || 'Analysis failed'
       failedStep.value = currentStep.value || null
       status.value = 'error'
+
+      // Debug log entries for error context
+      logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] ${data.error || 'Analysis failed'}`]
+      if (data.lastStep) {
+        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] Last step: ${data.lastStep}`]
+      }
+      if (data.exitCode != null && data.exitCode !== -1) {
+        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] Exit code: ${data.exitCode}`]
+      }
+      if (data.stderrLineCount) {
+        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] Stderr lines: ${data.stderrLineCount}`]
+      }
+      if (data.hasCheckpoint != null) {
+        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] Checkpoint available: ${data.hasCheckpoint}`]
+      }
+      if (data.stderrTail) {
+        data.stderrTail.split('\n').forEach(line => {
+          if (line.trim()) {
+            logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Stderr] ${line}`]
+          }
+        })
+      }
+
       stopElapsedTimer()
       clearLocalStorage()
 

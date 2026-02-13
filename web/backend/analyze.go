@@ -645,7 +645,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		}
 
 		// Read best checkpoint from tmpDir for resume capability
+		hasCheckpoint := false
 		if cpData := readBestCheckpoint(tmpDir); cpData != "" {
+			hasCheckpoint = true
 			if saveErr := s.store.UpdateAnalysisPartialResult(analysisID, cpData); saveErr != nil {
 				log.Printf("Warning: failed to save partial_result for %s: %v", analysisID, saveErr)
 			} else {
@@ -653,7 +655,25 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 			}
 		}
 
-		s.broadcastAnalysisError(analysisID, userMsg)
+		// Build stderrTail (last 10 lines)
+		tailStart := len(stderrLines) - 10
+		if tailStart < 0 {
+			tailStart = 0
+		}
+		stderrTail := strings.Join(stderrLines[tailStart:], "\n")
+
+		exitCode := -1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+
+		s.broadcastAnalysisError(analysisID, userMsg, map[string]interface{}{
+			"exitCode":        exitCode,
+			"lastStep":        lastKnownStep,
+			"stderrLineCount": len(stderrLines),
+			"hasCheckpoint":   hasCheckpoint,
+			"stderrTail":      stderrTail,
+		})
 		return
 	}
 
@@ -904,19 +924,25 @@ func strFromMap(m map[string]interface{}, key string) string {
 	return s
 }
 
-func (s *Server) broadcastAnalysisError(analysisID, errMsg string) {
+func (s *Server) broadcastAnalysisError(analysisID, errMsg string, extra ...map[string]interface{}) {
 	log.Printf("Analysis %s failed: %s", analysisID, errMsg)
 
 	if err := s.store.UpdateAnalysisStatus(analysisID, store.StatusFailed, ""); err != nil {
 		log.Printf("Warning: failed to mark analysis %s as failed: %v", analysisID, err)
 	}
 
+	data := map[string]interface{}{
+		"analysisId": analysisID,
+		"error":      errMsg,
+	}
+	if len(extra) > 0 {
+		for k, v := range extra[0] {
+			data[k] = v
+		}
+	}
 	s.wsHub.Broadcast(ws.Message{
 		Type: "analysis_failed",
-		Data: map[string]string{
-			"analysisId": analysisID,
-			"error":      errMsg,
-		},
+		Data: data,
 	})
 }
 
@@ -1298,13 +1324,33 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 		}
 
 		// Update checkpoint in case a later one was written
+		hasCheckpoint := false
 		if cpData := readBestCheckpoint(tmpDir); cpData != "" {
+			hasCheckpoint = true
 			if saveErr := s.store.UpdateAnalysisPartialResult(analysisID, cpData); saveErr != nil {
 				log.Printf("Warning: failed to update partial_result for %s: %v", analysisID, saveErr)
 			}
 		}
 
-		s.broadcastAnalysisError(analysisID, userMsg)
+		// Build stderrTail (last 10 lines)
+		tailStart := len(stderrLines) - 10
+		if tailStart < 0 {
+			tailStart = 0
+		}
+		stderrTail := strings.Join(stderrLines[tailStart:], "\n")
+
+		exitCode := -1
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			exitCode = exitErr.ExitCode()
+		}
+
+		s.broadcastAnalysisError(analysisID, userMsg, map[string]interface{}{
+			"exitCode":        exitCode,
+			"lastStep":        lastKnownStep,
+			"stderrLineCount": len(stderrLines),
+			"hasCheckpoint":   hasCheckpoint,
+			"stderrTail":      stderrTail,
+		})
 		return
 	}
 

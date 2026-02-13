@@ -5,6 +5,13 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.29.0] - 2026-02-13
+
+### Added
+- **Debug information in analysis progress log** — agent step summaries (`[Agent]`), test flow results (`[Test]`), and test step details now appear inline in the live progress log during analysis, making failures immediately diagnosable without clicking "Copy Debug Log".
+- **Enriched failure broadcasts** — `analysis_failed` WebSocket messages now include exit code, last step, stderr line count, checkpoint availability, and the last 10 stderr lines, all rendered as `[Error]`/`[Stderr]` entries in the progress log.
+- **Test data in debug log export** — "Copy Debug Log" now includes test flow results and test step details (command, status, reasoning) alongside existing agent step data.
+
 ## [0.28.1] - 2026-02-13
 
 ### Fixed
