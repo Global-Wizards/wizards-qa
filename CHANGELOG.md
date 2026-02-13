@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.5] - 2026-02-13
+
+### Fixed
+- **Stale frontend after deployment** — the SPA fallback served `index.html` without `Cache-Control` headers, so browsers could cache the old HTML and continue loading outdated JS chunks after a deployment. Now sets `Cache-Control: no-cache` on HTML and `Cache-Control: immutable, max-age=1yr` on hashed assets.
+
 ## [0.32.4] - 2026-02-13
 
 ### Fixed

@@ -1173,6 +1173,7 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 
 		f, err := root.Open(requestPath)
 		if err != nil {
+			// SPA fallback: serve index.html with no-cache so deployments take effect immediately
 			indexFile, indexErr := root.Open("/index.html")
 			if indexErr != nil {
 				http.NotFound(w, r)
@@ -1181,11 +1182,16 @@ func FileServer(r chi.Router, path string, root http.FileSystem) {
 			defer indexFile.Close()
 			stat, _ := indexFile.Stat()
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			w.Header().Set("Cache-Control", "no-cache")
 			http.ServeContent(w, r, "index.html", stat.ModTime(), indexFile)
 			return
 		}
 		f.Close()
 
+		// Hashed assets (JS/CSS with content hash) can be cached indefinitely
+		if strings.Contains(requestPath, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
+		}
 		fs := http.StripPrefix(pathPrefix, http.FileServer(root))
 		fs.ServeHTTP(w, r)
 	})
