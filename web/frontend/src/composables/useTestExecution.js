@@ -1,6 +1,6 @@
 import { ref, computed, onUnmounted } from 'vue'
 import { getWebSocket } from '@/lib/websocket'
-import { testsApi } from '@/lib/api'
+import { testsApi, authUrl } from '@/lib/api'
 
 const MAX_LOGS = 500
 const MAX_STEP_SCREENSHOTS = 100
@@ -242,7 +242,7 @@ export function useTestExecution() {
             flowName: data.flowName,
             stepIndex: data.stepIndex,
             command: data.command,
-            screenshotUrl: data.screenshotUrl || '',
+            screenshotUrl: authUrl(data.screenshotUrl || ''),
             screenshotB64: data.screenshotB64 || '',
             result: data.result,
             status: data.status,

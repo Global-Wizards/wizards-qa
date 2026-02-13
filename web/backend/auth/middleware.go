@@ -16,6 +16,17 @@ func Middleware(secret string) func(http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			authHeader := r.Header.Get("Authorization")
 			if authHeader == "" {
+				// Fallback: check ?token= query param (for <img src> etc.)
+				if qToken := r.URL.Query().Get("token"); qToken != "" {
+					claims, err := ValidateAccessToken(qToken, secret)
+					if err != nil {
+						http.Error(w, `{"error":"invalid or expired token"}`, http.StatusUnauthorized)
+						return
+					}
+					ctx := context.WithValue(r.Context(), userContextKey, claims)
+					next.ServeHTTP(w, r.WithContext(ctx))
+					return
+				}
 				http.Error(w, `{"error":"authorization header required"}`, http.StatusUnauthorized)
 				return
 			}

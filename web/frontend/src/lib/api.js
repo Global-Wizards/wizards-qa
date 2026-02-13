@@ -91,6 +91,17 @@ api.interceptors.response.use(
   }
 )
 
+/**
+ * Append the current access token as a query param for URLs loaded by
+ * <img src>, <video src>, etc. that can't use the axios Authorization header.
+ */
+export function authUrl(path) {
+  const token = localStorage.getItem('accessToken')
+  if (!token) return path
+  const sep = path.includes('?') ? '&' : '?'
+  return `${path}${sep}token=${encodeURIComponent(token)}`
+}
+
 export const authApi = {
   register: (data) => api.post('/auth/register', data).then((r) => r.data),
   login: (data) => api.post('/auth/login', data).then((r) => r.data),
@@ -161,7 +172,7 @@ export const analysesApi = {
   delete: (id) => api.delete(`/analyses/${id}`).then((r) => r.data),
   steps: (id) => api.get(`/analyses/${id}/steps`).then((r) => r.data),
   flows: (id) => api.get(`/analyses/${id}/flows`).then((r) => r.data),
-  stepScreenshotUrl: (id, stepNumber) => `/api/analyses/${id}/steps/${stepNumber}/screenshot`,
+  stepScreenshotUrl: (id, stepNumber) => authUrl(`/api/analyses/${id}/steps/${stepNumber}/screenshot`),
   exportUrl: (id, format = 'json') => `/api/analyses/${id}/export?format=${format}`,
   export: (id, format = 'json') =>
     api.get(`/analyses/${id}/export?format=${format}`, { responseType: 'blob' }).then((r) => {

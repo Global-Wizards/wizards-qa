@@ -121,6 +121,7 @@ const selectedStep = computed(() => steps.value[selectedIndex.value] || null)
 
 function screenshotUrl(step) {
   if (!step?.screenshotPath || !props.analysisId) return ''
+  // stepScreenshotUrl already includes auth token via authUrl()
   return analysesApi.stepScreenshotUrl(props.analysisId, step.stepNumber)
 }
 

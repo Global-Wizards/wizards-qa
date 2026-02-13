@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.2] - 2026-02-13
+
+### Fixed
+- **Screenshot images return 401 Unauthorized** — `<img src>` tags make plain browser GET requests without the `Authorization` header, causing all screenshot images to fail with 401. Auth middleware now accepts `?token=<jwt>` as a fallback when the header is missing. New `authUrl()` frontend helper appends the token to screenshot URLs constructed for `<img src>` tags, WebSocket-broadcast screenshot URLs, and test step screenshot URLs.
+
 ## [0.34.1] - 2026-02-13
 
 ### Fixed
