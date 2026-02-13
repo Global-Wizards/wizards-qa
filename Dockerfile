@@ -8,7 +8,12 @@ RUN npm run build
 
 # Stage 2a: Build backend
 FROM golang:1.25-alpine AS backend-build
-WORKDIR /app/backend
+# Set up directory structure matching the replace directive (../../ from web/backend)
+WORKDIR /app
+COPY go.mod go.sum ./
+RUN go mod download
+COPY pkg/ ./pkg/
+WORKDIR /app/web/backend
 COPY web/backend/go.mod web/backend/go.sum ./
 RUN go mod download
 COPY web/backend/ ./

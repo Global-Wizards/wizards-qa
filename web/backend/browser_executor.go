@@ -159,7 +159,6 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 					Name:     flow.Name,
 					Status:   "failed",
 					Duration: time.Since(flowStart).Round(time.Millisecond).String(),
-					Output:   fmt.Sprintf("Navigation failed: %v", err),
 				})
 				s.wsHub.Broadcast(ws.Message{
 					Type: "test_progress",
