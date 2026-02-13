@@ -276,6 +276,7 @@
       :show-agent-panel="agentMode && (agentExplorationStatus === 'active' || liveAgentSteps.length > 0)"
       :show-testing-panel="testStepScreenshots.length > 0 || testFlowProgress.length > 0"
       :logs="logs"
+      :device-label="deviceLabel"
       @cancel="handleReset"
       @copy-log="copyDebugLog"
     >
@@ -288,6 +289,7 @@
           :elapsed-seconds="elapsedSeconds"
           :hint-cooldown="hintCooldown"
           :format-elapsed="formatElapsed"
+          :device-label="deviceLabel"
           @send-hint="sendHint"
           @expand-screenshot="expandStepScreenshot"
         />
@@ -300,33 +302,6 @@
         />
       </template>
     </AnalysisProgressPanel>
-
-    <!-- Multi-device batch status cards -->
-    <div v-if="batchAnalysisIds.length > 1 && (status === 'queued' || status === 'scouting' || status === 'analyzing' || status === 'generating' || status === 'creating_test_plan' || status === 'testing' || status === 'complete')" class="mt-4">
-      <Card>
-        <CardHeader class="pb-3">
-          <CardTitle class="text-sm">Multi-Device Analyses</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div class="grid gap-2 sm:grid-cols-3">
-            <div
-              v-for="entry in batchAnalysisIds"
-              :key="entry.analysisId"
-              class="rounded-md border p-3 text-center"
-            >
-              <p class="text-xs font-medium capitalize">{{ entry.device }}</p>
-              <p class="text-[10px] text-muted-foreground">{{ entry.viewport }}</p>
-              <router-link
-                :to="'/analyses/' + entry.analysisId"
-                class="text-[10px] text-primary hover:underline mt-1 block"
-              >
-                View Details
-              </router-link>
-            </div>
-          </div>
-        </CardContent>
-      </Card>
-    </div>
 
     <!-- State 3: Results -->
     <div v-else-if="status === 'complete'" class="space-y-4">
@@ -351,6 +326,24 @@
             <div>
               <span class="text-sm text-muted-foreground">Canvas</span>
               <p class="font-medium">{{ pageMeta?.canvasFound ? 'Yes' : 'No' }}</p>
+            </div>
+          </div>
+
+          <!-- Multi-device summary -->
+          <div v-if="devices.length > 0" class="grid gap-2 sm:grid-cols-3">
+            <div
+              v-for="d in devices"
+              :key="d.device"
+              class="rounded-md border p-3 text-center"
+              :class="d.status === 'failed' ? 'border-destructive/50 bg-destructive/5' : 'border-border'"
+            >
+              <p class="text-sm font-medium capitalize">{{ d.device }}</p>
+              <p class="text-[10px] text-muted-foreground">{{ d.viewport }}</p>
+              <div class="mt-1">
+                <Badge v-if="d.status === 'completed'" variant="secondary">{{ d.flowCount }} flow(s)</Badge>
+                <Badge v-else variant="destructive" class="text-[10px]">Failed</Badge>
+              </div>
+              <p v-if="d.error" class="text-[10px] text-destructive mt-1 truncate" :title="d.error">{{ d.error }}</p>
             </div>
           </div>
 
@@ -603,6 +596,7 @@
       :error-message="analysisError"
       :failed-phase-label="failedPhaseLabel"
       :can-continue="canContinue"
+      :device-label="deviceLabel"
       @retry="retryAnalysis"
       @continue="handleContinueAnalysis"
       @start-over="handleReset"
@@ -720,8 +714,6 @@ const multiDevices = useStorage('analyze-multi-devices', {
   ios: { enabled: true, viewport: 'iphone-16' },
   android: { enabled: true, viewport: 'pixel-9' },
 })
-const batchAnalysisIds = ref([]) // { analysisId, device, viewport }
-
 const recentAnalyses = ref([])
 const currentAnalysisId = ref(null)
 
@@ -765,6 +757,8 @@ const {
   sendHint,
   // Continue from checkpoint
   continueAnalysis,
+  // Start batch tracking
+  startBatch,
   // Failed step tracking
   failedStep,
   // Persisted agent steps
@@ -778,10 +772,31 @@ const {
   testRunId,
   testStepScreenshots,
   testFlowProgress,
+  // Multi-device batch
+  devices,
+  // Multi-device progress tracking
+  currentDeviceIndex,
+  currentDeviceTotal,
+  currentDeviceCategory,
 } = useAnalysis()
 
 
 const activeViewport = computed(() => getViewportByName(selectedViewport.value))
+
+// Format device category name for display
+function formatDeviceName(category) {
+  if (!category) return ''
+  if (category === 'ios') return 'iOS'
+  if (category === 'android') return 'Android'
+  return category.charAt(0).toUpperCase() + category.slice(1)
+}
+
+// Device label for progress panels during batch analysis
+const deviceLabel = computed(() => {
+  if (currentDeviceTotal.value <= 1) return ''
+  const name = formatDeviceName(currentDeviceCategory.value)
+  return `${name} ${currentDeviceIndex.value}/${currentDeviceTotal.value}`
+})
 
 // Filter viewport categories for multi-device mode based on device type
 function viewportCategoriesForDevice(deviceCategory) {
@@ -1111,40 +1126,53 @@ const failedPhaseLabel = computed(() => {
 
 const progressPhases = computed(() => {
   const isQueued = status.value === 'queued'
+  // Append device suffix to active phase labels during batch analysis
+  const suffix = deviceLabel.value ? ` [${deviceLabel.value}]` : ''
+  const withSuffix = (label, phaseStatus) => {
+    return phaseStatus === 'active' && suffix ? label + suffix : label
+  }
+
+  const scoutingStatus = isQueued ? 'active' : granularStepStatus('scouting')
   const phases = [{
-    id: 'scouting', label: isQueued ? 'Queued' : 'Scouting page', icon: isQueued ? 'Clock' : 'Radar', color: isQueued ? 'amber' : 'blue',
-    status: isQueued ? 'active' : granularStepStatus('scouting'),
+    id: 'scouting', label: withSuffix(isQueued ? 'Queued' : 'Scouting page', scoutingStatus), icon: isQueued ? 'Clock' : 'Radar', color: isQueued ? 'amber' : 'blue',
+    status: scoutingStatus,
     detail: isQueued ? 'Another analysis is running. Waiting in queue...' : stepDuration('scouting') ? `Completed in ${stepDuration('scouting')}s` : 'Fetching page and extracting metadata...',
     durationSeconds: stepDuration('scouting'),
     subDetails: scoutingDetails.value,
   }]
   if (agentMode.value) {
+    const agentStatus = agentExplorationStatus.value
     phases.push({
-      id: 'agent', label: 'Agent exploring game', icon: 'Bot', color: 'purple',
-      status: agentExplorationStatus.value,
+      id: 'agent', label: withSuffix('Agent exploring game', agentStatus), icon: 'Bot', color: 'purple',
+      status: agentStatus,
       detail: agentExplorationDetail.value,
       durationSeconds: null, subDetails: [], isAgentSlot: true,
     })
   }
+  const analyzingStatus = granularStepStatus('analyzing')
+  const scenariosStatus = granularStepStatus('scenarios')
+  const flowsStatus = granularStepStatus('flows')
+  const testPlanStatus = granularStepStatus('test_plan')
   phases.push(
-    { id: 'analyzing', label: agentMode.value ? 'Synthesizing analysis' : 'Analyzing game mechanics',
-      icon: 'Brain', color: 'amber', status: granularStepStatus('analyzing'),
+    { id: 'analyzing', label: withSuffix(agentMode.value ? 'Synthesizing analysis' : 'Analyzing game mechanics', analyzingStatus),
+      icon: 'Brain', color: 'amber', status: analyzingStatus,
       detail: analyzingDetail.value, durationSeconds: stepDuration('analyzing'),
       subDetails: analysisDetails.value },
-    { id: 'scenarios', label: 'Generating test scenarios', icon: 'ListTree', color: 'emerald',
-      status: granularStepStatus('scenarios'), detail: scenariosDetail.value,
+    { id: 'scenarios', label: withSuffix('Generating test scenarios', scenariosStatus), icon: 'ListTree', color: 'emerald',
+      status: scenariosStatus, detail: scenariosDetail.value,
       durationSeconds: stepDuration('scenarios'), subDetails: [] },
-    { id: 'flows', label: 'Generating test flows', icon: 'PlayCircle', color: 'rose',
-      status: granularStepStatus('flows'), detail: flowsDetail.value,
+    { id: 'flows', label: withSuffix('Generating test flows', flowsStatus), icon: 'PlayCircle', color: 'rose',
+      status: flowsStatus, detail: flowsDetail.value,
       durationSeconds: stepDuration('flows'), subDetails: flowsSubDetails.value },
-    { id: 'test_plan', label: 'Creating test plan', icon: 'ClipboardCheck', color: 'sky',
-      status: granularStepStatus('test_plan'), detail: testPlanDetail.value,
+    { id: 'test_plan', label: withSuffix('Creating test plan', testPlanStatus), icon: 'ClipboardCheck', color: 'sky',
+      status: testPlanStatus, detail: testPlanDetail.value,
       durationSeconds: stepDuration('test_plan'), subDetails: testPlanSubDetails.value },
   )
   if (moduleRunTests.value) {
+    const testingStatus = granularStepStatus('testing')
     phases.push({
-      id: 'testing', label: 'Running browser tests', icon: 'FlaskConical', color: 'violet',
-      status: granularStepStatus('testing'),
+      id: 'testing', label: withSuffix('Running browser tests', testingStatus), icon: 'FlaskConical', color: 'violet',
+      status: testingStatus,
       detail: testingDetail.value,
       durationSeconds: stepDuration('testing'),
       subDetails: [],
@@ -1191,7 +1219,7 @@ function expandStepScreenshot(entry) {
 }
 
 // Ordered step names for granular progress
-const STEP_ORDER = ['scouting', 'scouted', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_prompt', 'flows_calling', 'flows_parsing', 'flows_validating', 'flows_retry', 'flows_done', 'saving', 'test_plan', 'test_plan_checking', 'test_plan_flows', 'test_plan_saving', 'test_plan_done', 'testing', 'testing_started', 'testing_done', 'complete']
+const STEP_ORDER = ['scouting', 'scouted', 'device_transition', 'agent_start', 'agent_step', 'agent_action', 'agent_adaptive', 'agent_timeout_extend', 'agent_done', 'agent_synthesize', 'synthesis_retry', 'analyzing', 'analyzed', 'scenarios', 'scenarios_done', 'flows', 'flows_prompt', 'flows_calling', 'flows_parsing', 'flows_validating', 'flows_retry', 'flows_done', 'saving', 'test_plan', 'test_plan_checking', 'test_plan_flows', 'test_plan_saving', 'test_plan_done', 'testing', 'testing_started', 'testing_done', 'complete']
 
 function stepOrder(step) {
   const idx = STEP_ORDER.indexOf(step)
@@ -1296,11 +1324,9 @@ async function handleAnalyze() {
         ...params,
       }
       const result = await analyzeApi.batchAnalyze(batchReq)
-      batchAnalysisIds.value = result.analyses || []
-      // Start tracking the first analysis in the main panel
-      if (result.analyses?.length > 0) {
-        const first = result.analyses[0]
-        await start(gameUrl.value, projectId.value, useAgentMode.value, { ...params, viewport: first.viewport }, modules)
+      // Track the single unified analysis
+      if (result.analysisId) {
+        startBatch(result.analysisId, gameUrl.value, useAgentMode.value)
       }
     } catch {
       analyzing.value = false
@@ -1389,11 +1415,26 @@ async function handleContinueAnalysis() {
 function retryAnalysis() {
   const url = gameUrl.value
   const agent = agentMode.value
+  // Preserve multi-device state before reset
+  const wasMultiDevice = multiDeviceMode.value
+  const savedDevices = wasMultiDevice
+    ? JSON.parse(JSON.stringify(multiDevices.value))
+    : null
   canContinue.value = false
   reset()
   analyzing.value = false
   gameUrl.value = url
   useAgentMode.value = agent
+  // Restore multi-device settings
+  if (wasMultiDevice && savedDevices) {
+    multiDeviceMode.value = true
+    for (const [category, cfg] of Object.entries(savedDevices)) {
+      if (multiDevices.value[category]) {
+        multiDevices.value[category].enabled = cfg.enabled
+        multiDevices.value[category].viewport = cfg.viewport
+      }
+    }
+  }
   nextTick(() => handleAnalyze())
 }
 

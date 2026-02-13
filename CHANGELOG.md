@@ -5,6 +5,39 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.34.1] - 2026-02-13
+
+### Fixed
+- **Flow files overwrite each other in multi-device batch** — when Desktop and iOS both generate `00-setup.yaml`, the second device's files overwrote the first. `SaveGeneratedFlows` now accepts an optional `filenamePrefix` param; batch path passes `device.Category` so files are saved as `desktop_00-setup.yaml`, `ios_00-setup.yaml`, etc. Single-device path unchanged (no prefix).
+- **Test plan flow names mismatch after prefix fix** — disk filenames now match the device-prefixed names in the result JSON. `prepareFlowDir` walks the directory regardless of names, so test execution works correctly.
+- **Progress phase timeline regresses per device** — when device 2 started, `currentStep` cycled back to `scouting`, making all phases after scouting show as "pending". Now skips `device_transition` from updating `currentStep` and tracks device context separately (`currentDeviceIndex`, `currentDeviceTotal`, `currentDeviceCategory`).
+- **Retry doesn't preserve multi-device settings** — `retryAnalysis()` now saves and restores `multiDeviceMode` and per-device enabled/viewport settings across the reset.
+
+### Added
+- **Device label in progress panel header** — shows `"Analyzing [iOS 2/3]"` during batch analysis in the `AnalysisProgressPanel` header.
+- **Device label in agent exploration panel** — shows `"Agent Exploring Game [Desktop 1/3]"` during batch analysis.
+- **Device-aware progress phase labels** — active phase labels append `[Desktop 2/3]` during batch analysis so users understand the timeline shows the current device's progress.
+- **Device summary in analysis detail view** — completed batch analyses show a device summary card in the OverviewTab with per-device status, viewport, flow count, and error info.
+
+## [0.34.0] - 2026-02-13
+
+### Changed
+- **Unified multi-device analysis** — multi-device mode now creates ONE analysis that runs all device viewports sequentially instead of spawning N separate analyses. Results are merged into a single analysis with device-prefixed flow names and a device summary showing per-device status and flow counts.
+- **Sequential device execution** — devices run one after another within a single semaphore acquisition, preventing queue contention and ensuring predictable resource usage.
+- **Device-aware progress messages** — progress broadcasts include device context (e.g., `[Desktop 1/3] Scouting page...`) so users can track which device is being analyzed.
+- **Agent step numbering across devices** — agent steps continue numbering sequentially across devices (device 1: steps 1-20, device 2: steps 21-40) with reasoning separators between devices.
+
+### Added
+- **`executeBatchAnalysis()`** — new backend function that runs multiple device viewports sequentially within one analysis, with error tolerance (one device failure doesn't abort the batch).
+- **`startBatch()` composable method** — sets up WebSocket listeners and status polling for a pre-existing batch analysis ID without making an API POST.
+- **`devices` ref** in `useAnalysis` — populated from `result.devices` on completion, containing per-device status, flow count, and error info.
+- **`device_transition` step** — new progress step broadcast between devices, mapped to `scouting` status to reset the progress display.
+- **Device summary grid** in analysis results — shows per-device cards with status badges, flow counts, and error messages for failed devices.
+
+### Removed
+- **`batchAnalysisIds` ref** — removed from Analyze.vue along with the multi-device status cards that linked to separate analyses.
+- **Separate per-device analyses** — the old behavior of creating N analysis IDs for N devices is replaced by a single unified analysis.
+
 ## [0.33.0] - 2026-02-13
 
 ### Added

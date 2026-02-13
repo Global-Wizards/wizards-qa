@@ -896,10 +896,14 @@ func (s *Store) FlowsDir() string {
 	return s.flowsDir
 }
 
-func (s *Store) SaveGeneratedFlows(analysisID string, srcDir string) error {
+func (s *Store) SaveGeneratedFlows(analysisID string, srcDir string, filenamePrefix ...string) error {
 	dstDir := filepath.Join(s.flowsDir, "generated", analysisID)
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return fmt.Errorf("creating generated flows dir: %w", err)
+	}
+	prefix := ""
+	if len(filenamePrefix) > 0 && filenamePrefix[0] != "" {
+		prefix = filenamePrefix[0] + "_"
 	}
 	filepath.Walk(srcDir, func(path string, info os.FileInfo, err error) error {
 		if err != nil || info.IsDir() || !isYAMLFile(path) {
@@ -910,8 +914,9 @@ func (s *Store) SaveGeneratedFlows(analysisID string, srcDir string) error {
 			log.Printf("Warning: could not read generated flow %s: %v", info.Name(), readErr)
 			return nil
 		}
-		if writeErr := os.WriteFile(filepath.Join(dstDir, info.Name()), content, 0644); writeErr != nil {
-			log.Printf("Warning: could not write generated flow %s: %v", info.Name(), writeErr)
+		dstName := prefix + info.Name()
+		if writeErr := os.WriteFile(filepath.Join(dstDir, dstName), content, 0644); writeErr != nil {
+			log.Printf("Warning: could not write generated flow %s: %v", dstName, writeErr)
 		}
 		return nil
 	})

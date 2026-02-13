@@ -30,6 +30,31 @@
       </CardContent>
     </Card>
 
+    <!-- Device Summary -->
+    <Card v-if="devices.length > 0">
+      <CardHeader>
+        <CardTitle class="text-base">Device Summary</CardTitle>
+      </CardHeader>
+      <CardContent>
+        <div class="grid gap-2 sm:grid-cols-3">
+          <div
+            v-for="d in devices"
+            :key="d.device"
+            class="rounded-md border p-3 text-center"
+            :class="d.status === 'failed' ? 'border-destructive/50 bg-destructive/5' : 'border-border'"
+          >
+            <p class="text-sm font-medium capitalize">{{ d.device === 'ios' ? 'iOS' : d.device }}</p>
+            <p class="text-[10px] text-muted-foreground">{{ d.viewport }}</p>
+            <div class="mt-1">
+              <Badge v-if="d.status === 'completed'" variant="secondary">{{ d.flowCount }} flow(s)</Badge>
+              <Badge v-else variant="destructive" class="text-[10px]">Failed</Badge>
+            </div>
+            <p v-if="d.error" class="text-[10px] text-destructive mt-1 truncate" :title="d.error">{{ d.error }}</p>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+
     <!-- Stats Grid -->
     <div class="grid gap-4 grid-cols-2 lg:grid-cols-4">
       <StatCard title="Mechanics" :value="analysis?.mechanics?.length || 0" :icon="Cog" description="Game mechanics found" />
@@ -95,5 +120,6 @@ defineProps({
   analysis: { type: Object, default: null },
   pageMeta: { type: Object, default: null },
   flows: { type: Array, default: () => [] },
+  devices: { type: Array, default: () => [] },
 })
 </script>

@@ -14,7 +14,7 @@
           </div>
         </div>
         <div class="min-w-0">
-          <span class="text-sm font-semibold block">Agent Exploring Game</span>
+          <span class="text-sm font-semibold block">Agent Exploring Game<template v-if="deviceLabel"> <span class="text-xs font-normal text-muted-foreground">[{{ deviceLabel }}]</span></template></span>
           <span v-if="explorationStatus === 'active' && currentActivity" class="text-xs text-muted-foreground truncate block">
             {{ currentActivity.label }}
           </span>
@@ -302,6 +302,7 @@ const props = defineProps({
   elapsedSeconds: { type: Number, default: 0 },
   hintCooldown: { type: Boolean, default: false },
   formatElapsed: { type: Function, default: (s) => `${Math.floor(s / 60)}m ${s % 60}s` },
+  deviceLabel: { type: String, default: '' },
 })
 
 const emit = defineEmits(['send-hint', 'expand-screenshot'])

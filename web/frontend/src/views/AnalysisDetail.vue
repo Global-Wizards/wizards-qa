@@ -84,7 +84,7 @@
 
         <div class="mt-6">
           <TabsContent value="overview">
-            <OverviewTab :analysis="analysis" :page-meta="pageMeta" :flows="flows" />
+            <OverviewTab :analysis="analysis" :page-meta="pageMeta" :flows="flows" :devices="devices" />
           </TabsContent>
           <TabsContent value="functional">
             <FunctionalQATab :analysis="analysis" />
@@ -179,6 +179,7 @@ const testResultLoading = ref(false)
 const analysis = computed(() => analysisData.value?.result?.analysis || null)
 const pageMeta = computed(() => analysisData.value?.result?.pageMeta || null)
 const flows = computed(() => analysisData.value?.result?.flows || [])
+const devices = computed(() => analysisData.value?.result?.devices || [])
 const isAgentMode = computed(() => analysisData.value?.result?.mode === 'agent')
 const framework = computed(() => pageMeta.value?.framework || '')
 const lastTestRunId = computed(() => analysisData.value?.lastTestRunId || '')

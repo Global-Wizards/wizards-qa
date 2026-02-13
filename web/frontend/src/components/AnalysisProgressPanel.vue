@@ -29,6 +29,7 @@
             <div class="min-w-0">
               <h3 class="text-sm font-semibold">
                 {{ mode === 'error' ? 'Analysis Failed' : 'Analyzing' }}
+                <span v-if="deviceLabel && mode !== 'error'" class="text-xs font-normal text-muted-foreground ml-1">[{{ deviceLabel }}]</span>
               </h3>
               <p class="text-xs text-muted-foreground truncate" :title="gameUrl">
                 {{ gameUrl }}
@@ -302,6 +303,7 @@ const props = defineProps({
   errorMessage: { type: String, default: '' },
   failedPhaseLabel: { type: String, default: '' },
   canContinue: { type: Boolean, default: false },
+  deviceLabel: { type: String, default: '' },
 })
 
 defineEmits(['cancel', 'retry', 'continue', 'start-over', 'copy-log'])

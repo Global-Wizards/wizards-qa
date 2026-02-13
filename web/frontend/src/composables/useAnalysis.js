@@ -52,6 +52,8 @@ const STEP_TO_STATUS = {
   user_hint: 'analyzing',
   flows_retry: 'generating',
   resuming: 'scouting',
+  // Multi-device batch step
+  device_transition: 'scouting',
 }
 
 export function useAnalysis() {
@@ -88,6 +90,14 @@ export function useAnalysis() {
 
   // Auto-created test plan ID (set on analysis completion)
   const autoTestPlanId = ref(null)
+
+  // Multi-device batch results
+  const devices = ref([])
+
+  // Multi-device progress tracking
+  const currentDeviceIndex = ref(0)
+  const currentDeviceTotal = ref(0)
+  const currentDeviceCategory = ref('')
 
   // Browser test execution state (inline during analysis)
   const testRunId = ref(null)
@@ -141,6 +151,7 @@ export function useAnalysis() {
             flows.value = fullData.result.flows || []
             agentSteps.value = fullData.result.agentSteps || []
             agentMode.value = fullData.result.mode === 'agent'
+            devices.value = fullData.result.devices || []
           }
           autoTestPlanId.value = fullData.testPlanId || null
           status.value = 'complete'
@@ -250,20 +261,38 @@ export function useAnalysis() {
         testRunId.value = progressData.testId
       }
 
+      // Track device context from batch progress events
+      if (progressData.deviceIndex != null) {
+        currentDeviceIndex.value = progressData.deviceIndex
+      }
+      if (progressData.deviceTotal != null) {
+        currentDeviceTotal.value = progressData.deviceTotal
+      }
+      if (progressData.device) {
+        currentDeviceCategory.value = progressData.device
+      }
+
       // Track granular step and timings
       if (progress.step) {
-        const now = Date.now()
-        // End previous step
-        if (currentStep.value && stepTimings.value[currentStep.value]) {
-          stepTimings.value[currentStep.value].end = now
-        }
-        // Start new step
-        stepTimings.value = { ...stepTimings.value, [progress.step]: { start: now, end: null } }
+        // Skip device_transition from updating currentStep to prevent
+        // the progress phase timeline from visually regressing when
+        // the next device starts back at 'scouting'
+        if (progress.step === 'device_transition') {
+          // Still log the message but don't update step/status
+        } else {
+          const now = Date.now()
+          // End previous step
+          if (currentStep.value && stepTimings.value[currentStep.value]) {
+            stepTimings.value[currentStep.value].end = now
+          }
+          // Start new step
+          stepTimings.value = { ...stepTimings.value, [progress.step]: { start: now, end: null } }
 
-        currentStep.value = progress.step
-        const coarseStatus = STEP_TO_STATUS[progress.step]
-        if (coarseStatus) {
-          status.value = coarseStatus
+          currentStep.value = progress.step
+          const coarseStatus = STEP_TO_STATUS[progress.step]
+          if (coarseStatus) {
+            status.value = coarseStatus
+          }
         }
       }
     })
@@ -374,6 +403,7 @@ export function useAnalysis() {
       flows.value = result.flows || []
       agentSteps.value = result.agentSteps || []
       agentMode.value = result.mode === 'agent'
+      devices.value = result.devices || []
       autoTestPlanId.value = data.testPlanId || null
       testRunId.value = data.testRunId || null
 
@@ -465,6 +495,9 @@ export function useAnalysis() {
     testRunId.value = null
     testStepScreenshots.value = []
     testFlowProgress.value = []
+    currentDeviceIndex.value = 0
+    currentDeviceTotal.value = 0
+    currentDeviceCategory.value = ''
 
     startElapsedTimer()
     setupListeners()
@@ -525,6 +558,53 @@ export function useAnalysis() {
       stopElapsedTimer()
       clearLocalStorage()
     }
+  }
+
+  /**
+   * Start tracking a pre-existing batch analysis (created by the batch endpoint).
+   * Unlike start(), this does NOT make an API POST — the batch endpoint already created
+   * the analysis. We just set up WS listeners and status polling.
+   */
+  function startBatch(batchAnalysisId, gameUrl, useAgentMode = false) {
+    status.value = 'scouting'
+    currentStep.value = 'scouting'
+    analysisId.value = batchAnalysisId
+    pageMeta.value = null
+    analysis.value = null
+    flows.value = []
+    agentSteps.value = []
+    agentMode.value = useAgentMode
+    error.value = null
+    failedStep.value = null
+    logs.value = []
+    stepTimings.value = {}
+    liveAgentSteps.value = []
+    latestScreenshot.value = null
+    agentReasoning.value = ''
+    userHints.value = []
+    hintCooldown.value = false
+    agentStepCurrent.value = 0
+    agentStepTotal.value = 0
+    latestStepMessage.value = ''
+    autoTestPlanId.value = null
+    devices.value = []
+    testRunId.value = null
+    testStepScreenshots.value = []
+    testFlowProgress.value = []
+    currentDeviceIndex.value = 0
+    currentDeviceTotal.value = 0
+    currentDeviceCategory.value = ''
+
+    startElapsedTimer()
+    setupListeners()
+
+    // Persist to localStorage so we can recover on refresh
+    localStorage.setItem(LS_KEY, JSON.stringify({
+      analysisId: batchAnalysisId,
+      gameUrl,
+      startedAt: startTime.value || Date.now(),
+      agentMode: useAgentMode,
+    }))
   }
 
   /**
@@ -638,6 +718,7 @@ export function useAnalysis() {
           flows.value = fullData.result.flows || []
           agentSteps.value = fullData.result.agentSteps || []
           agentMode.value = fullData.result.mode === 'agent'
+          devices.value = fullData.result.devices || []
         }
         autoTestPlanId.value = fullData.testPlanId || null
         status.value = 'complete'
@@ -688,9 +769,13 @@ export function useAnalysis() {
     latestStepMessage.value = ''
     persistedAgentSteps.value = []
     autoTestPlanId.value = null
+    devices.value = []
     testRunId.value = null
     testStepScreenshots.value = []
     testFlowProgress.value = []
+    currentDeviceIndex.value = 0
+    currentDeviceTotal.value = 0
+    currentDeviceCategory.value = ''
     if (hintCooldownTimer) {
       clearTimeout(hintCooldownTimer)
       hintCooldownTimer = null
@@ -725,6 +810,7 @@ export function useAnalysis() {
     stepTimings,
     formatElapsed,
     start,
+    startBatch,
     reset,
     tryRecover,
     stopListening,
@@ -752,5 +838,11 @@ export function useAnalysis() {
     testRunId,
     testStepScreenshots,
     testFlowProgress,
+    // Multi-device batch
+    devices,
+    // Multi-device progress tracking
+    currentDeviceIndex,
+    currentDeviceTotal,
+    currentDeviceCategory,
   }
 }

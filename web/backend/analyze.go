@@ -182,61 +182,787 @@ func (s *Server) handleBatchAnalyze(w http.ResponseWriter, r *http.Request) {
 		createdBy = claims.UserID
 	}
 
-	type analysisEntry struct {
-		AnalysisID string `json:"analysisId"`
-		Device     string `json:"device"`
-		Viewport   string `json:"viewport"`
+	analysisID := newID("analysis")
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("Panic in batch analysis %s: %v", analysisID, r)
+				s.wsHub.Broadcast(ws.Message{
+					Type: "analysis_failed",
+					Data: map[string]string{
+						"analysisId": analysisID,
+						"error":      fmt.Sprintf("panic: %v", r),
+					},
+				})
+			}
+		}()
+		s.executeBatchAnalysis(analysisID, createdBy, req)
+	}()
+
+	respondJSON(w, http.StatusAccepted, map[string]interface{}{
+		"analysisId": analysisID,
+		"status":     "started",
+		"devices":    req.Devices,
+	})
+}
+
+// deviceResult holds the outcome of a single device's analysis within a batch.
+type deviceResult struct {
+	Device    string                 `json:"device"`
+	Viewport  string                 `json:"viewport"`
+	FlowCount int                    `json:"flowCount"`
+	Status    string                 `json:"status"` // "completed" or "failed"
+	Error     string                 `json:"error,omitempty"`
+	Flows     []interface{}          `json:"-"`
+	PageMeta  map[string]interface{} `json:"-"`
+	Analysis  map[string]interface{} `json:"-"`
+	Mode      string                 `json:"-"`
+}
+
+func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAnalysisRequest) {
+	gameURL := req.GameURL
+	agentMode := req.AgentMode
+
+	// Serialize modules to JSON for persistence
+	modulesJSON := ""
+	{
+		m := map[string]bool{
+			"uiux":       req.Modules.UIUX == nil || *req.Modules.UIUX,
+			"wording":    req.Modules.Wording == nil || *req.Modules.Wording,
+			"gameDesign": req.Modules.GameDesign == nil || *req.Modules.GameDesign,
+			"testFlows":  req.Modules.TestFlows == nil || *req.Modules.TestFlows,
+			"runTests":   req.Modules.RunTests != nil && *req.Modules.RunTests,
+		}
+		if b, err := json.Marshal(m); err == nil {
+			modulesJSON = string(b)
+		}
 	}
-	var analyses []analysisEntry
 
-	for _, device := range req.Devices {
-		analysisID := newID("analysis")
+	// Serialize profile params for persistence
+	profileJSON := ""
+	{
+		p := map[string]interface{}{}
+		if req.Model != "" {
+			p["model"] = req.Model
+		}
+		if req.MaxTokens > 0 {
+			p["maxTokens"] = req.MaxTokens
+		}
+		if req.Temperature != nil {
+			p["temperature"] = *req.Temperature
+		}
+		if req.AgentSteps > 0 {
+			p["agentSteps"] = req.AgentSteps
+		}
+		if req.Adaptive {
+			p["adaptive"] = true
+		}
+		if req.MaxTotalSteps > 0 {
+			p["maxTotalSteps"] = req.MaxTotalSteps
+		}
+		if req.AdaptiveTimeout {
+			p["adaptiveTimeout"] = true
+		}
+		if req.MaxTotalTimeout > 0 {
+			p["maxTotalTimeout"] = req.MaxTotalTimeout
+		}
+		// Store device configs in profile for reference
+		devicesJSON, _ := json.Marshal(req.Devices)
+		p["devices"] = string(devicesJSON)
+		if len(p) > 0 {
+			if b, err := json.Marshal(p); err == nil {
+				profileJSON = string(b)
+			}
+		}
+	}
 
-		// Create a per-device AnalysisRequest with the device viewport
-		perDevice := AnalysisRequest{
-			GameURL:         req.GameURL,
-			ProjectID:       req.ProjectID,
-			AgentMode:       req.AgentMode,
-			Modules:         req.Modules,
-			Model:           req.Model,
-			MaxTokens:       req.MaxTokens,
-			AgentSteps:      req.AgentSteps,
-			Temperature:     req.Temperature,
-			Adaptive:        req.Adaptive,
-			MaxTotalSteps:   req.MaxTotalSteps,
-			AdaptiveTimeout: req.AdaptiveTimeout,
-			MaxTotalTimeout: req.MaxTotalTimeout,
-			Viewport:        device.Viewport,
+	// Save ONE running record before acquiring semaphore
+	runningRecord := store.AnalysisRecord{
+		ID:        analysisID,
+		GameURL:   gameURL,
+		Status:    store.StatusRunning,
+		Step:      "queued",
+		CreatedAt: time.Now().Format(time.RFC3339),
+		UpdatedAt: time.Now().Format(time.RFC3339),
+		CreatedBy: createdBy,
+		ProjectID: req.ProjectID,
+		Modules:   modulesJSON,
+		AgentMode: agentMode,
+		Profile:   profileJSON,
+	}
+	if err := s.store.SaveAnalysis(runningRecord); err != nil {
+		log.Printf("Warning: failed to save running analysis record for %s: %v", analysisID, err)
+	}
+
+	// Acquire semaphore once for the entire batch
+	select {
+	case s.analysisSem <- struct{}{}:
+	default:
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "queued",
+				Message: "Another analysis is running. Waiting in queue...",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+		log.Printf("Batch analysis %s: queued (semaphore busy)", analysisID)
+		queueTimeout := time.After(5 * time.Minute)
+		select {
+		case s.analysisSem <- struct{}{}:
+		case <-queueTimeout:
+			s.store.UpdateAnalysisStatus(analysisID, store.StatusFailed, "queue_timeout")
+			s.broadcastAnalysisError(analysisID, "Timed out waiting in queue. Another analysis may be stuck — please try again.")
+			return
+		case <-s.serverCtx.Done():
+			s.store.UpdateAnalysisStatus(analysisID, store.StatusFailed, "shutdown")
+			s.broadcastAnalysisError(analysisID, "Server shutting down")
+			return
+		}
+	}
+	defer func() { <-s.analysisSem }()
+
+	// Update step now that we have the semaphore
+	if err := s.store.UpdateAnalysisStatus(analysisID, store.StatusRunning, "scouting"); err != nil {
+		log.Printf("Warning: failed to update analysis %s step to scouting: %v", analysisID, err)
+	}
+
+	// Calculate total timeout: per-device timeout × device count, clamped to 60 min
+	perDeviceTimeout := 5 * time.Minute
+	if agentMode {
+		steps := req.AgentSteps
+		if steps <= 0 {
+			steps = 20
+		}
+		if req.Adaptive && req.MaxTotalSteps > steps {
+			steps = req.MaxTotalSteps
+		}
+		explorationBudget := time.Duration(steps) * 75 * time.Second
+		perDeviceTimeout = explorationBudget + 10*time.Minute
+		if req.AdaptiveTimeout && req.MaxTotalTimeout > 0 {
+			timeoutFromMinutes := time.Duration(req.MaxTotalTimeout)*time.Minute + 8*time.Minute
+			if timeoutFromMinutes > perDeviceTimeout {
+				perDeviceTimeout = timeoutFromMinutes
+			}
+		}
+		if perDeviceTimeout < 10*time.Minute {
+			perDeviceTimeout = 10 * time.Minute
+		}
+		maxClamp := 45 * time.Minute
+		if req.Adaptive || req.AdaptiveTimeout {
+			maxClamp = 60 * time.Minute
+		}
+		if perDeviceTimeout > maxClamp {
+			perDeviceTimeout = maxClamp
+		}
+	}
+	totalTimeout := perDeviceTimeout * time.Duration(len(req.Devices))
+	if totalTimeout > 60*time.Minute {
+		totalTimeout = 60 * time.Minute
+	}
+	ctx, cancel := context.WithTimeout(s.serverCtx, totalTimeout)
+	defer cancel()
+
+	cliPath := envOrDefault("WIZARDS_QA_CLI_PATH", "wizards-qa")
+
+	var deviceResults []deviceResult
+	var allFlows []interface{}
+	var allAgentSteps []interface{}
+	var primaryPageMeta map[string]interface{}
+	var primaryAnalysis map[string]interface{}
+	var primaryMode string
+	var gameName, framework string
+	totalFlowCount := 0
+	agentStepOffset := 0
+
+	for i, device := range req.Devices {
+		deviceNum := i + 1
+		deviceTotal := len(req.Devices)
+		deviceLabel := fmt.Sprintf("[%s %d/%d]", device.Category, deviceNum, deviceTotal)
+
+		// Check if context is already cancelled
+		if ctx.Err() != nil {
+			deviceResults = append(deviceResults, deviceResult{
+				Device:   device.Category,
+				Viewport: device.Viewport,
+				Status:   "failed",
+				Error:    "Batch timed out before this device could run",
+			})
+			continue
 		}
 
-		go func(id, cb string, dr AnalysisRequest) {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("Panic in batch analysis %s: %v", id, r)
+		// Broadcast device transition (for devices after the first)
+		if i > 0 {
+			s.wsHub.Broadcast(ws.Message{
+				Type: "analysis_progress",
+				Data: AnalysisProgress{
+					Step:    "device_transition",
+					Message: fmt.Sprintf("%s Starting analysis...", deviceLabel),
+					Data: map[string]string{
+						"analysisId":  analysisID,
+						"device":      device.Category,
+						"deviceIndex": fmt.Sprintf("%d", deviceNum),
+						"deviceTotal": fmt.Sprintf("%d", deviceTotal),
+					},
+				},
+			})
+
+			// Broadcast an agent_reasoning separator between devices
+			s.wsHub.Broadcast(ws.Message{
+				Type: "agent_reasoning",
+				Data: map[string]string{
+					"analysisId": analysisID,
+					"text":       fmt.Sprintf("--- Starting %s analysis (device %d of %d) ---", device.Category, deviceNum, deviceTotal),
+				},
+			})
+		}
+
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "scouting",
+				Message: fmt.Sprintf("%s Scouting page...", deviceLabel),
+				Data: map[string]string{
+					"analysisId":  analysisID,
+					"device":      device.Category,
+					"deviceIndex": fmt.Sprintf("%d", deviceNum),
+					"deviceTotal": fmt.Sprintf("%d", deviceTotal),
+					"gameUrl":     gameURL,
+				},
+			},
+		})
+
+		if err := s.store.UpdateAnalysisStatus(analysisID, store.StatusRunning, "scouting"); err != nil {
+			log.Printf("Warning: failed to update analysis %s step to scouting: %v", analysisID, err)
+		}
+
+		// Create per-device tmpDir
+		tmpDir, err := os.MkdirTemp("", fmt.Sprintf("wizards-qa-batch-%s-*", device.Category))
+		if err != nil {
+			deviceResults = append(deviceResults, deviceResult{
+				Device:   device.Category,
+				Viewport: device.Viewport,
+				Status:   "failed",
+				Error:    fmt.Sprintf("Failed to create temp dir: %v", err),
+			})
+			continue
+		}
+
+		// Build CLI args with device viewport
+		args := []string{"scout", "--game", gameURL, "--json", "--save-flows", "--output", tmpDir, "--headless", "--timeout", "60"}
+		if agentMode {
+			args = append(args, "--agent")
+			if req.AgentSteps > 0 {
+				args = append(args, "--agent-steps", fmt.Sprintf("%d", req.AgentSteps))
+			}
+		}
+		if req.Adaptive {
+			args = append(args, "--adaptive")
+			if req.MaxTotalSteps > 0 {
+				args = append(args, "--max-total-steps", fmt.Sprintf("%d", req.MaxTotalSteps))
+			}
+		}
+		if req.AdaptiveTimeout {
+			args = append(args, "--adaptive-timeout")
+			if req.MaxTotalTimeout > 0 {
+				args = append(args, "--max-total-timeout", fmt.Sprintf("%d", req.MaxTotalTimeout))
+			}
+		}
+		if req.Model != "" {
+			args = append(args, "--model", req.Model)
+		}
+		if req.MaxTokens > 0 {
+			args = append(args, "--max-tokens", fmt.Sprintf("%d", req.MaxTokens))
+		}
+		if req.Temperature != nil {
+			args = append(args, "--temperature", fmt.Sprintf("%g", *req.Temperature))
+		}
+		args = append(args, "--viewport", device.Viewport)
+		if req.Modules.UIUX != nil && !*req.Modules.UIUX {
+			args = append(args, "--no-uiux")
+		}
+		if req.Modules.Wording != nil && !*req.Modules.Wording {
+			args = append(args, "--no-wording")
+		}
+		if req.Modules.GameDesign != nil && !*req.Modules.GameDesign {
+			args = append(args, "--no-game-design")
+		}
+		if req.Modules.TestFlows != nil && !*req.Modules.TestFlows {
+			args = append(args, "--no-test-flows")
+		}
+
+		log.Printf("Batch analysis %s [%s %d/%d]: executing %s %s", analysisID, device.Category, deviceNum, deviceTotal, cliPath, strings.Join(args, " "))
+		cmd := exec.CommandContext(ctx, cliPath, args...)
+		cmd.Env = append(os.Environ(), "NO_COLOR=1")
+
+		stdout, err := cmd.StdoutPipe()
+		if err != nil {
+			os.RemoveAll(tmpDir)
+			deviceResults = append(deviceResults, deviceResult{
+				Device:   device.Category,
+				Viewport: device.Viewport,
+				Status:   "failed",
+				Error:    fmt.Sprintf("stdout pipe: %v", err),
+			})
+			continue
+		}
+
+		stderr, err := cmd.StderrPipe()
+		if err != nil {
+			os.RemoveAll(tmpDir)
+			deviceResults = append(deviceResults, deviceResult{
+				Device:   device.Category,
+				Viewport: device.Viewport,
+				Status:   "failed",
+				Error:    fmt.Sprintf("stderr pipe: %v", err),
+			})
+			continue
+		}
+
+		stdinPipe, err := cmd.StdinPipe()
+		if err != nil {
+			os.RemoveAll(tmpDir)
+			deviceResults = append(deviceResults, deviceResult{
+				Device:   device.Category,
+				Viewport: device.Viewport,
+				Status:   "failed",
+				Error:    fmt.Sprintf("stdin pipe: %v", err),
+			})
+			continue
+		}
+
+		if err := cmd.Start(); err != nil {
+			os.RemoveAll(tmpDir)
+			deviceResults = append(deviceResults, deviceResult{
+				Device:   device.Category,
+				Viewport: device.Viewport,
+				Status:   "failed",
+				Error:    fmt.Sprintf("Failed to start CLI: %v", err),
+			})
+			continue
+		}
+
+		// Register active analysis for user→agent messaging
+		s.activeAnalysesMu.Lock()
+		s.activeAnalyses[analysisID] = &activeAnalysis{stdin: stdinPipe, tmpDir: tmpDir}
+		s.activeAnalysesMu.Unlock()
+
+		// Stream stderr for PROGRESS: lines, prefix messages with device label
+		var stderrLines []string
+		var lastKnownStep string
+		stderrDone := make(chan struct{})
+		go func() {
+			defer close(stderrDone)
+			stderrScanner := bufio.NewScanner(stderr)
+			stderrScanner.Buffer(make([]byte, 256*1024), 256*1024)
+
+			var latestReasoning string
+			var lastStepDBID int64
+			var lastStepNumber int
+
+			for stderrScanner.Scan() {
+				line := stderrScanner.Text()
+				if strings.HasPrefix(line, "PROGRESS:") {
+					rest := line[len("PROGRESS:"):]
+					parts := strings.SplitN(rest, ":", 2)
+					step := strings.TrimSpace(parts[0])
+					lastKnownStep = step
+					message := ""
+					if len(parts) > 1 {
+						message = strings.TrimSpace(parts[1])
+					}
+
+					// Handle rich agent events
+					switch step {
+					case "agent_step_detail":
+						var detailData map[string]interface{}
+						if err := json.Unmarshal([]byte(message), &detailData); err == nil {
+							detailData["analysisId"] = analysisID
+							// Offset step numbers across devices
+							if sn, ok := detailData["stepNumber"]; ok {
+								if snFloat, ok := sn.(float64); ok {
+									detailData["stepNumber"] = int(snFloat) + agentStepOffset
+								}
+							}
+							s.wsHub.Broadcast(ws.Message{
+								Type: "agent_step_detail",
+								Data: detailData,
+							})
+
+							stepRecord := store.AgentStepRecord{
+								AnalysisID: analysisID,
+								StepNumber: intFromMap(detailData, "stepNumber"),
+								ToolName:   strFromMap(detailData, "toolName"),
+								Input:      strFromMap(detailData, "input"),
+								Result:     strFromMap(detailData, "result"),
+								DurationMs: intFromMap(detailData, "durationMs"),
+								ThinkingMs: intFromMap(detailData, "thinkingMs"),
+								Error:      strFromMap(detailData, "error"),
+								Reasoning:  latestReasoning,
+							}
+							lastStepNumber = stepRecord.StepNumber
+							if dbID, saveErr := s.store.SaveAgentStep(stepRecord); saveErr != nil {
+								log.Printf("Warning: failed to save agent step %d for %s: %v", stepRecord.StepNumber, analysisID, saveErr)
+							} else {
+								lastStepDBID = dbID
+							}
+							latestReasoning = ""
+						}
+					case "agent_reasoning":
+						latestReasoning = message
+						s.wsHub.Broadcast(ws.Message{
+							Type: "agent_reasoning",
+							Data: map[string]string{
+								"analysisId": analysisID,
+								"text":       message,
+							},
+						})
+					case "agent_screenshot":
+						filename := filepath.Base(message)
+						if filename == "." || filename == "/" || strings.ContainsAny(filename, `/\`) {
+							break
+						}
+						s.activeAnalysesMu.Lock()
+						aa := s.activeAnalyses[analysisID]
+						s.activeAnalysesMu.Unlock()
+						if aa != nil {
+							screenshotPath := filepath.Join(aa.tmpDir, "agent-screenshots", filename)
+							if imgData, readErr := os.ReadFile(screenshotPath); readErr == nil {
+								dataDir := s.store.DataDir()
+								if dataDir != "" {
+									dstDir := filepath.Join(dataDir, "screenshots", analysisID)
+									if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
+										dstPath := filepath.Join(dstDir, filename)
+										if cpErr := os.WriteFile(dstPath, imgData, 0644); cpErr == nil {
+											if lastStepDBID > 0 {
+												s.store.UpdateAgentStepScreenshot(lastStepDBID, filename)
+											}
+										}
+									}
+								}
+								s.wsHub.Broadcast(ws.Message{
+									Type: "agent_screenshot",
+									Data: map[string]string{
+										"analysisId":    analysisID,
+										"screenshotUrl": fmt.Sprintf("/api/analyses/%s/steps/%d/screenshot", analysisID, lastStepNumber),
+										"filename":      filename,
+									},
+								})
+							}
+						}
+					case "user_hint":
+						s.wsHub.Broadcast(ws.Message{
+							Type: "agent_user_hint",
+							Data: map[string]string{
+								"analysisId": analysisID,
+								"message":    message,
+							},
+						})
+					}
+
+					// Prefix the message with device label for analysis_progress
+					prefixedMessage := fmt.Sprintf("%s %s", deviceLabel, message)
 					s.wsHub.Broadcast(ws.Message{
-						Type: "analysis_failed",
-						Data: map[string]string{
-							"analysisId": id,
-							"error":      fmt.Sprintf("panic: %v", r),
+						Type: "analysis_progress",
+						Data: AnalysisProgress{
+							Step:    step,
+							Message: prefixedMessage,
+							Data: map[string]string{
+								"analysisId":  analysisID,
+								"device":      device.Category,
+								"deviceIndex": fmt.Sprintf("%d", deviceNum),
+								"deviceTotal": fmt.Sprintf("%d", deviceTotal),
+							},
 						},
 					})
+					go func(id, st string) {
+						if err := s.store.UpdateAnalysisStatus(id, store.StatusRunning, st); err != nil {
+							log.Printf("Warning: failed to update analysis %s step to %s: %v", id, st, err)
+						}
+					}(analysisID, step)
+				} else {
+					const maxStderrLines = 1000
+					if len(stderrLines) >= maxStderrLines {
+						stderrLines = stderrLines[1:]
+					}
+					stderrLines = append(stderrLines, line)
+					log.Printf("Batch analysis %s [%s] stderr: %s", analysisID, device.Category, line)
 				}
-			}()
-			s.executeAnalysis(id, cb, dr)
-		}(analysisID, createdBy, perDevice)
+			}
+		}()
 
-		analyses = append(analyses, analysisEntry{
-			AnalysisID: analysisID,
-			Device:     device.Category,
-			Viewport:   device.Viewport,
+		// Collect all stdout
+		const maxOutputSize = 10 * 1024 * 1024
+		var outputBuf bytes.Buffer
+		scanner := bufio.NewScanner(stdout)
+		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+		for scanner.Scan() {
+			if outputBuf.Len() < maxOutputSize {
+				outputBuf.WriteString(scanner.Text())
+				outputBuf.WriteString("\n")
+			}
+		}
+
+		<-stderrDone
+
+		cmdErr := cmd.Wait()
+
+		// Clean up active analysis registration
+		s.activeAnalysesMu.Lock()
+		delete(s.activeAnalyses, analysisID)
+		s.activeAnalysesMu.Unlock()
+		stdinPipe.Close()
+
+		if cmdErr != nil {
+			var userMsg string
+			if ctx.Err() != nil {
+				userMsg = fmt.Sprintf("Timed out (last step: %s)", lastKnownStep)
+			} else if exitErr, ok := cmdErr.(*exec.ExitError); ok {
+				userMsg = fmt.Sprintf("CLI exited with code %d", exitErr.ExitCode())
+				if lastKnownStep != "" {
+					userMsg += fmt.Sprintf(" (failed during: %s)", lastKnownStep)
+				}
+			} else {
+				userMsg = cmdErr.Error()
+			}
+			log.Printf("Batch analysis %s [%s]: device failed: %s", analysisID, device.Category, userMsg)
+
+			os.RemoveAll(tmpDir)
+			deviceResults = append(deviceResults, deviceResult{
+				Device:   device.Category,
+				Viewport: device.Viewport,
+				Status:   "failed",
+				Error:    userMsg,
+			})
+			continue
+		}
+
+		// Parse the JSON output
+		rawOutput := strings.TrimSpace(outputBuf.String())
+		var result map[string]interface{}
+		if err := json.Unmarshal([]byte(rawOutput), &result); err != nil {
+			start := strings.Index(rawOutput, "{")
+			end := strings.LastIndex(rawOutput, "}")
+			if start >= 0 && end > start {
+				rawOutput = rawOutput[start : end+1]
+				if err2 := json.Unmarshal([]byte(rawOutput), &result); err2 != nil {
+					os.RemoveAll(tmpDir)
+					deviceResults = append(deviceResults, deviceResult{
+						Device:   device.Category,
+						Viewport: device.Viewport,
+						Status:   "failed",
+						Error:    fmt.Sprintf("Failed to parse CLI output: %v", err2),
+					})
+					continue
+				}
+			} else {
+				os.RemoveAll(tmpDir)
+				deviceResults = append(deviceResults, deviceResult{
+					Device:   device.Category,
+					Viewport: device.Viewport,
+					Status:   "failed",
+					Error:    fmt.Sprintf("Failed to parse CLI output: %v", err),
+				})
+				continue
+			}
+		}
+
+		// Save generated flows for this device (prefix filenames with device category to avoid collisions)
+		if err := s.store.SaveGeneratedFlows(analysisID, tmpDir, device.Category); err != nil {
+			log.Printf("Warning: failed to save generated flows for %s [%s]: %v", analysisID, device.Category, err)
+		}
+
+		// Extract flows and prefix names with device category
+		deviceFlowCount := 0
+		if flows, ok := result["flows"]; ok {
+			if flowSlice, ok := flows.([]interface{}); ok {
+				for _, f := range flowSlice {
+					if fMap, ok := f.(map[string]interface{}); ok {
+						if name, ok := fMap["name"].(string); ok {
+							fMap["name"] = device.Category + "_" + name
+						}
+						// Tag each flow with its device
+						fMap["device"] = device.Category
+						fMap["viewport"] = device.Viewport
+					}
+					allFlows = append(allFlows, f)
+				}
+				deviceFlowCount = len(flowSlice)
+			}
+		}
+
+		// Collect agent steps with offset
+		if steps, ok := result["agentSteps"]; ok {
+			if stepSlice, ok := steps.([]interface{}); ok {
+				for _, step := range stepSlice {
+					if stepMap, ok := step.(map[string]interface{}); ok {
+						if sn, ok := stepMap["stepNumber"].(float64); ok {
+							stepMap["stepNumber"] = int(sn) + agentStepOffset
+						}
+						stepMap["device"] = device.Category
+					}
+					allAgentSteps = append(allAgentSteps, step)
+				}
+				agentStepOffset += len(stepSlice)
+			}
+		}
+
+		// Use first device as primary for pageMeta and analysis
+		if i == 0 {
+			if pm, ok := result["pageMeta"].(map[string]interface{}); ok {
+				primaryPageMeta = pm
+			}
+			if a, ok := result["analysis"].(map[string]interface{}); ok {
+				primaryAnalysis = a
+			}
+			if m, ok := result["mode"].(string); ok {
+				primaryMode = m
+			}
+		}
+
+		// Extract game name and framework from first successful device
+		if gameName == "" {
+			if pm, ok := result["pageMeta"].(map[string]interface{}); ok {
+				if t, ok := pm["title"].(string); ok {
+					gameName = t
+				}
+				if f, ok := pm["framework"].(string); ok {
+					framework = f
+				}
+			}
+			if a, ok := result["analysis"].(map[string]interface{}); ok {
+				if gi, ok := a["gameInfo"].(map[string]interface{}); ok {
+					if n, ok := gi["name"].(string); ok && n != "" {
+						gameName = n
+					}
+				}
+			}
+		}
+
+		totalFlowCount += deviceFlowCount
+		os.RemoveAll(tmpDir)
+
+		deviceResults = append(deviceResults, deviceResult{
+			Device:    device.Category,
+			Viewport:  device.Viewport,
+			FlowCount: deviceFlowCount,
+			Status:    "completed",
+		})
+
+		log.Printf("Batch analysis %s [%s %d/%d]: completed with %d flows", analysisID, device.Category, deviceNum, deviceTotal, deviceFlowCount)
+	}
+
+	// Check if all devices failed
+	allFailed := true
+	for _, dr := range deviceResults {
+		if dr.Status == "completed" {
+			allFailed = false
+			break
+		}
+	}
+
+	if allFailed {
+		// Collect all device errors for the message
+		var errMsgs []string
+		for _, dr := range deviceResults {
+			errMsgs = append(errMsgs, fmt.Sprintf("%s: %s", dr.Device, dr.Error))
+		}
+		s.broadcastAnalysisError(analysisID, "All devices failed: "+strings.Join(errMsgs, "; "))
+		return
+	}
+
+	// Build merged result
+	mergedResult := map[string]interface{}{
+		"flows":      allFlows,
+		"agentSteps": allAgentSteps,
+		"devices":    deviceResults,
+	}
+	if primaryPageMeta != nil {
+		mergedResult["pageMeta"] = primaryPageMeta
+	}
+	if primaryAnalysis != nil {
+		mergedResult["analysis"] = primaryAnalysis
+	}
+	if primaryMode != "" {
+		mergedResult["mode"] = primaryMode
+	}
+
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_progress",
+		Data: AnalysisProgress{
+			Step:    "saving",
+			Message: "Saving generated flows...",
+			Data:    map[string]string{"analysisId": analysisID},
+		},
+	})
+
+	if err := s.store.UpdateAnalysisResult(analysisID, store.StatusCompleted, mergedResult, gameName, framework, totalFlowCount); err != nil {
+		log.Printf("Warning: failed to update analysis record for %s: %v", analysisID, err)
+	}
+
+	// Record any partial failures
+	for _, dr := range deviceResults {
+		if dr.Status == "failed" {
+			if saveErr := s.store.UpdateAnalysisError(analysisID, fmt.Sprintf("Device %s failed: %s", dr.Device, dr.Error)); saveErr != nil {
+				log.Printf("Warning: failed to save device error for %s: %v", analysisID, saveErr)
+			}
+		}
+	}
+
+	// Auto-create one test plan with all flows
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_progress",
+		Data: AnalysisProgress{
+			Step:    "test_plan",
+			Message: fmt.Sprintf("Creating test plan from %d flows...", totalFlowCount),
+			Data:    map[string]string{"analysisId": analysisID},
+		},
+	})
+
+	testPlanID := s.autoCreateTestPlan(analysisID, gameURL, gameName, req.ProjectID, createdBy, totalFlowCount)
+
+	if testPlanID != "" {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: fmt.Sprintf("Test plan created: %s (%d flows)", gameName+" - Test Plan", totalFlowCount),
+				Data:    map[string]string{"analysisId": analysisID, "testPlanId": testPlanID},
+			},
+		})
+	} else if totalFlowCount > 0 {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: "Test plan already exists for this analysis",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
+		})
+	} else {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "analysis_progress",
+			Data: AnalysisProgress{
+				Step:    "test_plan_done",
+				Message: "No flows generated — test plan skipped",
+				Data:    map[string]string{"analysisId": analysisID},
+			},
 		})
 	}
 
-	respondJSON(w, http.StatusAccepted, map[string]interface{}{
-		"analyses": analyses,
-		"status":   "started",
-		"message":  fmt.Sprintf("Batch analysis started for %d devices", len(req.Devices)),
+	// TODO: Skip auto-run-tests for batch — viewport-per-flow routing is complex
+
+	s.wsHub.Broadcast(ws.Message{
+		Type: "analysis_completed",
+		Data: map[string]interface{}{
+			"analysisId": analysisID,
+			"result":     mergedResult,
+			"testPlanId": testPlanID,
+		},
 	})
+
+	log.Printf("Batch analysis %s completed: %d devices, %d total flows", analysisID, len(req.Devices), totalFlowCount)
 }
 
 func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisRequest) {
