@@ -155,6 +155,22 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 			s.broadcastTestLog(testID, planID, fmt.Sprintf("  Navigating to %s", flow.Meta.URL))
 			if err := browserPage.Navigate(flow.Meta.URL); err != nil {
 				s.broadcastTestLog(testID, planID, fmt.Sprintf("  ❌ Navigation failed: %v", err))
+				flowResults = append(flowResults, store.FlowResult{
+					Name:     flow.Name,
+					Status:   "failed",
+					Duration: time.Since(flowStart).Round(time.Millisecond).String(),
+					Output:   fmt.Sprintf("Navigation failed: %v", err),
+				})
+				s.wsHub.Broadcast(ws.Message{
+					Type: "test_progress",
+					Data: map[string]interface{}{
+						"testId":   testID,
+						"flowName": flow.Name,
+						"status":   "failed",
+						"duration": time.Since(flowStart).Round(time.Millisecond).String(),
+					},
+				})
+				continue
 			}
 			time.Sleep(1 * time.Second) // Wait for page to settle
 		}
@@ -735,18 +751,10 @@ func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.Claud
 		}
 		lastSS = ss
 
-		var prompt string
-		if wantVisible {
-			prompt = fmt.Sprintf(
-				`Look at this screenshot of a web page (%dx%d viewport). Is the text "%s" visible anywhere on the screen? Answer only "YES" or "NO".`,
-				vpWidth, vpHeight, checkText,
-			)
-		} else {
-			prompt = fmt.Sprintf(
-				`Look at this screenshot of a web page (%dx%d viewport). Is the text "%s" visible anywhere on the screen? Answer only "YES" or "NO".`,
-				vpWidth, vpHeight, checkText,
-			)
-		}
+		prompt := fmt.Sprintf(
+			`Look at this screenshot of a web page (%dx%d viewport). Is the text "%s" visible anywhere on the screen? Answer only "YES" or "NO".`,
+			vpWidth, vpHeight, checkText,
+		)
 
 		response, err := aiClient.AnalyzeWithImage(prompt, ss)
 		if err != nil {

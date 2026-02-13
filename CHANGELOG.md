@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.26.1] - 2026-02-13
+
+### Fixed
+- **Browser executor: navigation failures now skip flow** — flows with invalid URLs are properly marked as failed instead of continuing execution on the wrong page.
+- **Browser executor: deduplicate waitUntil prompt** — removed redundant identical prompt branch for visible/notVisible conditions in `executeWaitUntil`.
+
 ## [0.26.0] - 2026-02-13
 
 ### Added
