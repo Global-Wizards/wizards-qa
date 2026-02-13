@@ -3,14 +3,8 @@
     <div class="flex items-center justify-between mb-6">
       <div>
         <h2 class="text-3xl font-bold tracking-tight">Tests</h2>
-        <p class="text-muted-foreground">View test results and manage test plans</p>
+        <p class="text-muted-foreground">View test results and manage test plans from analyses</p>
       </div>
-      <router-link :to="projectId ? `/projects/${projectId}/tests/new` : '/tests/new'">
-        <Button>
-          <Plus class="h-4 w-4 mr-2" />
-          New Test Plan
-        </Button>
-      </router-link>
     </div>
 
     <!-- Main Tabs -->
@@ -121,6 +115,7 @@
               <TableHeader>
                 <TableRow>
                   <TableHead>Name</TableHead>
+                  <TableHead>Analysis</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Flows</TableHead>
                   <TableHead>Created</TableHead>
@@ -142,6 +137,17 @@
                       />
                       {{ plan.name }}
                     </div>
+                  </TableCell>
+                  <TableCell>
+                    <router-link
+                      v-if="plan.analysisId"
+                      :to="projectId ? `/projects/${projectId}/analyses/${plan.analysisId}` : `/analyses/${plan.analysisId}`"
+                      class="text-primary hover:underline text-sm"
+                      @click.stop
+                    >
+                      View Analysis
+                    </router-link>
+                    <span v-else class="text-muted-foreground text-sm">Manual</span>
                   </TableCell>
                   <TableCell><StatusBadge :status="plan.status" /></TableCell>
                   <TableCell>{{ plan.flowCount }}</TableCell>
@@ -168,29 +174,10 @@
                         <Pencil class="h-3 w-3 mr-1" />
                         Edit
                       </Button>
-                      <DropdownMenu>
-                        <DropdownMenuTrigger as-child>
-                          <Button
-                            size="sm"
-                            :disabled="plan.status === 'running'"
-                            @click.stop
-                          >
-                            <Play class="h-3 w-3 mr-1" />
-                            Run
-                            <ChevronDown class="h-3 w-3 ml-1" />
-                          </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuItem @click.stop="runPlan(plan, 'maestro')">
-                            <Smartphone class="h-3.5 w-3.5 mr-2" />
-                            Run with Maestro
-                          </DropdownMenuItem>
-                          <DropdownMenuItem @click.stop="runPlan(plan, 'browser')">
-                            <Globe class="h-3.5 w-3.5 mr-2" />
-                            Run in Browser
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                      <Button size="sm" :disabled="plan.status === 'running'" @click.stop="runPlan(plan, 'browser')">
+                        <Play class="h-3 w-3 mr-1" />
+                        Run
+                      </Button>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -203,8 +190,8 @@
                   </TableCell>
                 </TableRow>
                 <TableRow v-if="!plans.length">
-                  <TableCell colspan="5" class="text-center text-muted-foreground py-8">
-                    No test plans yet. Create one to get started.
+                  <TableCell colspan="6" class="text-center text-muted-foreground py-8">
+                    No test plans yet. Run an analysis to generate test plans.
                   </TableCell>
                 </TableRow>
               </TableBody>
@@ -220,7 +207,7 @@
 import { ref, computed, h, onMounted, onUnmounted } from 'vue'
 import { refDebounced } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertCircle, Plus, Play, Trash2, Eye, Loader2, Pencil, ChevronDown, Smartphone, Globe } from 'lucide-vue-next'
+import { AlertCircle, Play, Trash2, Eye, Loader2, Pencil } from 'lucide-vue-next'
 import { createColumnHelper } from '@tanstack/vue-table'
 import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
@@ -234,7 +221,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DataTable } from '@/components/ui/data-table'
 import { DataTableColumnHeader } from '@/components/ui/data-table'
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import StatusBadge from '@/components/StatusBadge.vue'
 import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 
@@ -374,7 +360,7 @@ async function deleteSelected() {
   }
 }
 
-async function runPlan(plan, mode = 'maestro') {
+async function runPlan(plan, mode = 'browser') {
   runError.value = null
   try {
     const opts = { mode }

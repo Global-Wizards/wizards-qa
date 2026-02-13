@@ -158,8 +158,17 @@ export function useAnalysis() {
           clearLocalStorage()
           loadPersistedSteps(analysisId.value)
         }
-      } catch {
-        // Status endpoint unavailable — ignore and retry next interval
+      } catch (err) {
+        // 404 means analysis no longer exists (e.g., after server restart) — stop polling
+        if (err?.response?.status === 404) {
+          stopStatusPolling()
+          error.value = 'Analysis no longer available (server may have restarted)'
+          failedStep.value = currentStep.value || null
+          status.value = 'error'
+          stopElapsedTimer()
+          clearLocalStorage()
+        }
+        // Other errors (network timeout, 5xx) — ignore and retry next interval
       }
     }, 15000)
   }

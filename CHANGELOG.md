@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.32.2] - 2026-02-13
+
+### Fixed
+- **Analysis status polling ignores 404** — `useAnalysis.js` status polling silently swallowed 404 errors when an analysis was deleted or lost after server restart, causing infinite polling. Now stops polling, shows an error message, and cleans up state on 404.
+
+### Changed
+- **Single browser Run button** — replaced Maestro/Browser dropdown with a single "Run" button defaulting to browser mode in EditTestPlan and Tests views.
+- **Analysis-integrated Tests view** — added "Analysis" column to test plans table, removed "New Test Plan" button, updated subtitle and empty state text.
+
 ## [0.32.1] - 2026-02-13
 
 ### Fixed

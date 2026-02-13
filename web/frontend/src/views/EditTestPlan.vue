@@ -17,25 +17,10 @@
           <Save class="h-4 w-4 mr-1" />
           {{ saving ? 'Saving...' : 'Save Changes' }}
         </Button>
-        <DropdownMenu>
-          <DropdownMenuTrigger as-child>
-            <Button variant="outline" :disabled="saving || running">
-              <Play class="h-4 w-4 mr-1" />
-              {{ running ? 'Starting...' : 'Run' }}
-              <ChevronDown class="h-3 w-3 ml-1" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
-            <DropdownMenuItem @click="runPlan('maestro')">
-              <Smartphone class="h-3.5 w-3.5 mr-2" />
-              Run with Maestro
-            </DropdownMenuItem>
-            <DropdownMenuItem @click="runPlan('browser')">
-              <Globe class="h-3.5 w-3.5 mr-2" />
-              Run in Browser
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <Button variant="outline" :disabled="saving || running" @click="runPlan('browser')">
+          <Play class="h-4 w-4 mr-1" />
+          {{ running ? 'Starting...' : 'Run' }}
+        </Button>
       </div>
     </div>
 
@@ -353,7 +338,7 @@
 import { ref, computed, onMounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClipboard } from '@vueuse/core'
-import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX, Bug, Copy, Check, ChevronDown, ChevronRight, Wand2, Smartphone, Globe } from 'lucide-vue-next'
+import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX, Bug, Copy, Check, ChevronDown, ChevronRight, Wand2 } from 'lucide-vue-next'
 import { Codemirror } from 'vue-codemirror'
 import { yaml } from '@codemirror/lang-yaml'
 import { oneDark } from '@codemirror/theme-one-dark'
@@ -365,7 +350,6 @@ import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
-import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
 import { Badge } from '@/components/ui/badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -606,7 +590,7 @@ async function save() {
   }
 }
 
-async function runPlan(mode = 'maestro') {
+async function runPlan(mode = 'browser') {
   running.value = true
   try {
     if (hasChanges.value) await save()
