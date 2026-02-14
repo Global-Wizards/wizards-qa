@@ -23,7 +23,7 @@ func IsRetryableAPIError(err error) bool {
 	if errors.As(err, &se) {
 		return se.StatusCode >= 500 || se.StatusCode == 429
 	}
-	return true // unknown errors are retryable
+	return false // unknown errors are not retryable — only retry 5xx/429
 }
 
 // GeminiClient implements the Client interface for Google Gemini

@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.3] - 2026-02-14
+
+### Fixed
+- **Misleading "failed during: cost_estimate" error** — The deferred `cost_estimate` progress step no longer overwrites `lastKnownStep`, so error messages now report the actual failing step (e.g. `agent_synthesize`).
+- **Retry safety: unknown errors no longer retried** — `IsRetryableAPIError` now defaults to `false` for unrecognized errors, preventing futile retries of non-transient failures (parse errors, empty responses, auth errors).
+
 ## [0.40.2] - 2026-02-14
 
 ### Improved

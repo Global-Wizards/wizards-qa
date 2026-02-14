@@ -581,7 +581,9 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 					rest := line[len("PROGRESS:"):]
 					parts := strings.SplitN(rest, ":", 2)
 					step := strings.TrimSpace(parts[0])
-					lastKnownStep = step
+					if step != "cost_estimate" {
+						lastKnownStep = step
+					}
 					message := ""
 					if len(parts) > 1 {
 						message = strings.TrimSpace(parts[1])
@@ -1275,7 +1277,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 				rest := line[len("PROGRESS:"):]
 				parts := strings.SplitN(rest, ":", 2)
 				step := strings.TrimSpace(parts[0])
-				lastKnownStep = step
+				if step != "cost_estimate" {
+					lastKnownStep = step
+				}
 				message := ""
 				if len(parts) > 1 {
 					message = strings.TrimSpace(parts[1])
@@ -2177,7 +2181,9 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 				rest := line[len("PROGRESS:"):]
 				parts := strings.SplitN(rest, ":", 2)
 				progressStep := strings.TrimSpace(parts[0])
-				lastKnownStep = progressStep
+				if progressStep != "cost_estimate" {
+					lastKnownStep = progressStep
+				}
 				message := ""
 				if len(parts) > 1 {
 					message = strings.TrimSpace(parts[1])
