@@ -5,7 +5,7 @@
 ai:
   provider: google  # google | anthropic | openai
   model: gemini-3-flash-preview
-  apiKey: ${GEMINI_API_KEY}
+  apiKey: AIzaSyAbbUF7OHYpaQeFxnMsLU1_bZ1cDUzTnmU
   temperature: 0.3
   maxTokens: 16000
 
