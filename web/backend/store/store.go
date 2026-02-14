@@ -140,6 +140,39 @@ func isSafeName(name string) bool {
 	return safeNameRegex.MatchString(name)
 }
 
+// scanRows iterates over sql.Rows, calling scanner for each row to produce a typed result.
+// Consolidates the repeated rows.Next() → Scan → append pattern used across the store.
+func scanRows[T any](rows *sql.Rows, scanner func(*sql.Rows) (T, error)) ([]T, error) {
+	defer rows.Close()
+	var results []T
+	for rows.Next() {
+		item, err := scanner(rows)
+		if err != nil {
+			continue
+		}
+		results = append(results, item)
+	}
+	return results, rows.Err()
+}
+
+// marshalJSON returns v marshaled as a JSON string. Returns "null" on error.
+func marshalJSON(v interface{}) string {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return "null"
+	}
+	return string(b)
+}
+
+// unmarshalJSONField unmarshals a sql.NullString into the target, logging a warning on error.
+func unmarshalJSONField(src sql.NullString, target interface{}, context string) {
+	if src.Valid && src.String != "" {
+		if err := json.Unmarshal([]byte(src.String), target); err != nil {
+			log.Printf("Warning: failed to unmarshal %s: %v", context, err)
+		}
+	}
+}
+
 // marshalToPtr marshals v to a JSON string pointer. Returns nil if v is nil.
 // Returns an error if marshaling fails, preventing silent data loss.
 func marshalToPtr(v interface{}) (*string, error) {
@@ -152,6 +185,44 @@ func marshalToPtr(v interface{}) (*string, error) {
 	}
 	s := string(b)
 	return &s, nil
+}
+
+// resolveFlowPath finds the absolute path of a flow by name with early exit,
+// avoiding a full directory walk. Validates path traversal safety.
+func (s *Store) resolveFlowPath(name string) (string, error) {
+	if !isSafeName(name) {
+		return "", fmt.Errorf("invalid flow name: %s", name)
+	}
+	var found string
+	err := filepath.Walk(s.flowsDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil || info.IsDir() || !isYAMLFile(path) {
+			return nil
+		}
+		n, category, _ := s.flowMeta(path, info)
+		if category == "game-mechanics" {
+			return nil
+		}
+		if n == name {
+			found = path
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	if err != nil {
+		return "", err
+	}
+	if found == "" {
+		return "", fmt.Errorf("flow not found: %s", name)
+	}
+	absPath, err := filepath.Abs(found)
+	if err != nil {
+		return "", fmt.Errorf("resolving path: %w", err)
+	}
+	absBase, _ := filepath.Abs(filepath.Dir(s.flowsDir))
+	if !strings.HasPrefix(absPath, absBase) {
+		return "", fmt.Errorf("path traversal detected")
+	}
+	return absPath, nil
 }
 
 // --- Flows ---
@@ -173,37 +244,25 @@ func (s *Store) ListFlows() ([]FlowInfo, error) {
 }
 
 func (s *Store) GetFlow(name string) (*FlowDetail, error) {
-	if !isSafeName(name) {
-		return nil, fmt.Errorf("invalid flow name: %s", name)
-	}
-	flows, err := s.ListFlows()
+	absPath, err := s.resolveFlowPath(name)
 	if err != nil {
 		return nil, err
 	}
-	for _, f := range flows {
-		if f.Name == name {
-			fullPath := filepath.Join(filepath.Dir(s.flowsDir), f.Path)
-			absPath, err := filepath.Abs(fullPath)
-			if err != nil {
-				return nil, fmt.Errorf("resolving path: %w", err)
-			}
-			absBase, _ := filepath.Abs(filepath.Dir(s.flowsDir))
-			if !strings.HasPrefix(absPath, absBase) {
-				return nil, fmt.Errorf("path traversal detected")
-			}
-			content, err := os.ReadFile(absPath)
-			if err != nil {
-				return nil, fmt.Errorf("reading flow file: %w", err)
-			}
-			return &FlowDetail{
-				Name:     f.Name,
-				Category: f.Category,
-				Path:     f.Path,
-				Content:  string(content),
-			}, nil
-		}
+	info, err := os.Stat(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading flow file: %w", err)
 	}
-	return nil, fmt.Errorf("flow not found: %s", name)
+	flowName, category, relPath := s.flowMeta(absPath, info)
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("reading flow file: %w", err)
+	}
+	return &FlowDetail{
+		Name:     flowName,
+		Category: category,
+		Path:     relPath,
+		Content:  string(content),
+	}, nil
 }
 
 // --- Reports ---
@@ -285,7 +344,10 @@ func (s *Store) SaveAnalysis(record AnalysisRecord) error {
 		record.ID, record.GameURL, record.Status, record.Step, record.Framework,
 		record.GameName, record.FlowCount, resultJSON, createdBy, record.ProjectID, record.Modules, agentModeInt, record.Profile, record.CreatedAt, record.UpdatedAt,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("SaveAnalysis: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) UpdateAnalysisStatus(id, status, step string) error {
@@ -295,7 +357,7 @@ func (s *Store) UpdateAnalysisStatus(id, status, step string) error {
 		status, step, now, id,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("UpdateAnalysisStatus: %w", err)
 	}
 	if n, _ := result.RowsAffected(); n == 0 {
 		return fmt.Errorf("analysis not found: %s", id)
@@ -314,7 +376,7 @@ func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, game
 		status, resultJSON, gameName, framework, flowCount, now, id,
 	)
 	if err != nil {
-		return err
+		return fmt.Errorf("UpdateAnalysisResult: %w", err)
 	}
 	if n, _ := res.RowsAffected(); n == 0 {
 		return fmt.Errorf("analysis not found: %s", id)
@@ -334,14 +396,7 @@ func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 		return nil, fmt.Errorf("analysis not found: %s", id)
 	}
 	a.AgentMode = agentModeInt != 0
-	if resultJSON.Valid && resultJSON.String != "" {
-		var parsed interface{}
-		if err := json.Unmarshal([]byte(resultJSON.String), &parsed); err != nil {
-			log.Printf("Warning: failed to unmarshal result JSON for analysis %s: %v", id, err)
-		} else {
-			a.Result = parsed
-		}
-	}
+	unmarshalJSONField(resultJSON, &a.Result, fmt.Sprintf("result for analysis %s", id))
 	return &a, nil
 }
 
@@ -350,25 +405,54 @@ func (s *Store) ListAnalyses(limit, offset int) ([]AnalysisRecord, error) {
 		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(modules,''), COALESCE(partial_result,''), created_at, updated_at, COALESCE(total_credits,0) FROM analyses ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ListAnalyses: %w", err)
 	}
-	defer rows.Close()
+	return scanRows(rows, scanAnalysisSummary)
+}
 
-	var analyses []AnalysisRecord
-	for rows.Next() {
-		var a AnalysisRecord
-		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.PartialResult, &a.CreatedAt, &a.UpdatedAt, &a.TotalCredits); err != nil {
-			continue
-		}
-		analyses = append(analyses, a)
+// --- Row scanners for scanRows ---
+
+func scanAnalysisSummary(rows *sql.Rows) (AnalysisRecord, error) {
+	var a AnalysisRecord
+	err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.PartialResult, &a.CreatedAt, &a.UpdatedAt, &a.TotalCredits)
+	return a, err
+}
+
+func scanTestResultSummary(rows *sql.Rows) (TestResultSummary, error) {
+	var r TestResultSummary
+	err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID, &r.TotalCredits)
+	return r, err
+}
+
+func scanTestResultSummaryBasic(rows *sql.Rows) (TestResultSummary, error) {
+	var r TestResultSummary
+	err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate)
+	return r, err
+}
+
+func scanTestPlanSummary(rows *sql.Rows) (TestPlanSummary, error) {
+	var p TestPlanSummary
+	var flowNamesJSON sql.NullString
+	err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID, &p.Mode)
+	if err == nil {
+		var names []string
+		unmarshalJSONField(flowNamesJSON, &names, fmt.Sprintf("flow names for plan %s", p.ID))
+		p.FlowCount = len(names)
 	}
-	return analyses, rows.Err()
+	return p, err
+}
+
+func scanAgentStep(rows *sql.Rows) (AgentStepRecord, error) {
+	var step AgentStepRecord
+	err := rows.Scan(&step.ID, &step.AnalysisID, &step.StepNumber, &step.ToolName, &step.Input,
+		&step.Result, &step.ScreenshotPath, &step.DurationMs, &step.ThinkingMs, &step.Error, &step.Reasoning, &step.CreatedAt, &step.InputTokens, &step.OutputTokens, &step.Credits)
+	return step, err
 }
 
 func (s *Store) DeleteAnalysis(id string) error {
 	result, err := s.db.Exec(`DELETE FROM analyses WHERE id = ?`, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("DeleteAnalysis: %w", err)
 	}
 	if n, _ := result.RowsAffected(); n == 0 {
 		return fmt.Errorf("analysis not found: %s", id)
@@ -428,18 +512,7 @@ func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var steps []AgentStepRecord
-	for rows.Next() {
-		var step AgentStepRecord
-		if err := rows.Scan(&step.ID, &step.AnalysisID, &step.StepNumber, &step.ToolName, &step.Input,
-			&step.Result, &step.ScreenshotPath, &step.DurationMs, &step.ThinkingMs, &step.Error, &step.Reasoning, &step.CreatedAt, &step.InputTokens, &step.OutputTokens, &step.Credits); err != nil {
-			continue
-		}
-		steps = append(steps, step)
-	}
-	return steps, rows.Err()
+	return scanRows(rows, scanAgentStep)
 }
 
 func (s *Store) UpdateAnalysisTestRunID(id, testRunID string) error {
@@ -481,7 +554,10 @@ func (s *Store) SaveTestResult(result TestResultDetail) error {
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, result.ProjectID, result.PlanID, result.TotalCredits, ts,
 	)
-	return err
+	if err != nil {
+		return fmt.Errorf("SaveTestResult: %w", err)
+	}
+	return nil
 }
 
 func (s *Store) ListTestResults(limit, offset int) ([]TestResultSummary, error) {
@@ -489,19 +565,9 @@ func (s *Store) ListTestResults(limit, offset int) ([]TestResultSummary, error) 
 		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,''), COALESCE(total_credits,0) FROM test_results ORDER BY timestamp DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("ListTestResults: %w", err)
 	}
-	defer rows.Close()
-
-	var summaries []TestResultSummary
-	for rows.Next() {
-		var r TestResultSummary
-		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID, &r.TotalCredits); err != nil {
-			continue
-		}
-		summaries = append(summaries, r)
-	}
-	return summaries, rows.Err()
+	return scanRows(rows, scanTestResultSummary)
 }
 
 func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
@@ -514,18 +580,14 @@ func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
 	if err != nil {
 		return nil, fmt.Errorf("test result not found: %s", id)
 	}
-	if flowsJSON.Valid && flowsJSON.String != "" {
-		if err := json.Unmarshal([]byte(flowsJSON.String), &r.Flows); err != nil {
-			log.Printf("Warning: failed to unmarshal flows JSON for test %s: %v", id, err)
-		}
-	}
+	unmarshalJSONField(flowsJSON, &r.Flows, fmt.Sprintf("flows for test %s", id))
 	return &r, nil
 }
 
 func (s *Store) DeleteTestResult(id string) error {
 	result, err := s.db.Exec(`DELETE FROM test_results WHERE id = ?`, id)
 	if err != nil {
-		return err
+		return fmt.Errorf("DeleteTestResult: %w", err)
 	}
 	if n, _ := result.RowsAffected(); n == 0 {
 		return fmt.Errorf("test result not found: %s", id)
@@ -618,28 +680,11 @@ func (s *Store) UpdateTestPlan(plan TestPlan) error {
 }
 
 func (s *Store) SaveFlowContent(name, content string) error {
-	if !isSafeName(name) {
-		return fmt.Errorf("invalid flow name: %s", name)
-	}
-	flows, err := s.ListFlows()
+	absPath, err := s.resolveFlowPath(name)
 	if err != nil {
-		return fmt.Errorf("listing flows: %w", err)
+		return err
 	}
-	for _, f := range flows {
-		if f.Name == name {
-			fullPath := filepath.Join(filepath.Dir(s.flowsDir), f.Path)
-			absPath, err := filepath.Abs(fullPath)
-			if err != nil {
-				return fmt.Errorf("resolving path: %w", err)
-			}
-			absBase, _ := filepath.Abs(filepath.Dir(s.flowsDir))
-			if !strings.HasPrefix(absPath, absBase) {
-				return fmt.Errorf("path traversal detected")
-			}
-			return os.WriteFile(absPath, []byte(content), 0644)
-		}
-	}
-	return fmt.Errorf("flow not found: %s", name)
+	return os.WriteFile(absPath, []byte(content), 0644)
 }
 
 func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
@@ -649,25 +694,7 @@ func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var summaries []TestPlanSummary
-	for rows.Next() {
-		var p TestPlanSummary
-		var flowNamesJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID, &p.Mode); err != nil {
-			continue
-		}
-		if flowNamesJSON.Valid && flowNamesJSON.String != "" {
-			var names []string
-			if err := json.Unmarshal([]byte(flowNamesJSON.String), &names); err != nil {
-				log.Printf("Warning: failed to unmarshal flow names for plan %s: %v", p.ID, err)
-			}
-			p.FlowCount = len(names)
-		}
-		summaries = append(summaries, p)
-	}
-	return summaries, rows.Err()
+	return scanRows(rows, scanTestPlanSummary)
 }
 
 func (s *Store) GetTestPlan(id string) (*TestPlan, error) {
@@ -680,16 +707,8 @@ func (s *Store) GetTestPlan(id string) (*TestPlan, error) {
 	if err != nil {
 		return nil, fmt.Errorf("test plan not found: %s", id)
 	}
-	if flowNamesJSON.Valid && flowNamesJSON.String != "" {
-		if err := json.Unmarshal([]byte(flowNamesJSON.String), &p.FlowNames); err != nil {
-			log.Printf("Warning: failed to unmarshal flow names for plan %s: %v", id, err)
-		}
-	}
-	if variablesJSON.Valid && variablesJSON.String != "" {
-		if err := json.Unmarshal([]byte(variablesJSON.String), &p.Variables); err != nil {
-			log.Printf("Warning: failed to unmarshal variables for plan %s: %v", id, err)
-		}
-	}
+	unmarshalJSONField(flowNamesJSON, &p.FlowNames, fmt.Sprintf("flow names for plan %s", id))
+	unmarshalJSONField(variablesJSON, &p.Variables, fmt.Sprintf("variables for plan %s", id))
 	return &p, nil
 }
 
@@ -771,16 +790,7 @@ func (s *Store) recentTests(limit int) []TestResultSummary {
 	if err != nil {
 		return []TestResultSummary{}
 	}
-	defer rows.Close()
-
-	var results []TestResultSummary
-	for rows.Next() {
-		var r TestResultSummary
-		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate); err != nil {
-			continue
-		}
-		results = append(results, r)
-	}
+	results, _ := scanRows(rows, scanTestResultSummaryBasic)
 	if results == nil {
 		return []TestResultSummary{}
 	}
@@ -791,18 +801,7 @@ func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
 	now := time.Now()
 	history := make([]HistoryPoint, 0, days)
 
-	cutoff := now.AddDate(0, 0, -days).Format(time.RFC3339)
-	rows, err := s.db.Query(`SELECT timestamp, status FROM test_results WHERE timestamp >= ?`, cutoff)
-	if err != nil {
-		// Return empty history points
-		for i := days - 1; i >= 0; i-- {
-			d := now.AddDate(0, 0, -i)
-			history = append(history, HistoryPoint{Date: d.Format("Jan 02")})
-		}
-		return history
-	}
-	defer rows.Close()
-
+	// Pre-populate day map with empty points
 	dayMap := make(map[string]*HistoryPoint)
 	for i := 0; i < days; i++ {
 		d := now.AddDate(0, 0, -i)
@@ -810,21 +809,32 @@ func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
 		dayMap[key] = &HistoryPoint{Date: key}
 	}
 
-	for rows.Next() {
-		var ts, status string
-		if err := rows.Scan(&ts, &status); err != nil {
-			continue
-		}
-		t, err := time.Parse(time.RFC3339, ts)
-		if err != nil {
-			continue
-		}
-		key := t.Format("Jan 02")
-		if pt, ok := dayMap[key]; ok {
-			if status == StatusPassed {
-				pt.Passed++
-			} else {
-				pt.Failed++
+	cutoff := now.AddDate(0, 0, -days).Format(time.RFC3339)
+	rows, err := s.db.Query(
+		`SELECT DATE(timestamp) AS day, status, COUNT(*) AS cnt
+		 FROM test_results
+		 WHERE timestamp >= ?
+		 GROUP BY day, status`, cutoff)
+	if err == nil {
+		defer rows.Close()
+		for rows.Next() {
+			var day, status string
+			var cnt int
+			if err := rows.Scan(&day, &status, &cnt); err != nil {
+				continue
+			}
+			// Parse the DATE() result (YYYY-MM-DD) to match our key format
+			t, err := time.Parse("2006-01-02", day)
+			if err != nil {
+				continue
+			}
+			key := t.Format("Jan 02")
+			if pt, ok := dayMap[key]; ok {
+				if status == StatusPassed {
+					pt.Passed += cnt
+				} else {
+					pt.Failed += cnt
+				}
 			}
 		}
 	}
@@ -931,12 +941,9 @@ func (s *Store) GetTestPlanByAnalysis(analysisID string) (*TestPlanSummary, erro
 	if err != nil {
 		return nil, ErrNotFound
 	}
-	if flowNamesJSON.Valid && flowNamesJSON.String != "" {
-		var names []string
-		if err := json.Unmarshal([]byte(flowNamesJSON.String), &names); err == nil {
-			p.FlowCount = len(names)
-		}
-	}
+	var names []string
+	unmarshalJSONField(flowNamesJSON, &names, fmt.Sprintf("flow names for plan %s", p.ID))
+	p.FlowCount = len(names)
 	return &p, nil
 }
 
@@ -1032,17 +1039,11 @@ func (s *Store) ListUsers() ([]UserSummary, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var users []UserSummary
-	for rows.Next() {
+	return scanRows(rows, func(rows *sql.Rows) (UserSummary, error) {
 		var u UserSummary
-		if err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.CreatedAt); err != nil {
-			continue
-		}
-		users = append(users, u)
-	}
-	return users, rows.Err()
+		err := rows.Scan(&u.ID, &u.Email, &u.DisplayName, &u.Role, &u.CreatedAt)
+		return u, err
+	})
 }
 
 func (s *Store) UpdateUserRole(id, role string) error {
@@ -1066,8 +1067,6 @@ func (s *Store) UserCount() (int, error) {
 // --- Projects ---
 
 func (s *Store) SaveProject(p Project) error {
-	tagsJSON, _ := json.Marshal(p.Tags)
-	settingsJSON, _ := json.Marshal(p.Settings)
 	var createdBy *string
 	if p.CreatedBy != "" {
 		createdBy = &p.CreatedBy
@@ -1075,7 +1074,7 @@ func (s *Store) SaveProject(p Project) error {
 	_, err := s.db.Exec(
 		`INSERT INTO projects (id, name, game_url, description, color, icon, tags, settings, created_by, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.GameURL, p.Description, p.Color, p.Icon, string(tagsJSON), string(settingsJSON), createdBy, p.CreatedAt, p.UpdatedAt,
+		p.ID, p.Name, p.GameURL, p.Description, p.Color, p.Icon, marshalJSON(p.Tags), marshalJSON(p.Settings), createdBy, p.CreatedAt, p.UpdatedAt,
 	)
 	return err
 }
@@ -1090,12 +1089,8 @@ func (s *Store) GetProject(id string) (*Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("project not found: %s", id)
 	}
-	if err := json.Unmarshal([]byte(tagsJSON), &p.Tags); err != nil {
-		log.Printf("Warning: failed to unmarshal tags for project %s: %v", id, err)
-	}
-	if err := json.Unmarshal([]byte(settingsJSON), &p.Settings); err != nil {
-		log.Printf("Warning: failed to unmarshal settings for project %s: %v", id, err)
-	}
+	unmarshalJSONField(sql.NullString{String: tagsJSON, Valid: true}, &p.Tags, fmt.Sprintf("tags for project %s", id))
+	unmarshalJSONField(sql.NullString{String: settingsJSON, Valid: true}, &p.Settings, fmt.Sprintf("settings for project %s", id))
 	if p.Tags == nil {
 		p.Tags = []string{}
 	}
@@ -1131,12 +1126,8 @@ func (s *Store) ListProjects() ([]ProjectSummary, error) {
 			&ps.AnalysisCount, &ps.PlanCount, &ps.TestCount, &ps.MemberCount); err != nil {
 			continue
 		}
-		if err := json.Unmarshal([]byte(tagsJSON), &ps.Tags); err != nil {
-			log.Printf("Warning: failed to unmarshal tags for project %s: %v", ps.ID, err)
-		}
-		if err := json.Unmarshal([]byte(settingsJSON), &ps.Settings); err != nil {
-			log.Printf("Warning: failed to unmarshal settings for project %s: %v", ps.ID, err)
-		}
+		unmarshalJSONField(sql.NullString{String: tagsJSON, Valid: true}, &ps.Tags, fmt.Sprintf("tags for project %s", ps.ID))
+		unmarshalJSONField(sql.NullString{String: settingsJSON, Valid: true}, &ps.Settings, fmt.Sprintf("settings for project %s", ps.ID))
 		if ps.Tags == nil {
 			ps.Tags = []string{}
 		}
@@ -1149,11 +1140,9 @@ func (s *Store) ListProjects() ([]ProjectSummary, error) {
 }
 
 func (s *Store) UpdateProject(p Project) error {
-	tagsJSON, _ := json.Marshal(p.Tags)
-	settingsJSON, _ := json.Marshal(p.Settings)
 	result, err := s.db.Exec(
 		`UPDATE projects SET name = ?, game_url = ?, description = ?, color = ?, icon = ?, tags = ?, settings = ?, updated_at = ? WHERE id = ?`,
-		p.Name, p.GameURL, p.Description, p.Color, p.Icon, string(tagsJSON), string(settingsJSON), p.UpdatedAt, p.ID,
+		p.Name, p.GameURL, p.Description, p.Color, p.Icon, marshalJSON(p.Tags), marshalJSON(p.Settings), p.UpdatedAt, p.ID,
 	)
 	if err != nil {
 		return err
@@ -1212,8 +1201,6 @@ func (s *Store) CreateProjectWithOwner(p Project, ownerMember ProjectMember) err
 	}
 	defer tx.Rollback()
 
-	tagsJSON, _ := json.Marshal(p.Tags)
-	settingsJSON, _ := json.Marshal(p.Settings)
 	var createdBy *string
 	if p.CreatedBy != "" {
 		createdBy = &p.CreatedBy
@@ -1221,7 +1208,7 @@ func (s *Store) CreateProjectWithOwner(p Project, ownerMember ProjectMember) err
 	_, err = tx.Exec(
 		`INSERT INTO projects (id, name, game_url, description, color, icon, tags, settings, created_by, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.GameURL, p.Description, p.Color, p.Icon, string(tagsJSON), string(settingsJSON), createdBy, p.CreatedAt, p.UpdatedAt,
+		p.ID, p.Name, p.GameURL, p.Description, p.Color, p.Icon, marshalJSON(p.Tags), marshalJSON(p.Settings), createdBy, p.CreatedAt, p.UpdatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("insert project: %w", err)
@@ -1270,17 +1257,11 @@ func (s *Store) ListProjectMembers(projectID string) ([]ProjectMember, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var members []ProjectMember
-	for rows.Next() {
+	return scanRows(rows, func(rows *sql.Rows) (ProjectMember, error) {
 		var m ProjectMember
-		if err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Role, &m.CreatedAt, &m.Email, &m.DisplayName); err != nil {
-			continue
-		}
-		members = append(members, m)
-	}
-	return members, rows.Err()
+		err := rows.Scan(&m.ID, &m.ProjectID, &m.UserID, &m.Role, &m.CreatedAt, &m.Email, &m.DisplayName)
+		return m, err
+	})
 }
 
 func (s *Store) UpdateProjectMemberRole(projectID, userID, role string) error {
@@ -1303,17 +1284,7 @@ func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var analyses []AnalysisRecord
-	for rows.Next() {
-		var a AnalysisRecord
-		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.PartialResult, &a.CreatedAt, &a.UpdatedAt, &a.TotalCredits); err != nil {
-			continue
-		}
-		analyses = append(analyses, a)
-	}
-	return analyses, rows.Err()
+	return scanRows(rows, scanAnalysisSummary)
 }
 
 func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, error) {
@@ -1323,25 +1294,7 @@ func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, err
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var summaries []TestPlanSummary
-	for rows.Next() {
-		var p TestPlanSummary
-		var flowNamesJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID, &p.Mode); err != nil {
-			continue
-		}
-		if flowNamesJSON.Valid && flowNamesJSON.String != "" {
-			var names []string
-			if err := json.Unmarshal([]byte(flowNamesJSON.String), &names); err != nil {
-				log.Printf("Warning: failed to unmarshal flow names for plan %s: %v", p.ID, err)
-			}
-			p.FlowCount = len(names)
-		}
-		summaries = append(summaries, p)
-	}
-	return summaries, rows.Err()
+	return scanRows(rows, scanTestPlanSummary)
 }
 
 func (s *Store) ListTestResultsByProject(projectID string) ([]TestResultSummary, error) {
@@ -1351,17 +1304,7 @@ func (s *Store) ListTestResultsByProject(projectID string) ([]TestResultSummary,
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
-
-	var summaries []TestResultSummary
-	for rows.Next() {
-		var r TestResultSummary
-		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID, &r.TotalCredits); err != nil {
-			continue
-		}
-		summaries = append(summaries, r)
-	}
-	return summaries, rows.Err()
+	return scanRows(rows, scanTestResultSummary)
 }
 
 func (s *Store) GetStatsByProject(projectID string) (*Stats, error) {
@@ -1401,16 +1344,7 @@ func (s *Store) recentTestsByProject(projectID string, limit int) []TestResultSu
 	if err != nil {
 		return []TestResultSummary{}
 	}
-	defer rows.Close()
-
-	var results []TestResultSummary
-	for rows.Next() {
-		var r TestResultSummary
-		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate); err != nil {
-			continue
-		}
-		results = append(results, r)
-	}
+	results, _ := scanRows(rows, scanTestResultSummaryBasic)
 	if results == nil {
 		return []TestResultSummary{}
 	}

@@ -111,16 +111,26 @@ export function getJurisdictionsByIds(ids) {
   return JURISDICTIONS.filter(j => set.has(j.id))
 }
 
+// Pre-computed lookup maps for O(1) region/country queries
+const _regionIds = new Map()
+const _countryIds = new Map()
+for (const j of JURISDICTIONS) {
+  if (!_regionIds.has(j.region)) _regionIds.set(j.region, [])
+  _regionIds.get(j.region).push(j.id)
+  if (!_countryIds.has(j.country)) _countryIds.set(j.country, [])
+  _countryIds.get(j.country).push(j.id)
+}
+
 /**
  * Returns all jurisdiction IDs within a region.
  */
 export function getJurisdictionIdsByRegion(region) {
-  return JURISDICTIONS.filter(j => j.region === region).map(j => j.id)
+  return _regionIds.get(region) || []
 }
 
 /**
  * Returns all jurisdiction IDs within a country.
  */
 export function getJurisdictionIdsByCountry(country) {
-  return JURISDICTIONS.filter(j => j.country === country).map(j => j.id)
+  return _countryIds.get(country) || []
 }

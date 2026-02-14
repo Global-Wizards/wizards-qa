@@ -1,9 +1,10 @@
 import { ref, watch } from 'vue'
+import { STORAGE_KEYS } from '@/lib/constants'
 
 const isDark = ref(false)
 
 function initTheme() {
-  const stored = localStorage.getItem('theme')
+  const stored = localStorage.getItem(STORAGE_KEYS.theme)
   if (stored) {
     isDark.value = stored === 'dark'
   } else {
@@ -25,7 +26,7 @@ function toggleTheme() {
 }
 
 watch(isDark, () => {
-  localStorage.setItem('theme', isDark.value ? 'dark' : 'light')
+  localStorage.setItem(STORAGE_KEYS.theme, isDark.value ? 'dark' : 'light')
   applyTheme()
 })
 

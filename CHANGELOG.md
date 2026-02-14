@@ -5,6 +5,53 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.3] - 2026-02-14
+
+### Improved
+- **DRY: Generic `scanRows` helper** — Extracted 9 duplicate row-scanning patterns in `store.go` into a single generic `scanRows[T]()` function, eliminating ~120 lines of repeated `rows.Next()` → `Scan` → `append` boilerplate.
+- **DRY: JSON marshal/unmarshal helpers** — Added `marshalJSON()`, `unmarshalJSONField()` helpers to consolidate 12+ instances of repeated JSON serialization across `store.go`. Replaced ignored `json.Marshal` errors with safe fallback.
+- **DRY: API response unwrap** — Moved `.then(r => r.data)` into an axios response interceptor, removing 50+ instances of identical boilerplate from `api.js`.
+- **DRY: Array mutation helpers** — Replaced 16+ instances of `[...arr.slice(-(MAX-1)), item]` spread pattern in `useAnalysis.js` with `addLog()`, `appendCapped()`, and `updateLastStep()` helpers. `addLog()` uses push+trim for `ref` arrays (no copy), `appendCapped()` handles `shallowRef` arrays.
+- **Status constants** — Added `STATUS` enum to `constants.js` for analysis status strings used 30+ times across templates.
+
+### Fixed
+- **Transaction safety** — Added `defer tx.Rollback()` to `MigrateToProjects` to prevent transaction leaks on panic.
+- **Unchecked error** — `MigrateFromJSON` now checks the `QueryRow().Scan()` error instead of silently ignoring it.
+- **Timer cleanup** — `onUnmounted` in `useAnalysis.js` now nulls out `hintCooldownTimer` after clearing and removes redundant `stopStatusPolling()` call (already handled by `stopListening()`).
+- **HTTP timeout** — Reduced AI API client timeout from 300s to 180s; agent loop manages total time budget separately.
+
+## [0.39.2] - 2026-02-14
+
+### Improved
+- **Agent screenshot optimization** — When Claude batches multiple tool calls in one response (e.g. click → type_text → screenshot), only the last screenshot is now sent to the API. Intermediate screenshots are replaced with lightweight text placeholders since they show states immediately superseded by the next tool. Reduces API payload by ~100-200KB per extra tool call in a batch. Applied to both exploration agent (`pkg/ai/agent.go`) and test executor (`web/backend/agent_executor.go`).
+
+## [0.39.1] - 2026-02-14
+
+### Improved
+- **DRY backend** — Deduplicated `Truncate()`, `PruneOldScreenshots()` (exported from `pkg/ai`), `parseJSONFallback()` helper, and `newHeadlessLauncher()` to eliminate copy-pasted logic across Go packages.
+- **DRY frontend** — Extracted shared `formatElapsed()` (lib/formatTime), `useTimer()` composable, and centralized `STORAGE_KEYS` constants to replace duplicated timer management and magic localStorage strings.
+- **Performance** — Switched 7 large arrays in `useAnalysis` to `shallowRef()` for reduced reactivity overhead; added `idx_test_results_timestamp` index for queries that sort/filter by timestamp.
+
+### Fixed
+- **MigrateToProjects transaction safety** — Wrapped INSERT + 3 UPDATE statements in a database transaction to prevent partial migration on failure.
+- **Silent marshal errors** — 5 instances of `json.Marshal` in `browser_executor.go` now log errors instead of silently discarding them.
+
+## [0.39.0] - 2026-02-14
+
+### Added
+- **Hybrid model support** — Synthesis and flow generation (text-only stages) can now be routed to a secondary model via `synthesisModel` config/flag. Exploration uses the primary model (Claude with tool use), while synthesis and flow generation use the secondary model (e.g. Gemini 3 Flash Preview) for ~10x output token cost savings. New `--synthesis-model` CLI flag, `synthesisProvider`/`synthesisModel`/`synthesisApiKey` config fields, and `NewClientFromConfig` helper. Frontend profiles (balanced, thorough, maximum) default to `gemini-3-flash-preview` for synthesis. Credit estimate accounts for secondary model pricing. Fully backwards-compatible: without `synthesisModel`, behavior is identical to before.
+
+### Improved
+- **Compact prompt schemas** — Replaced verbose JSON schema examples (~900 tokens each) in `BuildAnalysisPrompt` and `BuildSynthesisPrompt` with a shared compact format (~250 tokens), saving ~600-700 input tokens per AI call.
+
+### Fixed
+- **Model pricing table** — Updated all model prices to latest official rates. Claude Opus 4.6: $5/$25 (was $15/$75). Claude Haiku 4.5: $1/$5 (was $0.80/$4). Gemini 2.5 Flash GA: $0.30/$2.50 (was preview at $0.15/$0.60). Gemini 3 Flash Preview: $0.50/$3.00 (was $0.25/$1.50). Added Gemini 2.5 Pro ($1.25/$10). Added cache read pricing for all Gemini models. Removed deprecated `gemini-2.5-flash-preview-05-20` and `gemini-pro` entries.
+
+## [0.38.3] - 2026-02-14
+
+### Improved
+- **Credit estimation GLI jurisdiction scaling** — Credit estimate now accounts for the number of selected GLI jurisdictions. Each jurisdiction beyond the first adds ~8% to the output token estimate, reflecting the per-jurisdiction compliance evaluation (12 categories each).
+
 ## [0.38.2] - 2026-02-13
 
 ### Added

@@ -1,17 +1,18 @@
 import { ref, computed } from 'vue'
 import { authApi } from '@/lib/api'
+import { STORAGE_KEYS } from '@/lib/constants'
 
 const user = ref(null)
 const loading = ref(true)
 
 function saveTokens(data) {
-  localStorage.setItem('accessToken', data.accessToken)
-  localStorage.setItem('refreshToken', data.refreshToken)
+  localStorage.setItem(STORAGE_KEYS.accessToken, data.accessToken)
+  localStorage.setItem(STORAGE_KEYS.refreshToken, data.refreshToken)
 }
 
 export function clearTokens() {
-  localStorage.removeItem('accessToken')
-  localStorage.removeItem('refreshToken')
+  localStorage.removeItem(STORAGE_KEYS.accessToken)
+  localStorage.removeItem(STORAGE_KEYS.refreshToken)
 }
 
 export function useAuth() {
@@ -39,7 +40,7 @@ export function useAuth() {
   }
 
   async function loadUser() {
-    const token = localStorage.getItem('accessToken')
+    const token = localStorage.getItem(STORAGE_KEYS.accessToken)
     if (!token) {
       loading.value = false
       return
@@ -50,7 +51,7 @@ export function useAuth() {
     } catch {
       // Token invalid — try refresh
       try {
-        const refreshToken = localStorage.getItem('refreshToken')
+        const refreshToken = localStorage.getItem(STORAGE_KEYS.refreshToken)
         if (refreshToken) {
           const data = await authApi.refresh({ refreshToken })
           saveTokens(data)
@@ -69,5 +70,5 @@ export function useAuth() {
 }
 
 export function getAccessToken() {
-  return localStorage.getItem('accessToken')
+  return localStorage.getItem(STORAGE_KEYS.accessToken)
 }

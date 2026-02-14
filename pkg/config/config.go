@@ -21,10 +21,15 @@ type Config struct {
 // AIConfig contains AI provider settings
 type AIConfig struct {
 	Provider    string  `yaml:"provider"`    // anthropic, google, openai
-	Model       string  `yaml:"model"`       // claude-sonnet-4-5, gemini-pro, etc.
+	Model       string  `yaml:"model"`       // claude-sonnet-4-5-20250929, gemini-2.5-flash, etc.
 	APIKey      string  `yaml:"apiKey"`      // Can use ${ENV_VAR} syntax
 	Temperature float64 `yaml:"temperature"` // 0.0 - 1.0
 	MaxTokens   int     `yaml:"maxTokens"`   // Max response tokens
+
+	// Secondary model for synthesis/flow generation (text-only stages)
+	SynthesisProvider string `yaml:"synthesisProvider,omitempty"` // defaults to primary provider
+	SynthesisModel    string `yaml:"synthesisModel,omitempty"`    // if set, enables hybrid mode
+	SynthesisAPIKey   string `yaml:"synthesisApiKey,omitempty"`   // defaults to primary apiKey
 }
 
 // MaestroConfig contains Maestro CLI settings
@@ -204,6 +209,9 @@ func (c *Config) Validate() error {
 // expandEnvVars expands environment variables in string fields
 func (c *Config) expandEnvVars() {
 	c.AI.APIKey = os.ExpandEnv(c.AI.APIKey)
+	c.AI.SynthesisProvider = os.ExpandEnv(c.AI.SynthesisProvider)
+	c.AI.SynthesisModel = os.ExpandEnv(c.AI.SynthesisModel)
+	c.AI.SynthesisAPIKey = os.ExpandEnv(c.AI.SynthesisAPIKey)
 	c.Maestro.Path = os.ExpandEnv(c.Maestro.Path)
 	c.Maestro.ScreenshotDir = os.ExpandEnv(c.Maestro.ScreenshotDir)
 	c.Flows.Directory = os.ExpandEnv(c.Flows.Directory)

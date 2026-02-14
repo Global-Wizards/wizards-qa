@@ -20,8 +20,10 @@ import (
 
 // Analyzer analyzes games and generates test scenarios
 type Analyzer struct {
-	Client Client
-	Usage  TokenUsage
+	Client          Client
+	Usage           TokenUsage
+	secondaryClient Client
+	secondaryUsage  TokenUsage
 }
 
 // NewAnalyzer creates a new game analyzer
@@ -33,6 +35,25 @@ func NewAnalyzer(client Client) *Analyzer {
 		}
 	}
 	return a
+}
+
+// SetSecondaryClient configures a secondary AI client used for synthesis and
+// flow generation (text-only stages that don't require tool use).
+func (a *Analyzer) SetSecondaryClient(client Client) {
+	a.secondaryClient = client
+	if bc := baseClientOf(client); bc != nil {
+		bc.OnUsage = func(input, output, cacheCreate, cacheRead int) {
+			a.secondaryUsage.Add(input, output, cacheCreate, cacheRead)
+		}
+	}
+}
+
+// synthesisClient returns the secondary client if set, otherwise the primary.
+func (a *Analyzer) synthesisClient() Client {
+	if a.secondaryClient != nil {
+		return a.secondaryClient
+	}
+	return a.Client
 }
 
 // baseClientOf extracts the *BaseClient from a Client implementation.
@@ -47,25 +68,30 @@ func baseClientOf(client Client) *BaseClient {
 	}
 }
 
-// NewAnalyzerFromConfig creates an analyzer from configuration
-func NewAnalyzerFromConfig(provider, apiKey, model string, temperature float64, maxTokens int) (*Analyzer, error) {
-	var client Client
-
+// NewClientFromConfig creates an AI client from provider configuration.
+func NewClientFromConfig(provider, apiKey, model string, temperature float64, maxTokens int) (Client, error) {
 	switch provider {
 	case "anthropic", "claude":
-		client = NewClaudeClient(apiKey, model, temperature, maxTokens)
+		return NewClaudeClient(apiKey, model, temperature, maxTokens), nil
 	case "google", "gemini":
-		client = NewGeminiClient(apiKey, model, temperature, maxTokens)
+		return NewGeminiClient(apiKey, model, temperature, maxTokens), nil
 	default:
 		return nil, fmt.Errorf("unsupported AI provider: %s (use 'anthropic' or 'google')", provider)
 	}
+}
 
+// NewAnalyzerFromConfig creates an analyzer from configuration
+func NewAnalyzerFromConfig(provider, apiKey, model string, temperature float64, maxTokens int) (*Analyzer, error) {
+	client, err := NewClientFromConfig(provider, apiKey, model, temperature, maxTokens)
+	if err != nil {
+		return nil, err
+	}
 	return NewAnalyzer(client), nil
 }
 
 // emitCostEstimate sends a cost_estimate progress event with accumulated token usage as structured JSON.
 func (a *Analyzer) emitCostEstimate(progress func(step, message string)) {
-	if a.Usage.APICallCount == 0 {
+	if a.Usage.APICallCount == 0 && a.secondaryUsage.APICallCount == 0 {
 		return
 	}
 	model := ""
@@ -73,16 +99,30 @@ func (a *Analyzer) emitCostEstimate(progress func(step, message string)) {
 		model = bc.Model
 	}
 	cost := a.Usage.EstimatedCost(model)
+
+	// Combine secondary usage if present
+	totalCost := cost
+	secondaryModel := ""
+	if a.secondaryClient != nil && a.secondaryUsage.APICallCount > 0 {
+		if bc := baseClientOf(a.secondaryClient); bc != nil {
+			secondaryModel = bc.Model
+		}
+		totalCost += a.secondaryUsage.EstimatedCost(secondaryModel)
+	}
+
 	data := map[string]interface{}{
-		"inputTokens":       a.Usage.InputTokens,
-		"outputTokens":      a.Usage.OutputTokens,
-		"cacheReadTokens":   a.Usage.CacheReadInputTokens,
-		"cacheCreateTokens": a.Usage.CacheCreationInputTokens,
-		"totalTokens":       a.Usage.TotalTokens,
-		"apiCallCount":      a.Usage.APICallCount,
-		"costUsd":           cost,
-		"credits":           int(math.Ceil(cost * 100)),
+		"inputTokens":       a.Usage.InputTokens + a.secondaryUsage.InputTokens,
+		"outputTokens":      a.Usage.OutputTokens + a.secondaryUsage.OutputTokens,
+		"cacheReadTokens":   a.Usage.CacheReadInputTokens + a.secondaryUsage.CacheReadInputTokens,
+		"cacheCreateTokens": a.Usage.CacheCreationInputTokens + a.secondaryUsage.CacheCreationInputTokens,
+		"totalTokens":       a.Usage.TotalTokens + a.secondaryUsage.TotalTokens,
+		"apiCallCount":      a.Usage.APICallCount + a.secondaryUsage.APICallCount,
+		"costUsd":           totalCost,
+		"credits":           int(math.Ceil(totalCost * 100)),
 		"model":             model,
+	}
+	if secondaryModel != "" {
+		data["secondaryModel"] = secondaryModel
 	}
 	jsonBytes, _ := json.Marshal(data)
 	progress("cost_estimate", string(jsonBytes))
@@ -630,11 +670,11 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 		}
 	}
 
-	// Fallback to text-only
+	// Fallback to text-only — route through synthesis client (secondary if configured)
 	if response == "" {
 		progress("flows_calling", "Sending to AI for flow generation (this may take 30-60s)...")
 		var err error
-		response, err = a.Client.Generate(prompt, map[string]interface{}{
+		response, err = a.synthesisClient().Generate(prompt, map[string]interface{}{
 			"analysisJSON": string(analysisJSON),
 		})
 		if err != nil {
@@ -685,8 +725,8 @@ func (a *Analyzer) GenerateScenarios(analysis *AnalysisResult) ([]TestScenario, 
 		"analysis": analysisStr,
 	})
 
-	// Call AI
-	response, err := a.Client.Generate(prompt, map[string]interface{}{
+	// Call AI (route through synthesis client if available)
+	response, err := a.synthesisClient().Generate(prompt, map[string]interface{}{
 		"analysis": analysisStr,
 	})
 	if err != nil {
@@ -727,8 +767,8 @@ func (a *Analyzer) GenerateFlows(scenarios []TestScenario) ([]*MaestroFlow, erro
 		"scenarios": scenariosStr,
 	})
 
-	// Call AI
-	response, err := a.Client.Generate(prompt, map[string]interface{}{
+	// Call AI (route through synthesis client if available)
+	response, err := a.synthesisClient().Generate(prompt, map[string]interface{}{
 		"scenarios": scenariosStr,
 	})
 	if err != nil {

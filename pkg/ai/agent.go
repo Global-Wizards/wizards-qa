@@ -267,7 +267,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 					resultMsg = fmt.Sprintf("Cannot grant more steps — already at maximum (%d/%d). Wrap up and output EXPLORATION_COMPLETE.", cfg.MaxSteps, cfg.MaxTotalSteps)
 				}
 
-				progress("agent_adaptive", fmt.Sprintf("Adaptive extension +%d steps (now %d/%d): %s", granted, cfg.MaxSteps, cfg.MaxTotalSteps, truncate(params.Reason, 80)))
+				progress("agent_adaptive", fmt.Sprintf("Adaptive extension +%d steps (now %d/%d): %s", granted, cfg.MaxSteps, cfg.MaxTotalSteps, Truncate(params.Reason, 80)))
 
 				steps = append(steps, AgentStep{
 					StepNumber: step, ToolName: "request_more_steps",
@@ -333,7 +333,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 					resultMsg = "Cannot grant more time — already at maximum. Wrap up and output EXPLORATION_COMPLETE."
 				}
 
-				progress("agent_timeout_extend", fmt.Sprintf("+%dm: %s", int(granted.Minutes()), truncate(params.Reason, 80)))
+				progress("agent_timeout_extend", fmt.Sprintf("+%dm: %s", int(granted.Minutes()), Truncate(params.Reason, 80)))
 
 				steps = append(steps, AgentStep{
 					StepNumber: step, ToolName: "request_more_time",
@@ -443,7 +443,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				"stepNumber": step,
 				"toolName":   block.Name,
 				"input":      string(block.Input),
-				"result":     truncate(textResult, 300),
+				"result":     Truncate(textResult, 300),
 				"error":      errStr,
 				"durationMs": stepRecord.DurationMs,
 				"thinkingMs": thinkingMs,
@@ -461,13 +461,19 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 			}
 		}
 
+		// Strip intermediate screenshots from batched tool results — only the last
+		// screenshot matters since tools execute sequentially and each supersedes the previous.
+		// Note: screenshots are already saved to disk and broadcast for live streaming
+		// earlier in this loop, so stripping here only affects the LLM context.
+		StripIntermediateScreenshots(toolResults)
+
 		// Append tool results as a user message
 		messages = append(messages, AgentMessage{Role: "user", Content: toolResults})
 
 		// Prune old screenshots from conversation to prevent unbounded context growth.
 		// Each base64 screenshot is ~100-200KB; without pruning, API calls escalate from
 		// ~10s to 70s+ as screenshots accumulate, consuming the entire timeout budget.
-		pruneOldScreenshots(messages, 2)
+		PruneOldScreenshots(messages, 2)
 	}
 
 	progress("agent_done", fmt.Sprintf("Agent exploration complete: %d steps, %d screenshots", len(steps), len(allScreenshots)))
@@ -475,67 +481,89 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	// Strip ALL screenshots before synthesis — the AI already observed them during
 	// exploration and doesn't need them for structured JSON output. This reduces
 	// the API payload by ~1.6MB and avoids input-too-large errors.
-	pruneOldScreenshots(messages, 0)
+	PruneOldScreenshots(messages, 0)
 
 	// --- Synthesis call ---
 	progress("agent_synthesize", "Synthesizing analysis from exploration...")
 
 	synthesisPrompt := BuildSynthesisPrompt(modules)
-
-	// Add synthesis request as a user message (no tools for this call)
-	messages = append(messages, AgentMessage{Role: "user", Content: synthesisPrompt})
+	synthClient := a.synthesisClient()
 
 	// Ensure synthesis has enough token budget for full JSON output
 	if cfg.SynthesisMaxTokens > 0 {
-		if bc, ok := a.Client.(*ClaudeClient); ok {
+		if bc := baseClientOf(synthClient); bc != nil {
 			origMaxTokens := bc.MaxTokens
 			bc.MaxTokens = cfg.SynthesisMaxTokens
 			defer func() { bc.MaxTokens = origMaxTokens }()
 		}
-		if gc, ok := a.Client.(*GeminiClient); ok {
-			origMaxTokens := gc.MaxTokens
-			gc.MaxTokens = cfg.SynthesisMaxTokens
-			defer func() { gc.MaxTokens = origMaxTokens }()
-		}
 	}
 
-	// Call without tools to get structured JSON — retry up to 3 times with backoff
-	var synthResp *ToolUseResponse
 	retryCfg := &retry.Config{
 		MaxAttempts:  3,
 		InitialDelay: 5 * time.Second,
 		MaxDelay:     30 * time.Second,
 		Multiplier:   2.0,
 	}
-	synthAttempt := 0
-	synthErr := retry.Do(ctx, retryCfg, func() error {
-		synthAttempt++
-		if synthAttempt > 1 {
-			progress("synthesis_retry", fmt.Sprintf("Retrying synthesis (attempt %d/%d)...", synthAttempt, retryCfg.MaxAttempts))
-		}
-		var err error
-		synthResp, err = agent.CallWithTools(AgentSystemPrompt, messages, nil)
-		return err
-	})
-	if synthErr != nil {
-		return nil, steps, fmt.Errorf("synthesis call failed: %w", synthErr)
-	}
 
-	if synthResp.StopReason == "max_tokens" {
-		log.Printf("WARNING: Synthesis truncated (stop_reason=max_tokens, %d output tokens)", synthResp.Usage.OutputTokens)
-	}
-
-	// Extract text from synthesis response
 	var synthesisText string
-	for _, block := range synthResp.Content {
-		if block.Type == "text" {
-			synthesisText += block.Text
+	var stopReason string
+
+	// Branch: if synthesis client supports tool use AND is the primary client, use CallWithTools (backwards compat)
+	synthAgent, isToolUse := synthClient.(ToolUseAgent)
+	if isToolUse && synthClient == a.Client {
+		// Add synthesis request as a user message (no tools for this call)
+		messages = append(messages, AgentMessage{Role: "user", Content: synthesisPrompt})
+
+		var synthResp *ToolUseResponse
+		synthAttempt := 0
+		synthErr := retry.Do(ctx, retryCfg, func() error {
+			synthAttempt++
+			if synthAttempt > 1 {
+				progress("synthesis_retry", fmt.Sprintf("Retrying synthesis (attempt %d/%d)...", synthAttempt, retryCfg.MaxAttempts))
+			}
+			var err error
+			synthResp, err = synthAgent.CallWithTools(AgentSystemPrompt, messages, nil)
+			return err
+		})
+		if synthErr != nil {
+			return nil, steps, fmt.Errorf("synthesis call failed: %w", synthErr)
 		}
+
+		stopReason = synthResp.StopReason
+		if stopReason == "max_tokens" {
+			log.Printf("WARNING: Synthesis truncated (stop_reason=max_tokens, %d output tokens)", synthResp.Usage.OutputTokens)
+		}
+		for _, block := range synthResp.Content {
+			if block.Type == "text" {
+				synthesisText += block.Text
+			}
+		}
+	} else {
+		// Flatten messages to plaintext and use Generate() — works with any client
+		explorationHistory := flattenMessagesForSynthesis(messages)
+		fullPrompt := explorationHistory + "\n\n" + synthesisPrompt
+
+		synthAttempt := 0
+		synthErr := retry.Do(ctx, retryCfg, func() error {
+			synthAttempt++
+			if synthAttempt > 1 {
+				progress("synthesis_retry", fmt.Sprintf("Retrying synthesis (attempt %d/%d)...", synthAttempt, retryCfg.MaxAttempts))
+			}
+			var err error
+			synthesisText, err = synthClient.Generate(fullPrompt, nil)
+			return err
+		})
+		if synthErr != nil {
+			return nil, steps, fmt.Errorf("synthesis call failed: %w", synthErr)
+		}
+		// Generate() doesn't expose stop_reason, so we can't detect truncation.
+		// If JSON is truncated, repairTruncatedJSON will still attempt a fix.
+		stopReason = "end_turn"
 	}
 
 	// Parse as ComprehensiveAnalysisResult
 	parsed, parseErr := parseComprehensiveJSON(synthesisText)
-	if parseErr != nil && synthResp.StopReason == "max_tokens" {
+	if parseErr != nil && stopReason == "max_tokens" {
 		// JSON was truncated — try to repair by closing open brackets
 		repaired, repairErr := repairTruncatedJSON(synthesisText)
 		if repairErr == nil {
@@ -543,7 +571,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		}
 	}
 	if parseErr != nil {
-		return nil, steps, fmt.Errorf("failed to parse synthesis response: %w (stop_reason=%s, raw: %s)", parseErr, synthResp.StopReason, truncate(synthesisText, 500))
+		return nil, steps, fmt.Errorf("failed to parse synthesis response: %w (stop_reason=%s, raw: %s)", parseErr, stopReason, Truncate(synthesisText, 500))
 	}
 
 	return parsed, steps, nil
@@ -641,7 +669,7 @@ func formatToolAction(toolName string, inputJSON json.RawMessage) string {
 	case "type_text":
 		var p struct{ Text string }
 		json.Unmarshal(inputJSON, &p)
-		return fmt.Sprintf("type %q", truncate(p.Text, 30))
+		return fmt.Sprintf("type %q", Truncate(p.Text, 30))
 	case "scroll":
 		var p struct {
 			Direction string
@@ -652,7 +680,7 @@ func formatToolAction(toolName string, inputJSON json.RawMessage) string {
 	case "evaluate_js":
 		var p struct{ Expression string }
 		json.Unmarshal(inputJSON, &p)
-		return fmt.Sprintf("eval JS: %s", truncate(p.Expression, 50))
+		return fmt.Sprintf("eval JS: %s", Truncate(p.Expression, 50))
 	case "wait":
 		var p struct {
 			Milliseconds int
@@ -670,30 +698,30 @@ func formatToolAction(toolName string, inputJSON json.RawMessage) string {
 	case "navigate":
 		var p struct{ URL string }
 		json.Unmarshal(inputJSON, &p)
-		return fmt.Sprintf("navigate to %s", truncate(p.URL, 60))
+		return fmt.Sprintf("navigate to %s", Truncate(p.URL, 60))
 	case "request_more_steps":
 		var p struct {
 			Reason          string `json:"reason"`
 			AdditionalSteps int    `json:"additional_steps"`
 		}
 		json.Unmarshal(inputJSON, &p)
-		return fmt.Sprintf("requesting %d more steps: %s", p.AdditionalSteps, truncate(p.Reason, 60))
+		return fmt.Sprintf("requesting %d more steps: %s", p.AdditionalSteps, Truncate(p.Reason, 60))
 	case "request_more_time":
 		var p struct {
 			Reason            string `json:"reason"`
 			AdditionalMinutes int    `json:"additional_minutes"`
 		}
 		json.Unmarshal(inputJSON, &p)
-		return fmt.Sprintf("requesting %d more minutes: %s", p.AdditionalMinutes, truncate(p.Reason, 60))
+		return fmt.Sprintf("requesting %d more minutes: %s", p.AdditionalMinutes, Truncate(p.Reason, 60))
 	default:
 		return toolName
 	}
 }
 
-// pruneOldScreenshots walks messages from newest to oldest and replaces base64 image
+// PruneOldScreenshots walks messages from newest to oldest and replaces base64 image
 // data in screenshots beyond the keepRecent most recent ones. This prevents the API
 // payload from growing unboundedly as screenshots accumulate in the conversation.
-func pruneOldScreenshots(messages []AgentMessage, keepRecent int) {
+func PruneOldScreenshots(messages []AgentMessage, keepRecent int) {
 	imageCount := 0
 	for i := len(messages) - 1; i >= 0; i-- {
 		messages[i].Content = stripImages(messages[i].Content, &imageCount, keepRecent)
@@ -733,12 +761,146 @@ func stripImages(v interface{}, count *int, keep int) interface{} {
 	}
 }
 
-// truncate shortens a string to maxLen, appending "..." if truncated.
-func truncate(s string, maxLen int) string {
+// Truncate shortens a string to maxLen, appending "..." if truncated.
+func Truncate(s string, maxLen int) string {
 	if len(s) <= maxLen {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+// flattenMessagesForSynthesis converts an agent message history into a
+// plaintext string suitable for a Generate() call. It extracts text blocks
+// and tool results (name + content), skipping image blocks.
+func flattenMessagesForSynthesis(messages []AgentMessage) string {
+	var sb strings.Builder
+	for _, msg := range messages {
+		switch c := msg.Content.(type) {
+		case string:
+			sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, c))
+		case []interface{}:
+			for _, block := range c {
+				switch b := block.(type) {
+				case map[string]interface{}:
+					if b["type"] == "text" {
+						if text, ok := b["text"].(string); ok {
+							sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, text))
+						}
+					}
+					if b["type"] == "tool_use" {
+						name, _ := b["name"].(string)
+						sb.WriteString(fmt.Sprintf("[tool_use]: %s\n", name))
+					}
+					if b["type"] == "tool_result" {
+						if content, ok := b["content"].(string); ok {
+							sb.WriteString(fmt.Sprintf("[tool_result]: %s\n", Truncate(content, 500)))
+						}
+					}
+				case ResponseContentBlock:
+					if b.Type == "text" && b.Text != "" {
+						sb.WriteString(fmt.Sprintf("[%s]: %s\n", msg.Role, b.Text))
+					}
+					if b.Type == "tool_use" {
+						sb.WriteString(fmt.Sprintf("[tool_use]: %s %s\n", b.Name, string(b.Input)))
+					}
+				case ToolResultBlock:
+					if text, ok := b.Content.(string); ok {
+						sb.WriteString(fmt.Sprintf("[tool_result]: %s\n", Truncate(text, 500)))
+					}
+				}
+			}
+		}
+	}
+	return sb.String()
+}
+
+// StripIntermediateScreenshots removes image blocks from all but the last
+// tool result that contains one. When Claude batches multiple tool calls in a
+// single response (e.g. click → type_text → screenshot), the tools execute
+// sequentially and only the final screenshot reflects the current page state.
+// Intermediate screenshots are wasted tokens.
+func StripIntermediateScreenshots(toolResults []interface{}) {
+	if len(toolResults) <= 1 {
+		return
+	}
+
+	// Find the last tool result that has an image block
+	lastScreenshotIdx := -1
+	for i := len(toolResults) - 1; i >= 0; i-- {
+		if toolResultHasImage(toolResults[i]) {
+			lastScreenshotIdx = i
+			break
+		}
+	}
+	if lastScreenshotIdx <= 0 {
+		return // 0 or 1 screenshots — nothing to strip
+	}
+
+	// Strip images from all earlier tool results
+	for i := 0; i < lastScreenshotIdx; i++ {
+		toolResults[i] = stripImageFromToolResult(toolResults[i])
+	}
+}
+
+// toolResultHasImage checks whether a tool result contains an image content block.
+func toolResultHasImage(result interface{}) bool {
+	switch r := result.(type) {
+	case ToolResultBlock:
+		return contentHasImage(r.Content)
+	case map[string]interface{}:
+		return contentHasImage(r["content"])
+	default:
+		return false
+	}
+}
+
+// contentHasImage checks whether a content value contains an image block.
+func contentHasImage(content interface{}) bool {
+	blocks, ok := content.([]interface{})
+	if !ok {
+		return false
+	}
+	for _, block := range blocks {
+		if m, ok := block.(map[string]interface{}); ok && m["type"] == "image" {
+			return true
+		}
+	}
+	return false
+}
+
+// stripImageFromToolResult returns a copy of the tool result with image blocks
+// replaced by a text placeholder, preserving text blocks.
+func stripImageFromToolResult(result interface{}) interface{} {
+	switch r := result.(type) {
+	case ToolResultBlock:
+		r.Content = stripImagesFromContent(r.Content)
+		return r
+	case map[string]interface{}:
+		if content, ok := r["content"]; ok {
+			r["content"] = stripImagesFromContent(content)
+		}
+		return r
+	default:
+		return result
+	}
+}
+
+// stripImagesFromContent removes image blocks from a content slice entirely.
+// The surrounding text blocks (e.g. "Clicked at (100, 200)") already describe
+// the action, so no placeholder is needed.
+func stripImagesFromContent(content interface{}) interface{} {
+	blocks, ok := content.([]interface{})
+	if !ok {
+		return content
+	}
+	var filtered []interface{}
+	for _, block := range blocks {
+		if m, ok := block.(map[string]interface{}); ok && m["type"] == "image" {
+			continue
+		}
+		filtered = append(filtered, block)
+	}
+	return filtered
 }
 
 // repairTruncatedJSON attempts to fix JSON truncated by max_tokens by

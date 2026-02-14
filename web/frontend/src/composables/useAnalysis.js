@@ -1,7 +1,9 @@
-import { ref, onUnmounted } from 'vue'
+import { ref, shallowRef, onUnmounted } from 'vue'
 import { analyzeApi, analysesApi, authUrl } from '@/lib/api'
 import { getWebSocket } from '@/lib/websocket'
 import { MAX_LOGS } from '@/lib/constants'
+import { formatElapsed } from '@/lib/formatTime'
+import { useTimer } from '@/composables/useTimer'
 
 const MAX_PERSISTED_STEPS_LOAD = 200
 const MAX_LIVE_STEPS = 50
@@ -62,19 +64,19 @@ export function useAnalysis() {
   const analysisId = ref(null)
   const pageMeta = ref(null)
   const analysis = ref(null)
-  const flows = ref([])
-  const agentSteps = ref([])
+  const flows = shallowRef([])
+  const agentSteps = shallowRef([])
   const agentMode = ref(false)
   const error = ref(null)
   const logs = ref([])
-  const startTime = ref(null)
-  const elapsedSeconds = ref(0)
+
+  const timer = useTimer()
   const stepTimings = ref({}) // { scouting: {start, end}, analyzing: {start, end}, ... }
 
   const failedStep = ref(null) // last step name when analysis failed
 
   // Live agent exploration state
-  const liveAgentSteps = ref([])
+  const liveAgentSteps = shallowRef([])
   const latestScreenshot = ref(null)
   const agentReasoning = ref('')
   const userHints = ref([])
@@ -83,7 +85,7 @@ export function useAnalysis() {
   const agentStepTotal = ref(0)
 
   // Persisted agent steps (loaded from API after completion/failure)
-  const persistedAgentSteps = ref([])
+  const persistedAgentSteps = shallowRef([])
 
   // Latest progress step message (for showing live detail during flow generation, etc.)
   const latestStepMessage = ref('')
@@ -92,7 +94,7 @@ export function useAnalysis() {
   const autoTestPlanId = ref(null)
 
   // Multi-device batch results
-  const devices = ref([])
+  const devices = shallowRef([])
 
   // Multi-device progress tracking
   const currentDeviceIndex = ref(0)
@@ -105,14 +107,42 @@ export function useAnalysis() {
 
   // Browser test execution state (inline during analysis)
   const testRunId = ref(null)
-  const testStepScreenshots = ref([])
-  const testFlowProgress = ref([])
+  const testStepScreenshots = shallowRef([])
+  const testFlowProgress = shallowRef([])
 
   let hintCooldownTimer = null
   let statusPollInterval = null
 
   let cleanups = []
-  let elapsedTimer = null
+
+  // --- DRY helpers for capped array mutations ---
+
+  // For ref() arrays: mutate in place (Vue tracks deeply)
+  function addLog(message) {
+    logs.value.push(message)
+    if (logs.value.length > MAX_LOGS) {
+      logs.value = logs.value.slice(-MAX_LOGS)
+    }
+  }
+
+  // For shallowRef() arrays: must reassign to trigger reactivity
+  function appendCapped(shallowRefTarget, item, max) {
+    const arr = shallowRefTarget.value
+    if (arr.length >= max) {
+      shallowRefTarget.value = [...arr.slice(-(max - 1)), item]
+    } else {
+      shallowRefTarget.value = [...arr, item]
+    }
+  }
+
+  // Update the last element of a shallowRef array (spreads only when needed)
+  function updateLastStep(updates) {
+    const arr = liveAgentSteps.value
+    if (arr.length === 0) return
+    const updated = arr.slice()
+    updated[updated.length - 1] = { ...updated[updated.length - 1], ...updates }
+    liveAgentSteps.value = updated
+  }
 
   // Reset all reactive state to initial values
   function resetState() {
@@ -127,8 +157,7 @@ export function useAnalysis() {
     error.value = null
     failedStep.value = null
     logs.value = []
-    elapsedSeconds.value = 0
-    startTime.value = null
+    timer.reset()
     stepTimings.value = {}
     liveAgentSteps.value = []
     latestScreenshot.value = null
@@ -149,29 +178,6 @@ export function useAnalysis() {
     currentDeviceCategory.value = ''
     totalCredits.value = 0
     liveStepCredits.value = 0
-  }
-
-  function startElapsedTimer() {
-    stopElapsedTimer()
-    startTime.value = Date.now()
-    elapsedSeconds.value = 0
-    elapsedTimer = setInterval(() => {
-      elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000)
-    }, 1000)
-  }
-
-  function stopElapsedTimer() {
-    if (elapsedTimer) {
-      clearInterval(elapsedTimer)
-      elapsedTimer = null
-    }
-  }
-
-  function formatElapsed(seconds) {
-    if (seconds < 60) return `${seconds}s`
-    const m = Math.floor(seconds / 60)
-    const s = seconds % 60
-    return `${m}m ${s}s`
   }
 
   function startStatusPolling() {
@@ -199,7 +205,7 @@ export function useAnalysis() {
           currentStep.value = 'complete'
           latestScreenshot.value = null
           agentReasoning.value = ''
-          stopElapsedTimer()
+          timer.stop()
           clearLocalStorage()
           loadPersistedSteps(analysisId.value)
         } else if (statusData.status === 'failed') {
@@ -207,7 +213,7 @@ export function useAnalysis() {
           error.value = statusData.error || 'Analysis failed'
           failedStep.value = currentStep.value || null
           status.value = 'error'
-          stopElapsedTimer()
+          timer.stop()
           clearLocalStorage()
           loadPersistedSteps(analysisId.value)
         }
@@ -218,7 +224,7 @@ export function useAnalysis() {
           error.value = 'Analysis no longer available (server may have restarted)'
           failedStep.value = currentStep.value || null
           status.value = 'error'
-          stopElapsedTimer()
+          timer.stop()
           clearLocalStorage()
         }
         // Other errors (network timeout, 5xx) — ignore and retry next interval
@@ -276,7 +282,7 @@ export function useAnalysis() {
       }
 
       if (progress.message) {
-        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), progress.message]
+        addLog(progress.message)
         latestStepMessage.value = progress.message
       }
 
@@ -355,25 +361,19 @@ export function useAnalysis() {
         type: 'tool',
         timestamp: Date.now(),
       }
-      liveAgentSteps.value = [...liveAgentSteps.value.slice(-(MAX_LIVE_STEPS - 1)), newStep]
+      appendCapped(liveAgentSteps, newStep, MAX_LIVE_STEPS)
 
       // Debug log entry for agent step
       const durLabel = data.durationMs != null ? ` (${data.durationMs}ms)` : ''
       const errLabel = data.error ? ` ERROR: ${data.error.slice(0, 120)}` : ''
-      logs.value = [...logs.value.slice(-(MAX_LOGS - 1)),
-        `[Agent] Step ${data.stepNumber}: ${data.toolName || 'unknown'}${durLabel}${errLabel}`]
+      addLog(`[Agent] Step ${data.stepNumber}: ${data.toolName || 'unknown'}${durLabel}${errLabel}`)
     })
 
     const offAgentReasoning = ws.on('agent_reasoning', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
       agentReasoning.value = data.text
       // Attach reasoning to latest step
-      if (liveAgentSteps.value.length > 0) {
-        const updated = [...liveAgentSteps.value]
-        const last = updated[updated.length - 1]
-        updated[updated.length - 1] = { ...last, reasoning: data.text }
-        liveAgentSteps.value = updated
-      }
+      updateLastStep({ reasoning: data.text })
     })
 
     const offAgentScreenshot = ws.on('agent_screenshot', (data) => {
@@ -382,13 +382,8 @@ export function useAnalysis() {
       const url = authUrl(data.screenshotUrl || '')
       latestScreenshot.value = url
       // Store screenshot URL on the step for inline thumbnails
-      if (liveAgentSteps.value.length > 0) {
-        const last = liveAgentSteps.value[liveAgentSteps.value.length - 1]
-        if (!last.screenshotUrl) {
-          const updated = [...liveAgentSteps.value]
-          updated[updated.length - 1] = { ...last, hasScreenshot: true, screenshotUrl: url }
-          liveAgentSteps.value = updated
-        }
+      if (liveAgentSteps.value.length > 0 && !liveAgentSteps.value[liveAgentSteps.value.length - 1].screenshotUrl) {
+        updateLastStep({ hasScreenshot: true, screenshotUrl: url })
       }
     })
 
@@ -400,7 +395,7 @@ export function useAnalysis() {
         message: data.message,
         timestamp: Date.now(),
       }
-      liveAgentSteps.value = [...liveAgentSteps.value.slice(-(MAX_LIVE_STEPS - 1)), hintEntry]
+      appendCapped(liveAgentSteps, hintEntry, MAX_LIVE_STEPS)
     })
 
     const offAnalysisCost = ws.on('analysis_cost', (data) => {
@@ -417,22 +412,20 @@ export function useAnalysis() {
 
         // Debug log entry for test flow result
         const durLabel = data.duration ? ` (${data.duration})` : ''
-        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)),
-          `[Test] Flow "${data.flowName}" ${data.status}${durLabel}`]
+        addLog(`[Test] Flow "${data.flowName}" ${data.status}${durLabel}`)
       }
     })
 
     const offTestStepScreenshot = ws.on('test_step_screenshot', (data) => {
       if (!testRunId.value || data.testId !== testRunId.value) return
-      testStepScreenshots.value = [...testStepScreenshots.value.slice(-(MAX_LIVE_STEPS - 1)), {
+      appendCapped(testStepScreenshots, {
         flowName: data.flowName, stepIndex: data.stepIndex, command: data.command,
         screenshotUrl: authUrl(data.screenshotUrl || ''), result: data.result, status: data.status,
         reasoning: data.reasoning || '',
-      }]
+      }, MAX_LIVE_STEPS)
 
       // Debug log entry for test step
-      logs.value = [...logs.value.slice(-(MAX_LOGS - 1)),
-        `[Test] ${data.flowName} step ${data.stepIndex}: ${data.command} → ${data.status}`]
+      addLog(`[Test] ${data.flowName} step ${data.stepIndex}: ${data.command} → ${data.status}`)
     })
 
     const offCompleted = ws.on('analysis_completed', (data) => {
@@ -457,13 +450,13 @@ export function useAnalysis() {
       testRunId.value = data.testRunId || null
 
       // Debug log entry for completion
-      logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Complete] Analysis finished successfully`]
+      addLog(`[Complete] Analysis finished successfully`)
 
       status.value = 'complete'
       currentStep.value = 'complete'
       latestScreenshot.value = null
       agentReasoning.value = ''
-      stopElapsedTimer()
+      timer.stop()
       clearLocalStorage()
 
       // Load persisted steps from API (has screenshots, reasoning, etc.)
@@ -485,28 +478,18 @@ export function useAnalysis() {
       status.value = 'error'
 
       // Debug log entries for error context
-      logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] ${data.error || 'Analysis failed'}`]
-      if (data.lastStep) {
-        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] Last step: ${data.lastStep}`]
-      }
-      if (data.exitCode != null && data.exitCode !== -1) {
-        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] Exit code: ${data.exitCode}`]
-      }
-      if (data.stderrLineCount) {
-        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] Stderr lines: ${data.stderrLineCount}`]
-      }
-      if (data.hasCheckpoint != null) {
-        logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Error] Checkpoint available: ${data.hasCheckpoint}`]
-      }
+      addLog(`[Error] ${data.error || 'Analysis failed'}`)
+      if (data.lastStep) addLog(`[Error] Last step: ${data.lastStep}`)
+      if (data.exitCode != null && data.exitCode !== -1) addLog(`[Error] Exit code: ${data.exitCode}`)
+      if (data.stderrLineCount) addLog(`[Error] Stderr lines: ${data.stderrLineCount}`)
+      if (data.hasCheckpoint != null) addLog(`[Error] Checkpoint available: ${data.hasCheckpoint}`)
       if (data.stderrTail) {
         data.stderrTail.split('\n').forEach(line => {
-          if (line.trim()) {
-            logs.value = [...logs.value.slice(-(MAX_LOGS - 1)), `[Stderr] ${line}`]
-          }
+          if (line.trim()) addLog(`[Stderr] ${line}`)
         })
       }
 
-      stopElapsedTimer()
+      timer.stop()
       clearLocalStorage()
 
       // Keep liveAgentSteps for debug — do NOT clear them
@@ -525,7 +508,7 @@ export function useAnalysis() {
     currentStep.value = 'scouting'
     agentMode.value = useAgentMode
 
-    startElapsedTimer()
+    timer.start()
     setupListeners()
 
     try {
@@ -536,13 +519,13 @@ export function useAnalysis() {
       localStorage.setItem(LS_KEY, JSON.stringify({
         analysisId: response.analysisId,
         gameUrl,
-        startedAt: startTime.value || Date.now(),
+        startedAt: Date.now(),
         agentMode: useAgentMode,
       }))
     } catch (err) {
       error.value = err.message || 'Failed to start analysis'
       status.value = 'error'
-      stopElapsedTimer()
+      timer.stop()
       clearLocalStorage()
     }
   }
@@ -563,7 +546,7 @@ export function useAnalysis() {
     testStepScreenshots.value = []
     testFlowProgress.value = []
 
-    startElapsedTimer()
+    timer.start()
     setupListeners()
 
     try {
@@ -573,7 +556,7 @@ export function useAnalysis() {
       localStorage.setItem(LS_KEY, JSON.stringify({
         analysisId: failedAnalysisId,
         gameUrl: '',
-        startedAt: startTime.value || Date.now(),
+        startedAt: Date.now(),
         agentMode: agentMode.value,
       }))
 
@@ -581,7 +564,7 @@ export function useAnalysis() {
     } catch (err) {
       error.value = err.message || 'Failed to continue analysis'
       status.value = 'error'
-      stopElapsedTimer()
+      timer.stop()
       clearLocalStorage()
     }
   }
@@ -598,14 +581,14 @@ export function useAnalysis() {
     analysisId.value = batchAnalysisId
     agentMode.value = useAgentMode
 
-    startElapsedTimer()
+    timer.start()
     setupListeners()
 
     // Persist to localStorage so we can recover on refresh
     localStorage.setItem(LS_KEY, JSON.stringify({
       analysisId: batchAnalysisId,
       gameUrl,
-      startedAt: startTime.value || Date.now(),
+      startedAt: Date.now(),
       agentMode: useAgentMode,
     }))
   }
@@ -667,11 +650,7 @@ export function useAnalysis() {
         }
 
         // Resume elapsed timer from original start
-        startTime.value = parsed.startedAt || Date.now()
-        elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000)
-        elapsedTimer = setInterval(() => {
-          elapsedSeconds.value = Math.floor((Date.now() - startTime.value) / 1000)
-        }, 1000)
+        timer.start(new Date(parsed.startedAt || Date.now()))
 
         logs.value = ['Reconnected to running analysis...']
         setupListeners()
@@ -746,7 +725,7 @@ export function useAnalysis() {
   function reset() {
     stopListening()
     stopStatusPolling()
-    stopElapsedTimer()
+    timer.stop()
     clearLocalStorage()
     resetState()
     if (hintCooldownTimer) {
@@ -763,9 +742,11 @@ export function useAnalysis() {
 
   onUnmounted(() => {
     stopListening()
-    stopStatusPolling()
-    stopElapsedTimer()
-    if (hintCooldownTimer) clearTimeout(hintCooldownTimer)
+    timer.stop()
+    if (hintCooldownTimer) {
+      clearTimeout(hintCooldownTimer)
+      hintCooldownTimer = null
+    }
   })
 
   return {
@@ -779,7 +760,7 @@ export function useAnalysis() {
     agentMode,
     error,
     logs,
-    elapsedSeconds,
+    elapsedSeconds: timer.elapsed,
     stepTimings,
     formatElapsed,
     start,

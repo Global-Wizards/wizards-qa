@@ -490,7 +490,10 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 			if url == "" {
 				return "", "", "", fmt.Errorf("openLink: missing URL")
 			}
-			input, _ := json.Marshal(map[string]string{"url": url})
+			input, marshalErr := json.Marshal(map[string]string{"url": url})
+			if marshalErr != nil {
+				log.Printf("Warning: failed to marshal navigate input: %v", marshalErr)
+			}
 			r, ss, err := toolExec.Execute("navigate", input)
 			return r, ss, "", err
 
@@ -502,7 +505,10 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 			if text == "" {
 				return "", "", "", fmt.Errorf("inputText: empty text")
 			}
-			input, _ := json.Marshal(map[string]string{"text": text})
+			input, marshalErr := json.Marshal(map[string]string{"text": text})
+			if marshalErr != nil {
+				log.Printf("Warning: failed to marshal type_text input: %v", marshalErr)
+			}
 			r, ss, err := toolExec.Execute("type_text", input)
 			return r, ss, "", err
 
@@ -647,7 +653,10 @@ func tapOnText(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, text strin
 		return "", ss, response, fmt.Errorf("tapOn text %q: could not parse coordinates from AI response %q: %w", text, response, parseErr)
 	}
 
-	input, _ := json.Marshal(map[string]int{"x": x, "y": y})
+	input, marshalErr := json.Marshal(map[string]int{"x": x, "y": y})
+	if marshalErr != nil {
+		log.Printf("Warning: failed to marshal click input: %v", marshalErr)
+	}
 	result, clickSS, clickErr := toolExec.Execute("click", input)
 	if clickErr != nil {
 		return "", ss, response, fmt.Errorf("tapOn text %q: click failed: %w", text, clickErr)
@@ -696,7 +705,10 @@ func tapOnPoint(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, pointStr 
 		y = val
 	}
 
-	input, _ := json.Marshal(map[string]int{"x": x, "y": y})
+	input, marshalErr := json.Marshal(map[string]int{"x": x, "y": y})
+	if marshalErr != nil {
+		log.Printf("Warning: failed to marshal click input: %v", marshalErr)
+	}
 	r, ss, err := toolExec.Execute("click", input)
 	return r, ss, "", err
 }
@@ -721,7 +733,10 @@ func executeScroll(toolExec *ai.BrowserToolExecutor, value interface{}) (string,
 		}
 	}
 
-	input, _ := json.Marshal(map[string]interface{}{"direction": direction, "amount": amount})
+	input, marshalErr := json.Marshal(map[string]interface{}{"direction": direction, "amount": amount})
+	if marshalErr != nil {
+		log.Printf("Warning: failed to marshal scroll input: %v", marshalErr)
+	}
 	r, ss, err := toolExec.Execute("scroll", input)
 	return r, ss, "", err
 }

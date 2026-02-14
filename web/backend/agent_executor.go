@@ -373,11 +373,13 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 			}
 
 			if len(toolResults) > 0 {
+				// Strip intermediate screenshots — only the last matters (tools execute sequentially)
+				ai.StripIntermediateScreenshots(toolResults)
 				messages = append(messages, ai.AgentMessage{Role: "user", Content: toolResults})
 			}
 
 			// Prune old screenshots to keep context manageable
-			pruneAgentTestScreenshots(messages, 5)
+			ai.PruneOldScreenshots(messages, 5)
 
 			if flowPassed || flowFailed {
 				break
@@ -572,57 +574,5 @@ func buildScenarioPrompt(scenario ai.TestScenario) string {
 	return desc
 }
 
-// agentTruncate shortens a string to maxLen characters with ellipsis.
-func agentTruncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
-
-// pruneAgentTestScreenshots removes old screenshots from messages, keeping the most recent ones.
-// Uses the same approach as pruneOldScreenshots in pkg/ai/agent.go.
-func pruneAgentTestScreenshots(messages []ai.AgentMessage, keepRecent int) {
-	imageCount := 0
-	// Count backwards so we keep the most recent
-	for i := len(messages) - 1; i >= 0; i-- {
-		messages[i].Content = stripAgentImages(messages[i].Content, &imageCount, keepRecent)
-	}
-}
-
-// stripAgentImages recursively walks a content value and replaces image blocks beyond the
-// keepRecent threshold with a lightweight text placeholder.
-func stripAgentImages(v interface{}, count *int, keep int) interface{} {
-	switch c := v.(type) {
-	case []interface{}:
-		for i, item := range c {
-			c[i] = stripAgentImages(item, count, keep)
-		}
-		return c
-	case map[string]interface{}:
-		if c["type"] == "image" {
-			*count++
-			if *count > keep {
-				return map[string]interface{}{
-					"type": "text",
-					"text": "[Screenshot removed]",
-				}
-			}
-		}
-		if c["type"] == "tool_result" {
-			if content, ok := c["content"]; ok {
-				c["content"] = stripAgentImages(content, count, keep)
-			}
-		}
-		return c
-	case ai.ToolResultBlock:
-		if content, ok := c.Content.([]interface{}); ok {
-			c.Content = stripAgentImages(content, count, keep)
-		}
-		return c
-	case []ai.ResponseContentBlock:
-		// Assistant messages use this type — no images here
-		return c
-	}
-	return v
-}
+// agentTruncate is an alias for ai.Truncate (kept for local readability).
+var agentTruncate = ai.Truncate

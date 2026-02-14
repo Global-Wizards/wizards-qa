@@ -46,7 +46,7 @@ func NewBaseClient(apiKey, model string, temperature float64, maxTokens int, cal
 		Temperature: temperature,
 		MaxTokens:   maxTokens,
 		HTTPClient: &http.Client{
-			Timeout: 300 * time.Second,
+			Timeout: 180 * time.Second, // 3 min per API call; agent loop manages total budget
 		},
 		caller: caller,
 	}

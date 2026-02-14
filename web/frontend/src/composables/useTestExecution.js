@@ -2,6 +2,8 @@ import { ref, computed, onUnmounted } from 'vue'
 import { getWebSocket } from '@/lib/websocket'
 import { testsApi, authUrl } from '@/lib/api'
 import { MAX_LOGS } from '@/lib/constants'
+import { formatElapsed } from '@/lib/formatTime'
+import { useTimer } from '@/composables/useTimer'
 const MAX_STEP_SCREENSHOTS = 100
 
 export function useTestExecution() {
@@ -14,8 +16,6 @@ export function useTestExecution() {
   const planName = ref('')
   const planId = ref('')
   const testId = ref('')
-  const elapsedSeconds = ref(0)
-  const startedAt = ref(null)
 
   // Browser mode: per-step screenshots and command progress
   const stepScreenshots = ref([]) // { flowName, stepIndex, command, screenshotB64, result, status }
@@ -24,30 +24,9 @@ export function useTestExecution() {
   const mode = ref('')
   const totalCredits = ref(0)
 
+  const timer = useTimer()
+
   let cleanups = []
-  let timerInterval = null
-
-  function formatElapsed(s) {
-    const m = Math.floor(s / 60)
-    const sec = s % 60
-    return `${m}m ${sec.toString().padStart(2, '0')}s`
-  }
-
-  function startTimer(from) {
-    stopTimer()
-    startedAt.value = from || new Date()
-    elapsedSeconds.value = Math.floor((Date.now() - startedAt.value.getTime()) / 1000)
-    timerInterval = setInterval(() => {
-      elapsedSeconds.value = Math.floor((Date.now() - startedAt.value.getTime()) / 1000)
-    }, 1000)
-  }
-
-  function stopTimer() {
-    if (timerInterval) {
-      clearInterval(timerInterval)
-      timerInterval = null
-    }
-  }
 
   const phaseOrder = { starting: 0, preparing: 1, executing: 2, results: 3, complete: 4 }
 
@@ -193,7 +172,7 @@ export function useTestExecution() {
         status.value = 'completed'
         phase.value = 'complete'
         result.value = data
-        stopTimer()
+        timer.stop()
       }
     })
 
@@ -202,7 +181,7 @@ export function useTestExecution() {
         status.value = 'failed'
         phase.value = 'complete'
         result.value = data
-        stopTimer()
+        timer.stop()
       }
     })
 
@@ -281,7 +260,7 @@ export function useTestExecution() {
     mode.value = ''
     totalCredits.value = 0
 
-    startTimer()
+    timer.start()
     setupListeners(tid)
   }
 
@@ -355,9 +334,9 @@ export function useTestExecution() {
 
       // Restore timer from startedAt
       if (data.startedAt) {
-        startTimer(new Date(data.startedAt))
+        timer.start(new Date(data.startedAt))
       } else {
-        startTimer()
+        timer.start()
       }
 
       // Setup WS listeners for ongoing events
@@ -385,7 +364,7 @@ export function useTestExecution() {
 
   onUnmounted(() => {
     stopListening()
-    stopTimer()
+    timer.stop()
   })
 
   return {
@@ -398,7 +377,7 @@ export function useTestExecution() {
     planName,
     planId,
     testId,
-    elapsedSeconds,
+    elapsedSeconds: timer.elapsed,
     phases,
     stats,
     formatElapsed,

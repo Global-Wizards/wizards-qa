@@ -149,23 +149,14 @@ func (r *RodBrowserPage) Navigate(url string) error {
 	return nil
 }
 
-// ScoutURLHeadlessKeepAlive is like ScoutURLHeadless but returns a live page and cleanup function
-// instead of closing the browser. This is used for agent mode where the browser stays open.
-func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg HeadlessConfig) (*PageMeta, *RodBrowserPage, func(), error) {
-	timeout := cfg.Timeout
-	if timeout <= 0 {
-		timeout = 30 * time.Second
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	// Launch headless Chrome optimized for Phaser/WebGL game testing.
-	// - HeadlessNew: uses --headless=new (Chrome 112+) which shares the full browser
-	//   rendering pipeline, giving proper WebGL/canvas support unlike old --headless.
-	// - SwiftShader: CPU-based Vulkan/GLES backend for WebGL without a real GPU.
-	// - Autoplay: allow game audio without user gesture (Phaser Web Audio API).
-	// - Font hinting: disabled for consistent screenshot rendering across environments.
-	// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL.
+// newHeadlessLauncher creates a launcher.Launcher pre-configured for Phaser/WebGL game testing.
+// - HeadlessNew: uses --headless=new (Chrome 112+) which shares the full browser
+//   rendering pipeline, giving proper WebGL/canvas support unlike old --headless.
+// - SwiftShader: CPU-based Vulkan/GLES backend for WebGL without a real GPU.
+// - Autoplay: allow game audio without user gesture (Phaser Web Audio API).
+// - Font hinting: disabled for consistent screenshot rendering across environments.
+// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL.
+func newHeadlessLauncher() *launcher.Launcher {
 	l := launcher.New().
 		HeadlessNew(true).
 		NoSandbox(true).
@@ -179,6 +170,20 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	if bin := lookupChromeBin(); bin != "" {
 		l = l.Bin(bin)
 	}
+	return l
+}
+
+// ScoutURLHeadlessKeepAlive is like ScoutURLHeadless but returns a live page and cleanup function
+// instead of closing the browser. This is used for agent mode where the browser stays open.
+func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg HeadlessConfig) (*PageMeta, *RodBrowserPage, func(), error) {
+	timeout := cfg.Timeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	l := newHeadlessLauncher()
 
 	u, err := l.Launch()
 	if err != nil {
@@ -365,26 +370,7 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	// Launch headless Chrome optimized for Phaser/WebGL game testing.
-	// - HeadlessNew: uses --headless=new (Chrome 112+) which shares the full browser
-	//   rendering pipeline, giving proper WebGL/canvas support unlike old --headless.
-	// - SwiftShader: CPU-based Vulkan/GLES backend for WebGL without a real GPU.
-	// - Autoplay: allow game audio without user gesture (Phaser Web Audio API).
-	// - Font hinting: disabled for consistent screenshot rendering across environments.
-	// Do NOT use --disable-gpu or --disable-software-rasterizer — they break WebGL.
-	l := launcher.New().
-		HeadlessNew(true).
-		NoSandbox(true).
-		Set("disable-dev-shm-usage").
-		Set("use-gl", "angle").
-		Set("use-angle", "swiftshader").
-		Set("enable-unsafe-swiftshader").
-		Set("autoplay-policy", "no-user-gesture-required").
-		Set("font-render-hinting", "none")
-
-	if bin := lookupChromeBin(); bin != "" {
-		l = l.Bin(bin)
-	}
+	l := newHeadlessLauncher()
 
 	u, err := l.Launch()
 	if err != nil {

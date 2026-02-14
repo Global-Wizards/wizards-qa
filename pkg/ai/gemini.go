@@ -16,7 +16,7 @@ type GeminiClient struct {
 // NewGeminiClient creates a new Gemini API client
 func NewGeminiClient(apiKey, model string, temperature float64, maxTokens int) *GeminiClient {
 	if model == "" {
-		model = "gemini-pro"
+		model = "gemini-2.0-flash"
 	}
 
 	g := &GeminiClient{}

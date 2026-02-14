@@ -1,7 +1,8 @@
 import { ref, computed } from 'vue'
 import { projectsApi } from '@/lib/api'
+import { STORAGE_KEYS } from '@/lib/constants'
 
-const LAST_PROJECT_KEY = 'wizards-qa-last-project'
+const LAST_PROJECT_KEY = STORAGE_KEYS.lastProject
 
 const currentProject = ref(null)
 const loading = ref(false)

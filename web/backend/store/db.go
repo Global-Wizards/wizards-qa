@@ -197,10 +197,12 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agent_steps_analysis ON agent_steps(analysis_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_plans_analysis ON test_plans(analysis_id)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_steps_analysis_step ON agent_steps(analysis_id, step_number)`,
 		// Composite indexes for common ORDER BY queries
 		`CREATE INDEX IF NOT EXISTS idx_analyses_project_created ON analyses(project_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_results_project_created ON test_results(project_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_plans_project_created ON test_plans(project_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_test_results_timestamp ON test_results(timestamp)`,
 	}
 	for _, stmt := range indexes {
 		if _, err := db.Exec(stmt); err != nil {
@@ -215,9 +217,15 @@ func runMigrations(db *sql.DB) error {
 // Idempotent: only runs when unassigned records exist.
 func (s *Store) MigrateToProjects() {
 	var unassigned int
-	s.db.QueryRow(`SELECT COUNT(*) FROM analyses WHERE project_id = '' AND game_url != ''`).Scan(&unassigned)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM analyses WHERE project_id = '' AND game_url != ''`).Scan(&unassigned); err != nil {
+		log.Printf("MigrateToProjects: failed to count unassigned analyses: %v", err)
+		return
+	}
 	var unassignedPlans int
-	s.db.QueryRow(`SELECT COUNT(*) FROM test_plans WHERE project_id = '' AND game_url != ''`).Scan(&unassignedPlans)
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM test_plans WHERE project_id = '' AND game_url != ''`).Scan(&unassignedPlans); err != nil {
+		log.Printf("MigrateToProjects: failed to count unassigned test plans: %v", err)
+		return
+	}
 
 	if unassigned == 0 && unassignedPlans == 0 {
 		return
@@ -258,29 +266,49 @@ func (s *Store) MigrateToProjects() {
 
 		projectID := fmt.Sprintf("proj-%d-%d", time.Now().UnixNano(), created)
 
-		_, err := s.db.Exec(
+		// Wrap INSERT + UPDATEs in a transaction to prevent partial migration
+		tx, err := s.db.Begin()
+		if err != nil {
+			log.Printf("MigrateToProjects: failed to begin transaction for %s: %v", gameURL, err)
+			continue
+		}
+		defer tx.Rollback() // no-op after successful Commit
+
+		_, err = tx.Exec(
 			`INSERT INTO projects (id, name, game_url, description, color, icon, tags, settings, created_at, updated_at)
 			 VALUES (?, ?, ?, '', '#6366f1', 'gamepad-2', '[]', '{}', ?, ?)`,
 			projectID, name, gameURL, now, now,
 		)
 		if err != nil {
+			tx.Rollback()
 			log.Printf("MigrateToProjects: failed to create project for %s: %v", gameURL, err)
 			continue
 		}
 
 		// Assign analyses
-		if _, err := s.db.Exec(`UPDATE analyses SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
+		if _, err := tx.Exec(`UPDATE analyses SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
+			tx.Rollback()
 			log.Printf("MigrateToProjects: failed to assign analyses for %s: %v", gameURL, err)
+			continue
 		}
 		// Assign test plans
-		if _, err := s.db.Exec(`UPDATE test_plans SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
+		if _, err := tx.Exec(`UPDATE test_plans SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
+			tx.Rollback()
 			log.Printf("MigrateToProjects: failed to assign test plans for %s: %v", gameURL, err)
+			continue
 		}
 		// Assign test results via test plan's last_run_id
-		if _, err := s.db.Exec(`UPDATE test_results SET project_id = ? WHERE id IN (
+		if _, err := tx.Exec(`UPDATE test_results SET project_id = ? WHERE id IN (
 			SELECT last_run_id FROM test_plans WHERE project_id = ? AND last_run_id != ''
 		)`, projectID, projectID); err != nil {
+			tx.Rollback()
 			log.Printf("MigrateToProjects: failed to assign test results for project %s: %v", projectID, err)
+			continue
+		}
+
+		if err := tx.Commit(); err != nil {
+			log.Printf("MigrateToProjects: failed to commit transaction for %s: %v", gameURL, err)
+			continue
 		}
 
 		created++
@@ -295,7 +323,10 @@ func (s *Store) MigrateToProjects() {
 func (s *Store) MigrateFromJSON(dataDir string) {
 	// Only migrate if DB tables are empty
 	var count int
-	s.db.QueryRow("SELECT COUNT(*) FROM analyses").Scan(&count)
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM analyses").Scan(&count); err != nil {
+		log.Printf("MigrateFromJSON: failed to count analyses: %v", err)
+		return
+	}
 	if count > 0 {
 		return // DB already has data
 	}

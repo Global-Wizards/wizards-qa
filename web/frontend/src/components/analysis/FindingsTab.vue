@@ -250,7 +250,7 @@
 </template>
 
 <script setup>
-import { ref, computed, reactive, watch } from 'vue'
+import { ref, computed, reactive, watch, onUnmounted } from 'vue'
 import { findingTier } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -295,6 +295,7 @@ watch(searchQuery, (val) => {
   clearTimeout(searchTimeout)
   searchTimeout = setTimeout(() => { debouncedSearch.value = val }, 200)
 })
+onUnmounted(() => clearTimeout(searchTimeout))
 
 const counts = computed(() => {
   const c = { critical: 0, major: 0, minor: 0, suggestion: 0, positive: 0, informational: 0 }

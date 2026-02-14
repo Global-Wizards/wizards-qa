@@ -51,18 +51,22 @@ type ModelPricing struct {
 }
 
 // ModelPricingTable maps model IDs to their pricing.
+// Prices updated 2026-02-14 from official sources.
 var ModelPricingTable = map[string]ModelPricing{
-	// Claude Sonnet 4.5
+	// Claude Sonnet 4.5 — $3/$15, cache write 1.25x, cache read 0.1x
 	"claude-sonnet-4-5-20250929": {InputPerMTok: 3.0, OutputPerMTok: 15.0, CacheCreatePerMTok: 3.75, CacheReadPerMTok: 0.30},
-	// Claude Haiku 4.5
-	"claude-haiku-4-5-20251001": {InputPerMTok: 0.80, OutputPerMTok: 4.0, CacheCreatePerMTok: 1.0, CacheReadPerMTok: 0.08},
-	// Claude Opus 4.6
-	"claude-opus-4-6": {InputPerMTok: 15.0, OutputPerMTok: 75.0, CacheCreatePerMTok: 18.75, CacheReadPerMTok: 1.50},
-	// Gemini
-	"gemini-2.0-flash":                {InputPerMTok: 0.10, OutputPerMTok: 0.40},
-	"gemini-2.5-flash-preview-05-20":  {InputPerMTok: 0.15, OutputPerMTok: 0.60},
-	"gemini-3-flash-preview":          {InputPerMTok: 0.25, OutputPerMTok: 1.50},
-	"gemini-pro":                      {InputPerMTok: 0.50, OutputPerMTok: 1.50},
+	// Claude Haiku 4.5 — $1/$5, cache write 1.25x, cache read 0.1x
+	"claude-haiku-4-5-20251001": {InputPerMTok: 1.0, OutputPerMTok: 5.0, CacheCreatePerMTok: 1.25, CacheReadPerMTok: 0.10},
+	// Claude Opus 4.6 — $5/$25, cache write 1.25x, cache read 0.1x
+	"claude-opus-4-6": {InputPerMTok: 5.0, OutputPerMTok: 25.0, CacheCreatePerMTok: 6.25, CacheReadPerMTok: 0.50},
+	// Gemini 2.0 Flash — $0.10/$0.40, cache read $0.025
+	"gemini-2.0-flash": {InputPerMTok: 0.10, OutputPerMTok: 0.40, CacheReadPerMTok: 0.025},
+	// Gemini 2.5 Flash (GA) — $0.30/$2.50, cache read $0.03
+	"gemini-2.5-flash": {InputPerMTok: 0.30, OutputPerMTok: 2.50, CacheReadPerMTok: 0.03},
+	// Gemini 2.5 Pro — $1.25/$10.00 (<=200k), cache read $0.125
+	"gemini-2.5-pro": {InputPerMTok: 1.25, OutputPerMTok: 10.0, CacheReadPerMTok: 0.125},
+	// Gemini 3 Flash Preview — $0.50/$3.00, cache read $0.05
+	"gemini-3-flash-preview": {InputPerMTok: 0.50, OutputPerMTok: 3.00, CacheReadPerMTok: 0.05},
 }
 
 // AnalysisResult represents the result of analyzing a game
@@ -259,6 +263,39 @@ func DefaultAnalysisModules() AnalysisModules {
 	return AnalysisModules{UIUX: true, Wording: true, GameDesign: true, TestFlows: true}
 }
 
+// buildCompactSchema generates a compact JSON schema example for AI prompts,
+// including only the enabled module sections. This saves ~600-700 tokens per
+// call compared to the verbose format with full field descriptions.
+func buildCompactSchema(modules AnalysisModules) string {
+	var b strings.Builder
+	b.WriteString(`{
+  "gameInfo": { name, description, genre, technology, features: [string] },
+  "mechanics": [{ name, description, actions: [string], expected, priority: "high|medium|low" }],
+  "uiElements": [{ name, type: "button|canvas|input", selector, location: {x, y} }],
+  "userFlows": [{ name, description, steps: [string], expected, priority: "high|medium|low" }],
+  "edgeCases": [{ name, description, scenario, expected }],
+  "scenarios": [{ name, description, type: "happy-path|edge-case|failure", steps: [{ action: "launch|click|input|wait|assert", target, value, expected, coordinates: {x, y} }], priority: "high|medium|low", tags: [string] }]`)
+	if modules.UIUX {
+		b.WriteString(`,
+  "uiuxAnalysis": [{ category: "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation", description, severity: "critical|major|minor|suggestion|positive", location, suggestion }]`)
+	}
+	if modules.Wording {
+		b.WriteString(`,
+  "wordingCheck": [{ category: "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow", text, description, severity: "critical|major|minor|suggestion|positive", location, suggestion }]`)
+	}
+	if modules.GameDesign {
+		b.WriteString(`,
+  "gameDesign": [{ category: "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback", description, severity: "critical|major|minor|positive", impact, suggestion }]`)
+	}
+	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
+		b.WriteString(`,
+  "gliCompliance": [{ complianceCategory: "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation", description, status: "compliant|non_compliant|needs_review|not_applicable", jurisdictions: [string], gliReference, severity: "critical|major|minor|informational", suggestion }]`)
+	}
+	b.WriteString(`
+}`)
+	return b.String()
+}
+
 // BuildAnalysisPrompt constructs the comprehensive analysis prompt with only
 // the enabled module sections included. This reduces token usage when modules
 // are disabled.
@@ -328,122 +365,9 @@ SCENARIO GENERATION INSTRUCTIONS:
 10. Each scenario must have concrete, actionable steps with specific coordinates or selectors from the screenshots.
 11. Include at least one happy-path scenario that exercises the core game loop end-to-end.
 
-Respond with a single JSON object matching this exact format:
-{
-  "gameInfo": {
-    "name": "...",
-    "description": "...",
-    "genre": "...",
-    "technology": "...",
-    "features": ["..."]
-  },
-  "mechanics": [
-    {
-      "name": "...",
-      "description": "...",
-      "actions": ["click", "drag", etc.],
-      "expected": "...",
-      "priority": "high|medium|low"
-    }
-  ],
-  "uiElements": [
-    {
-      "name": "...",
-      "type": "button|canvas|input",
-      "selector": "text or percentage coordinate",
-      "location": {"x": "50%", "y": "80%"}
-    }
-  ],
-  "userFlows": [
-    {
-      "name": "...",
-      "description": "...",
-      "steps": ["step 1", "step 2"],
-      "expected": "...",
-      "priority": "high|medium|low"
-    }
-  ],
-  "edgeCases": [
-    {
-      "name": "...",
-      "description": "...",
-      "scenario": "...",
-      "expected": "..."
-    }
-  ],
-  "scenarios": [
-    {
-      "name": "...",
-      "description": "...",
-      "type": "happy-path|edge-case|failure",
-      "steps": [
-        {
-          "action": "launch|click|input|wait|assert",
-          "target": "description of target",
-          "value": "",
-          "expected": "what should happen",
-          "coordinates": {"x": "50%", "y": "80%"}
-        }
-      ],
-      "priority": "high|medium|low",
-      "tags": ["smoke", "regression"]
-    }
-  ]`)
-
-	if modules.UIUX {
-		b.WriteString(`,
-  "uiuxAnalysis": [
-    {
-      "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
-      "description": "...",
-      "severity": "critical|major|minor|suggestion|positive",
-      "location": "where in the UI",
-      "suggestion": "recommended fix"
-    }
-  ]`)
-	}
-	if modules.Wording {
-		b.WriteString(`,
-  "wordingCheck": [
-    {
-      "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
-      "text": "the problematic text",
-      "description": "what is wrong",
-      "severity": "critical|major|minor|suggestion|positive",
-      "location": "where this text appears",
-      "suggestion": "corrected text"
-    }
-  ]`)
-	}
-	if modules.GameDesign {
-		b.WriteString(`,
-  "gameDesign": [
-    {
-      "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
-      "description": "...",
-      "severity": "critical|major|minor|positive",
-      "impact": "how this affects player experience",
-      "suggestion": "recommended improvement"
-    }
-  ]`)
-	}
-	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
-		b.WriteString(`,
-  "gliCompliance": [
-    {
-      "complianceCategory": "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation",
-      "description": "...",
-      "status": "compliant|non_compliant|needs_review|not_applicable",
-      "jurisdictions": ["jurisdiction_id"],
-      "gliReference": "GLI-19 Section X.Y.Z",
-      "severity": "critical|major|minor|informational",
-      "suggestion": "recommended action"
-    }
-  ]`)
-	}
-
-	b.WriteString(`
-}`)
+Respond with a single JSON object matching this schema (all string fields are required unless noted):
+`)
+	b.WriteString(buildCompactSchema(modules))
 
 	return b.String()
 }
@@ -474,122 +398,10 @@ You interacted with the game and observed its behavior through screenshots. Now 
 	}
 
 	b.WriteString(`
-Respond with a single JSON object matching this exact format:
-{
-  "gameInfo": {
-    "name": "...",
-    "description": "...",
-    "genre": "...",
-    "technology": "...",
-    "features": ["..."]
-  },
-  "mechanics": [
-    {
-      "name": "...",
-      "description": "...",
-      "actions": ["click", "drag", etc.],
-      "expected": "...",
-      "priority": "high|medium|low"
-    }
-  ],
-  "uiElements": [
-    {
-      "name": "...",
-      "type": "button|canvas|input",
-      "selector": "text or percentage coordinate",
-      "location": {"x": "50%", "y": "80%"}
-    }
-  ],
-  "userFlows": [
-    {
-      "name": "...",
-      "description": "...",
-      "steps": ["step 1", "step 2"],
-      "expected": "...",
-      "priority": "high|medium|low"
-    }
-  ],
-  "edgeCases": [
-    {
-      "name": "...",
-      "description": "...",
-      "scenario": "...",
-      "expected": "..."
-    }
-  ],
-  "scenarios": [
-    {
-      "name": "...",
-      "description": "...",
-      "type": "happy-path|edge-case|failure",
-      "steps": [
-        {
-          "action": "launch|click|input|wait|assert",
-          "target": "description of target",
-          "value": "",
-          "expected": "what should happen",
-          "coordinates": {"x": "50%", "y": "80%"}
-        }
-      ],
-      "priority": "high|medium|low",
-      "tags": ["smoke", "regression"]
-    }
-  ]`)
-
-	if modules.UIUX {
-		b.WriteString(`,
-  "uiuxAnalysis": [
-    {
-      "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
-      "description": "...",
-      "severity": "critical|major|minor|suggestion|positive",
-      "location": "where in the UI",
-      "suggestion": "recommended fix"
-    }
-  ]`)
-	}
-	if modules.Wording {
-		b.WriteString(`,
-  "wordingCheck": [
-    {
-      "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
-      "text": "the problematic text",
-      "description": "what is wrong",
-      "severity": "critical|major|minor|suggestion|positive",
-      "location": "where this text appears",
-      "suggestion": "corrected text"
-    }
-  ]`)
-	}
-	if modules.GameDesign {
-		b.WriteString(`,
-  "gameDesign": [
-    {
-      "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
-      "description": "...",
-      "severity": "critical|major|minor|positive",
-      "impact": "how this affects player experience",
-      "suggestion": "recommended improvement"
-    }
-  ]`)
-	}
-	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
-		b.WriteString(`,
-  "gliCompliance": [
-    {
-      "complianceCategory": "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation",
-      "description": "...",
-      "status": "compliant|non_compliant|needs_review|not_applicable",
-      "jurisdictions": ["jurisdiction_id"],
-      "gliReference": "GLI-19 Section X.Y.Z",
-      "severity": "critical|major|minor|informational",
-      "suggestion": "recommended action"
-    }
-  ]`)
-	}
-
+Respond with a single JSON object matching this schema (all string fields are required unless noted):
+`)
+	b.WriteString(buildCompactSchema(modules))
 	b.WriteString(`
-}
 
 IMPORTANT: Base your analysis on what you actually observed during exploration. Include specific coordinates you discovered. Respond with valid JSON only.`)
 

@@ -43,6 +43,7 @@ func newScoutCmd() *cobra.Command {
 		adaptiveTimeout  bool
 		maxTotalTimeout  int // minutes
 		viewport         string
+		synthesisModel   string
 	)
 
 	cmd := &cobra.Command{
@@ -151,6 +152,11 @@ Example:
 
 			if err := validateAPIKey(cfg); err != nil {
 				return err
+			}
+
+			// Override synthesis model from CLI flag
+			if synthesisModel != "" {
+				cfg.AI.SynthesisModel = synthesisModel
 			}
 
 			analyzer, err := newAnalyzer(cfg, modelFlag, maxTokens, temperature)
@@ -463,6 +469,7 @@ Example:
 	cmd.Flags().StringVar(&resumeFrom, "resume-from", "", "Resume from checkpoint step (internal)")
 	cmd.Flags().StringVar(&resumeDataPath, "resume-data", "", "Path to checkpoint data file (internal)")
 	cmd.Flags().StringVar(&viewport, "viewport", "", "Device viewport preset (e.g. desktop-std, iphone-16-pro, samsung-s24)")
+	cmd.Flags().StringVar(&synthesisModel, "synthesis-model", "", "Secondary model for synthesis/flow generation (e.g. gemini-3-flash-preview)")
 
 	cmd.MarkFlagRequired("game")
 

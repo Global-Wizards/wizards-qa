@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/go-chi/chi/v5"
@@ -46,6 +47,7 @@ type AnalysisRequest struct {
 	AdaptiveTimeout bool            `json:"adaptiveTimeout,omitempty"`
 	MaxTotalTimeout int             `json:"maxTotalTimeout,omitempty"` // minutes
 	Viewport        string          `json:"viewport,omitempty"`       // viewport preset name
+	SynthesisModel  string          `json:"synthesisModel,omitempty"` // secondary model for synthesis/flow gen
 }
 
 type AnalysisProgress struct {
@@ -563,6 +565,7 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 		// Stream stderr for PROGRESS: lines, prefix messages with device label
 		var stderrLines []string
 		var lastKnownStep string
+		var statusWg sync.WaitGroup
 		stderrDone := make(chan struct{})
 		go func() {
 			defer close(stderrDone)
@@ -711,7 +714,9 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 							},
 						},
 					})
+					statusWg.Add(1)
 					go func(id, st string) {
+						defer statusWg.Done()
 						if err := s.store.UpdateAnalysisStatus(id, store.StatusRunning, st); err != nil {
 							log.Printf("Warning: failed to update analysis %s step to %s: %v", id, st, err)
 						}
@@ -740,6 +745,7 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 		}
 
 		<-stderrDone
+		statusWg.Wait()
 
 		cmdErr := cmd.Wait()
 
@@ -778,31 +784,15 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 		// Parse the JSON output
 		rawOutput := strings.TrimSpace(outputBuf.String())
 		var result map[string]interface{}
-		if err := json.Unmarshal([]byte(rawOutput), &result); err != nil {
-			start := strings.Index(rawOutput, "{")
-			end := strings.LastIndex(rawOutput, "}")
-			if start >= 0 && end > start {
-				rawOutput = rawOutput[start : end+1]
-				if err2 := json.Unmarshal([]byte(rawOutput), &result); err2 != nil {
-					os.RemoveAll(tmpDir)
-					deviceResults = append(deviceResults, deviceResult{
-						Device:   device.Category,
-						Viewport: device.Viewport,
-						Status:   "failed",
-						Error:    fmt.Sprintf("Failed to parse CLI output: %v", err2),
-					})
-					continue
-				}
-			} else {
-				os.RemoveAll(tmpDir)
-				deviceResults = append(deviceResults, deviceResult{
-					Device:   device.Category,
-					Viewport: device.Viewport,
-					Status:   "failed",
-					Error:    fmt.Sprintf("Failed to parse CLI output: %v", err),
-				})
-				continue
-			}
+		if err := parseJSONFallback(rawOutput, &result); err != nil {
+			os.RemoveAll(tmpDir)
+			deviceResults = append(deviceResults, deviceResult{
+				Device:   device.Category,
+				Viewport: device.Viewport,
+				Status:   "failed",
+				Error:    fmt.Sprintf("Failed to parse CLI output: %v", err),
+			})
+			continue
 		}
 
 		// Extract flows and prefix names with device category
@@ -1206,6 +1196,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	if req.Viewport != "" {
 		args = append(args, "--viewport", req.Viewport)
 	}
+	if req.SynthesisModel != "" {
+		args = append(args, "--synthesis-model", req.SynthesisModel)
+	}
 	if req.Modules.UIUX != nil && !*req.Modules.UIUX {
 		args = append(args, "--no-uiux")
 	}
@@ -1265,6 +1258,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	// Stream stderr for PROGRESS: lines and collect non-progress lines for error reporting
 	var stderrLines []string
 	var lastKnownStep string
+	var statusWg sync.WaitGroup
 	stderrDone := make(chan struct{})
 	go func() {
 		defer close(stderrDone)
@@ -1405,7 +1399,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 						Data:    map[string]string{"analysisId": analysisID},
 					},
 				})
+				statusWg.Add(1)
 				go func(id, st string) {
+					defer statusWg.Done()
 					if err := s.store.UpdateAnalysisStatus(id, store.StatusRunning, st); err != nil {
 						log.Printf("Warning: failed to update analysis %s step to %s: %v", id, st, err)
 					}
@@ -1439,6 +1435,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	}
 
 	<-stderrDone
+	statusWg.Wait()
 
 	err = cmd.Wait()
 	if err != nil {
@@ -1512,19 +1509,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	// Parse the JSON output
 	rawOutput := strings.TrimSpace(outputBuf.String())
 	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(rawOutput), &result); err != nil {
-		start := strings.Index(rawOutput, "{")
-		end := strings.LastIndex(rawOutput, "}")
-		if start >= 0 && end > start {
-			rawOutput = rawOutput[start : end+1]
-			if err2 := json.Unmarshal([]byte(rawOutput), &result); err2 != nil {
-				s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v (fallback: %v)", err, err2))
-				return
-			}
-		} else {
-			s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v", err))
-			return
-		}
+	if err := parseJSONFallback(rawOutput, &result); err != nil {
+		s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v", err))
+		return
 	}
 
 	// Save generated flows to disk for non-agent analyses (agent mode uses scenarios directly)
@@ -2178,6 +2165,7 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 	// Stream stderr for PROGRESS: lines
 	var stderrLines []string
 	var lastKnownStep string
+	var statusWg sync.WaitGroup
 	stderrDone := make(chan struct{})
 	go func() {
 		defer close(stderrDone)
@@ -2202,7 +2190,9 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 						Data:    map[string]string{"analysisId": analysisID},
 					},
 				})
+				statusWg.Add(1)
 				go func(id, st string) {
+					defer statusWg.Done()
 					if err := s.store.UpdateAnalysisStatus(id, store.StatusRunning, st); err != nil {
 						log.Printf("Warning: failed to update analysis %s step to %s: %v", id, st, err)
 					}
@@ -2232,6 +2222,7 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 	}
 
 	<-stderrDone
+	statusWg.Wait()
 
 	err = cmd.Wait()
 	if err != nil {
@@ -2296,19 +2287,9 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 	// Parse the JSON output
 	rawOutput := strings.TrimSpace(outputBuf.String())
 	var result map[string]interface{}
-	if err := json.Unmarshal([]byte(rawOutput), &result); err != nil {
-		start := strings.Index(rawOutput, "{")
-		end := strings.LastIndex(rawOutput, "}")
-		if start >= 0 && end > start {
-			rawOutput = rawOutput[start : end+1]
-			if err2 := json.Unmarshal([]byte(rawOutput), &result); err2 != nil {
-				s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v (fallback: %v)", err, err2))
-				return
-			}
-		} else {
-			s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v", err))
-			return
-		}
+	if err := parseJSONFallback(rawOutput, &result); err != nil {
+		s.broadcastAnalysisError(analysisID, fmt.Sprintf("Failed to parse CLI output: %v", err))
+		return
 	}
 
 	// Save generated flows to disk for non-agent analyses (agent mode uses scenarios directly)
@@ -2405,4 +2386,22 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 			"testPlanId": testPlanID,
 		},
 	})
+}
+
+// parseJSONFallback attempts json.Unmarshal on raw; if it fails, extracts the
+// outermost { … } substring and retries. Returns a descriptive error on failure.
+func parseJSONFallback(raw string, out *map[string]interface{}) error {
+	if err := json.Unmarshal([]byte(raw), out); err != nil {
+		start := strings.Index(raw, "{")
+		end := strings.LastIndex(raw, "}")
+		if start >= 0 && end > start {
+			trimmed := raw[start : end+1]
+			if err2 := json.Unmarshal([]byte(trimmed), out); err2 != nil {
+				return fmt.Errorf("parse failed: %v (fallback: %v)", err, err2)
+			}
+			return nil
+		}
+		return fmt.Errorf("parse failed: %v", err)
+	}
+	return nil
 }

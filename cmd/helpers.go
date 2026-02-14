@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/ai"
@@ -44,7 +45,36 @@ func newAnalyzer(cfg *config.Config, model string, maxTokens int, temperature fl
 	if temperature >= 0 {
 		t = temperature
 	}
-	return ai.NewAnalyzerFromConfig(cfg.AI.Provider, cfg.AI.APIKey, m, t, mt)
+	analyzer, err := ai.NewAnalyzerFromConfig(cfg.AI.Provider, cfg.AI.APIKey, m, t, mt)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set up secondary client for synthesis/flow generation if configured
+	if cfg.AI.SynthesisModel != "" {
+		synthProvider := cfg.AI.SynthesisProvider
+		if synthProvider == "" {
+			// Auto-detect provider from model name
+			if strings.HasPrefix(cfg.AI.SynthesisModel, "gemini") {
+				synthProvider = "google"
+			} else if strings.HasPrefix(cfg.AI.SynthesisModel, "claude") {
+				synthProvider = "anthropic"
+			} else {
+				synthProvider = cfg.AI.Provider
+			}
+		}
+		synthAPIKey := cfg.AI.SynthesisAPIKey
+		if synthAPIKey == "" {
+			synthAPIKey = cfg.AI.APIKey
+		}
+		secondaryClient, synthErr := ai.NewClientFromConfig(synthProvider, synthAPIKey, cfg.AI.SynthesisModel, t, mt)
+		if synthErr != nil {
+			return nil, fmt.Errorf("failed to create synthesis client: %w", synthErr)
+		}
+		analyzer.SetSecondaryClient(secondaryClient)
+	}
+
+	return analyzer, nil
 }
 
 // deriveGameName extracts a game name from a URL, falling back to "game".

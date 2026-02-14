@@ -899,9 +899,11 @@ const creditEstimate = computed(() => {
   }
   return estimateCredits({
     model: params.model || 'claude-sonnet-4-5-20250929',
+    synthesisModel: params.synthesisModel || undefined,
     steps: params.agentSteps || 20,
     maxSteps: params.maxTotalSteps || 0,
     moduleCount,
+    jurisdictionCount: moduleGli.value ? (gliJurisdictions.value?.length || 0) : 0,
     deviceCount,
     agentMode: useAgentMode.value,
   })
@@ -933,6 +935,9 @@ const profileParams = computed(() => {
     model: p.model,
     maxTokens: p.maxTokens,
     temperature: p.temperature,
+  }
+  if (p.synthesisModel) {
+    params.synthesisModel = p.synthesisModel
   }
   if (useAgentMode.value) {
     params.agentSteps = p.agentSteps
