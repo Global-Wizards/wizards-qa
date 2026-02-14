@@ -34,6 +34,7 @@ type FlowResult struct {
 	Name     string `json:"name"`
 	Status   string `json:"status"`
 	Duration string `json:"duration"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type TestResultSummary struct {
@@ -126,6 +127,7 @@ type TestPlanSummary struct {
 	LastRunID  string `json:"lastRunId,omitempty"`
 	ProjectID  string `json:"projectId,omitempty"`
 	AnalysisID string `json:"analysisId,omitempty"`
+	Mode       string `json:"mode,omitempty"`
 }
 
 type TestPlansFile struct {

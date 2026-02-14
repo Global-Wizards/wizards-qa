@@ -95,6 +95,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 		TestID:     testID,
 		PlanID:     planID,
 		PlanName:   planName,
+		Mode:       "browser",
 		StartedAt:  startTime,
 		TotalFlows: totalFlows,
 		Flows:      []store.FlowResult{},
@@ -1061,6 +1062,7 @@ func (s *Server) handleTestStepScreenshot(w http.ResponseWriter, r *http.Request
 	// Sanitize to prevent directory traversal
 	testID = filepath.Base(testID)
 	flowName = filepath.Base(flowName)
+	flowName = strings.ReplaceAll(flowName, " ", "_")
 	filename := fmt.Sprintf("flow-%s-step-%d.webp", flowName, stepIndex)
 	fullPath := filepath.Join(dataDir, "test-screenshots", testID, filename)
 

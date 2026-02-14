@@ -22,6 +22,7 @@ export function useTestExecution() {
   const stepScreenshots = ref([]) // { flowName, stepIndex, command, screenshotB64, result, status }
   const commandProgress = ref([]) // { flowName, stepIndex, command, status }
   const activeFlow = ref(null) // { flowName, commandCount }
+  const mode = ref('')
 
   let cleanups = []
   let timerInterval = null
@@ -146,6 +147,9 @@ export function useTestExecution() {
         if (data.name) {
           planName.value = data.name
         }
+        if (data.mode) {
+          mode.value = data.mode
+        }
       }
     })
 
@@ -268,6 +272,7 @@ export function useTestExecution() {
     stepScreenshots.value = []
     commandProgress.value = []
     activeFlow.value = null
+    mode.value = ''
 
     startTimer()
     setupListeners(tid)
@@ -280,6 +285,7 @@ export function useTestExecution() {
     logs.value = []
     progress.value = []
     result.value = null
+    mode.value = ''
 
     try {
       const data = await testsApi.live(tid)
@@ -394,5 +400,6 @@ export function useTestExecution() {
     stepScreenshots,
     commandProgress,
     activeFlow,
+    mode,
   }
 }

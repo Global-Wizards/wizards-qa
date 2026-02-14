@@ -915,7 +915,7 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 		},
 	})
 
-	testPlanID := s.autoCreateTestPlan(analysisID, gameURL, gameName, req.ProjectID, createdBy, totalFlowCount)
+	testPlanID := s.autoCreateTestPlan(analysisID, gameURL, gameName, req.ProjectID, createdBy, totalFlowCount, req.AgentMode)
 
 	if testPlanID != "" {
 		s.wsHub.Broadcast(ws.Message{
@@ -1583,6 +1583,12 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 			if viewport == "" {
 				viewport = "desktop-std"
 			}
+
+			defer func() {
+				if r := recover(); r != nil {
+					log.Printf("Panic in auto-test for analysis %s: %v", analysisID, r)
+				}
+			}()
 
 			if agentMode {
 				s.executeAgentTestRun(testPlanID, testRunID, plan.AnalysisID, plan.Name, createdBy, viewport)

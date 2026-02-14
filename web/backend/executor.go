@@ -24,6 +24,7 @@ type runningTest struct {
 	TestID     string             `json:"testId"`
 	PlanID     string             `json:"planId"`
 	PlanName   string             `json:"planName"`
+	Mode       string             `json:"mode"`
 	StartedAt  time.Time          `json:"startedAt"`
 	TotalFlows int                `json:"totalFlows"`
 	Flows      []store.FlowResult `json:"flows"`
@@ -52,6 +53,7 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 		TestID:     testID,
 		PlanID:     planID,
 		PlanName:   planName,
+		Mode:       "maestro",
 		StartedAt:  startTime,
 		TotalFlows: totalFlows,
 		Flows:      []store.FlowResult{},
@@ -69,6 +71,7 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 			"planId":     planID,
 			"name":       planName,
 			"totalFlows": totalFlows,
+			"mode":       "maestro",
 		},
 	})
 

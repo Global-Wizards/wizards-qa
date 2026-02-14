@@ -702,6 +702,9 @@ func (s *Server) handleRunTestPlan(w http.ResponseWriter, r *http.Request) {
 	}
 
 	mode := req.Mode
+	if mode == "" {
+		mode = plan.Mode
+	}
 	switch mode {
 	case "agent":
 		if plan.AnalysisID == "" {

@@ -17,7 +17,7 @@
           <Save class="h-4 w-4 mr-1" />
           {{ saving ? 'Saving...' : 'Save Changes' }}
         </Button>
-        <Button variant="outline" :disabled="saving || running" @click="runPlan('browser')">
+        <Button variant="outline" :disabled="saving || running" @click="runPlan(plan?.mode || 'browser')">
           <Play class="h-4 w-4 mr-1" />
           {{ running ? 'Starting...' : 'Run' }}
         </Button>
@@ -371,7 +371,7 @@ const activeTab = ref('details')
 const activeFlowTab = ref('')
 
 // Plan data
-const plan = ref({ name: '', description: '', gameUrl: '', status: '', createdAt: '', flowNames: [], variables: {} })
+const plan = ref({ name: '', description: '', gameUrl: '', status: '', createdAt: '', flowNames: [], variables: {}, mode: '' })
 const flows = ref([])
 const dirtyFlows = ref(new Set())
 
@@ -623,6 +623,7 @@ onMounted(async () => {
       createdAt: p.createdAt,
       flowNames: p.flowNames || [],
       variables: p.variables || {},
+      mode: p.mode || '',
     }
     flows.value = (data.flows || []).map(f => ({ name: f.name, content: f.content || '', error: f.error || '' }))
     variableEntries.value = mapToEntries(p.variables)

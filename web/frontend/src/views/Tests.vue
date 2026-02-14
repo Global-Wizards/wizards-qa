@@ -174,7 +174,7 @@
                         <Pencil class="h-3 w-3 mr-1" />
                         Edit
                       </Button>
-                      <Button size="sm" :disabled="plan.status === 'running'" @click.stop="runPlan(plan, 'browser')">
+                      <Button size="sm" :disabled="plan.status === 'running'" @click.stop="runPlan(plan, plan.mode || 'browser')">
                         <Play class="h-3 w-3 mr-1" />
                         Run
                       </Button>

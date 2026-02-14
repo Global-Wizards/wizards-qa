@@ -5,6 +5,35 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.35.3] - 2026-02-13
+
+### Fixed
+- **Critical: `plan.value?.mode` double-unwrap in EditTestPlan template** — Vue auto-unwraps refs in templates, so `plan.value?.mode` was always `undefined`. Fixed to `plan?.mode`.
+- **Critical: EditTestPlan never loads `mode` from backend** — Added `mode` to plan ref initialization and `onMounted` data load so agent plans are recognized.
+- **`runningTest` struct missing `mode` field** — Page refresh during a run now preserves the execution mode (`agent`/`browser`/`maestro`) for reconnection.
+- **`GetTestPlanByAnalysis` omits `mode` column** — Added `COALESCE(mode,'')` to SELECT and `&p.Mode` to Scan.
+- **`handleRunTestPlan` ignores `plan.Mode` fallback** — Empty `req.Mode` now falls back to the plan's stored mode before defaulting to maestro.
+- **`DeleteTestResult` orphans screenshot files** — Now removes `test-screenshots/{testID}/` directory on delete.
+- **Agent failure reasoning lost after run completes** — Added `Reason` field to `FlowResult` struct; agent executor now persists per-scenario pass/fail reasoning.
+- **Maestro executor missing `mode` in `test_started` broadcast** — Added `"mode": "maestro"` for consistency with agent/browser executors.
+
+## [0.35.2] - 2026-02-13
+
+### Fixed
+- **Critical: Screenshot 404 for agent-mode tests** — Screenshot handler now sanitizes spaces→underscores in flow names to match the filenames saved by the agent executor.
+- **`plan.mode` missing from test plan list responses** — Added `Mode` field to `TestPlanSummary` and `COALESCE(mode,'')` to both `ListTestPlans` and `ListTestPlansByProject` SQL queries so the frontend receives the correct execution mode.
+- **`UpdateTestPlan` dropped mode column** — The UPDATE statement now persists the `mode` field so editing a plan no longer silently resets it.
+- **Stale `mode` ref in `useTestExecution`** — `startExecution()` and `reconnect()` now reset `mode.value` to prevent a previous run's mode leaking into the next.
+- **Missing panic recovery in analysis auto-test path** — Added deferred recover around `executeAgentTestRun`/`executeBrowserTestRun` calls in the analysis goroutine.
+
+## [0.35.1] - 2026-02-13
+
+### Fixed
+- **Critical: `executeBatchAnalysis` compilation error** — Added missing `agentMode` argument to `autoCreateTestPlan` call in the batch analysis path, which prevented `web/backend` from compiling.
+- **Screenshot paths broken for scenario names with spaces** — URL-encode scenario names in screenshot API paths and replace spaces with underscores in on-disk filenames.
+- **Re-run button ignored execution mode** — `rerun()` in TestRunDetail now captures the mode from the `test_started` WebSocket message and passes it on re-run instead of defaulting to maestro.
+- **Tests.vue and EditTestPlan.vue hardcoded browser mode** — Run buttons now use the plan's stored mode (`agent` or `browser`) instead of always passing `'browser'`.
+
 ## [0.35.0] - 2026-02-13
 
 ### Added

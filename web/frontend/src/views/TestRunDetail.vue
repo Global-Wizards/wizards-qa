@@ -348,6 +348,7 @@ const {
   stepScreenshots,
   commandProgress,
   activeFlow,
+  mode: execMode,
 } = useTestExecution()
 
 // Phase maps (matching AnalysisProgressPanel)
@@ -446,7 +447,7 @@ function goBack() {
 async function rerun() {
   if (!planId.value) return
   try {
-    const data = await testPlansApi.run(planId.value)
+    const data = await testPlansApi.run(planId.value, { mode: execMode.value || 'browser' })
     if (projectId.value) {
       router.replace(`/projects/${projectId.value}/tests/run/${data.testId}`)
     } else {

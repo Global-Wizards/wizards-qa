@@ -508,6 +508,9 @@ func (s *Store) DeleteTestResult(id string) error {
 	if n, _ := result.RowsAffected(); n == 0 {
 		return fmt.Errorf("test result not found: %s", id)
 	}
+	// Clean up screenshot files on disk
+	screenshotDir := filepath.Join(s.dataDir, "test-screenshots", id)
+	os.RemoveAll(screenshotDir)
 	return nil
 }
 
@@ -536,8 +539,8 @@ func (s *Store) UpdateTestPlan(plan TestPlan) error {
 	flowNamesJSON := marshalToPtr(plan.FlowNames)
 	variablesJSON := marshalToPtr(plan.Variables)
 	result, err := s.db.Exec(
-		`UPDATE test_plans SET name = ?, description = ?, game_url = ?, flow_names = ?, variables = ? WHERE id = ?`,
-		plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.ID,
+		`UPDATE test_plans SET name = ?, description = ?, game_url = ?, flow_names = ?, variables = ?, mode = ? WHERE id = ?`,
+		plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Mode, plan.ID,
 	)
 	if err != nil {
 		return err
@@ -575,7 +578,7 @@ func (s *Store) SaveFlowContent(name, content string) error {
 
 func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,'') FROM test_plans ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,''), COALESCE(mode,'') FROM test_plans ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -586,7 +589,7 @@ func (s *Store) ListTestPlans(limit, offset int) ([]TestPlanSummary, error) {
 	for rows.Next() {
 		var p TestPlanSummary
 		var flowNamesJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID, &p.Mode); err != nil {
 			continue
 		}
 		if flowNamesJSON.Valid && flowNamesJSON.String != "" {
@@ -854,11 +857,11 @@ func (s *Store) ListTemplates() ([]TemplateInfo, error) {
 // GetTestPlanByAnalysis returns the test plan linked to the given analysis, or nil if none.
 func (s *Store) GetTestPlanByAnalysis(analysisID string) (*TestPlanSummary, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,'') FROM test_plans WHERE analysis_id = ? LIMIT 1`, analysisID,
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,''), COALESCE(mode,'') FROM test_plans WHERE analysis_id = ? LIMIT 1`, analysisID,
 	)
 	var p TestPlanSummary
 	var flowNamesJSON sql.NullString
-	err := row.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID)
+	err := row.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID, &p.Mode)
 	if err != nil {
 		return nil, nil // not found — not an error
 	}
@@ -1206,7 +1209,7 @@ func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error
 
 func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,'') FROM test_plans WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
+		`SELECT id, name, status, flow_names, created_at, last_run_id, COALESCE(project_id,''), COALESCE(analysis_id,''), COALESCE(mode,'') FROM test_plans WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
 	)
 	if err != nil {
 		return nil, err
@@ -1217,7 +1220,7 @@ func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, err
 	for rows.Next() {
 		var p TestPlanSummary
 		var flowNamesJSON sql.NullString
-		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID, &p.Mode); err != nil {
 			continue
 		}
 		if flowNamesJSON.Valid && flowNamesJSON.String != "" {

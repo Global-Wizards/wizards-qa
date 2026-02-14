@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/ai"
@@ -63,6 +65,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 		TestID:     testID,
 		PlanID:     planID,
 		PlanName:   planName,
+		Mode:       "agent",
 		StartedAt:  startTime,
 		TotalFlows: totalFlows,
 		Flows:      []store.FlowResult{},
@@ -298,11 +301,12 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 					if dataDir != "" {
 						dstDir := filepath.Join(dataDir, "test-screenshots", testID)
 						if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
-							fname := fmt.Sprintf("flow-%s-step-%d.webp", scenario.Name, stepIndex)
+							safeName := strings.ReplaceAll(scenario.Name, " ", "_")
+							fname := fmt.Sprintf("flow-%s-step-%d.webp", safeName, stepIndex)
 							dstPath := filepath.Join(dstDir, fname)
 							if imgData, decErr := base64.StdEncoding.DecodeString(screenshotB64); decErr == nil {
 								if writeErr := os.WriteFile(dstPath, imgData, 0644); writeErr == nil {
-									screenshotURL = fmt.Sprintf("/api/tests/%s/steps/%s/%d/screenshot", testID, scenario.Name, stepIndex)
+									screenshotURL = fmt.Sprintf("/api/tests/%s/steps/%s/%d/screenshot", testID, url.PathEscape(scenario.Name), stepIndex)
 								}
 							}
 						}
@@ -390,6 +394,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 			Name:     scenario.Name,
 			Status:   flowStatus,
 			Duration: formatDuration(flowDuration),
+			Reason:   failReason,
 		}
 		flowResults = append(flowResults, fr)
 
