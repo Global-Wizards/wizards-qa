@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.8] - 2026-02-14
+
+### Removed
+- **Dead code: `scripts/` directory** — Bootstrapping scripts (`auto-dev.sh`, `task-1.1-maestro-wrapper.sh`) that completed their purpose. `task-1.1` contained a stale `cat >` that would overwrite current `executor.go` if re-run; `auto-dev.sh` used `git add -A` and referenced task scripts that no longer exist.
+
 ## [0.40.7] - 2026-02-14
 
 ### Fixed
