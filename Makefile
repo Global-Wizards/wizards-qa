@@ -1,5 +1,6 @@
 VERSION := $(shell cat VERSION)
-LDFLAGS := -ldflags "-X main.version=$(VERSION)"
+CLI_LDFLAGS := -ldflags "-X main.version=$(VERSION)"
+BACKEND_LDFLAGS := -ldflags "-X main.Version=$(VERSION)"
 
 .PHONY: build build-cli build-backend test test-cli test-backend vet lint frontend clean
 
@@ -7,10 +8,10 @@ LDFLAGS := -ldflags "-X main.version=$(VERSION)"
 build: build-cli build-backend
 
 build-cli:
-	go build $(LDFLAGS) -o bin/wizards-qa ./cmd
+	go build $(CLI_LDFLAGS) -o bin/wizards-qa ./cmd
 
 build-backend:
-	cd web/backend && go build $(LDFLAGS) -o ../../bin/wizards-qa-server .
+	cd web/backend && go build $(BACKEND_LDFLAGS) -o ../../bin/wizards-qa-server .
 
 ## Run all tests
 test: test-cli test-backend

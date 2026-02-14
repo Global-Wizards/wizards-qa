@@ -1428,7 +1428,8 @@ async function handleAnalyze() {
       if (result.analysisId) {
         startBatch(result.analysisId, gameUrl.value, useAgentMode.value)
       }
-    } catch {
+    } catch (err) {
+      analysisError.value = err.message || 'Failed to start batch analysis'
       analyzing.value = false
     }
     return

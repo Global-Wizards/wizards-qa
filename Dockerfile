@@ -35,9 +35,8 @@ RUN apk add --no-cache ca-certificates chromium chromium-swiftshader nss freetyp
     openjdk17-jre-headless curl unzip bash \
     && addgroup -S appgroup && adduser -S appuser -G appgroup
 
-# Install Maestro CLI (pinned version) to /opt/maestro
+# Install Maestro CLI to /opt/maestro
 ENV MAESTRO_DIR=/opt/maestro
-ENV MAESTRO_VERSION=1.39.13
 RUN curl -fsSL "https://get.maestro.mobile.dev" | bash \
     && chmod -R a+rX /opt/maestro
 ENV PATH="/opt/maestro/bin:$PATH"

@@ -92,9 +92,6 @@ func (e *Executor) RunFlow(flowPath string) (*TestResult, error) {
 			result.Status = StatusPassed
 		}
 
-		// Parse output for details
-		e.parseOutput(result)
-
 		return result, nil
 
 	case <-time.After(e.Timeout):
@@ -216,10 +213,3 @@ func (e *Executor) ValidateFlow(flowPath string) error {
 	return nil
 }
 
-// parseOutput extracts details from Maestro output.
-// Status is determined by exit code (set before this is called), not by text matching.
-// Text matching "PASSED"/"FAILED"/"timeout" in output is unreliable because these
-// strings can appear in flow names, YAML content, or informational messages.
-func (e *Executor) parseOutput(result *TestResult) {
-	// TODO: Parse Maestro output format for step count details
-}

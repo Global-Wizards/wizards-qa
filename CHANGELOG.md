@@ -5,6 +5,20 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.7] - 2026-02-14
+
+### Fixed
+- **Bug: Makefile backend ldflags used wrong variable name** — Used `main.version` (lowercase) but backend declares `main.Version` (uppercase), so `make build-backend` always produced version "dev". Split into `CLI_LDFLAGS` and `BACKEND_LDFLAGS`.
+- **Bug: CI didn't embed version in backend build** — `go build .` in deploy workflow had no `-ldflags`; deployed backend always reported version "dev". Now passes `-X main.Version=...` from VERSION file.
+- **Silent error in batch analyze** — `Analyze.vue` catch block swallowed API errors without user feedback; now sets `analysisError` so the error message is displayed.
+
+### Improved
+- **CI: Go module caching** — Enabled `cache: true` on `actions/setup-go@v5` for faster CI builds.
+
+### Removed
+- **Dead code: `parseOutput` no-op** — Empty function in `pkg/maestro/executor.go` was called but did nothing (just a TODO comment). Removed call and function.
+- **Dead config: `MAESTRO_VERSION` env var** — Dockerfile set `MAESTRO_VERSION=1.39.13` but the install script ignored it. Removed the misleading variable.
+
 ## [0.40.6] - 2026-02-14
 
 ### Fixed
