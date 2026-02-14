@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
@@ -29,9 +30,38 @@ func validateAPIKey(cfg *config.Config) error {
 	return nil
 }
 
+// detectProviderAndKey auto-detects the AI provider and API key from a model name.
+// When the --model flag overrides the config model, the provider may need to change too
+// (e.g. config says "google" but --model is "claude-sonnet-4-5-20250929").
+func detectProviderAndKey(model, cfgProvider, cfgAPIKey string) (provider, apiKey string) {
+	provider = cfgProvider
+	apiKey = cfgAPIKey
+
+	switch {
+	case strings.HasPrefix(model, "claude"):
+		provider = "anthropic"
+		// Use ANTHROPIC_API_KEY from env if the config key is for a different provider
+		if envKey := os.Getenv("ANTHROPIC_API_KEY"); envKey != "" {
+			apiKey = envKey
+		}
+	case strings.HasPrefix(model, "gemini"):
+		provider = "google"
+		if envKey := os.Getenv("GEMINI_API_KEY"); envKey != "" {
+			apiKey = envKey
+		}
+	case strings.HasPrefix(model, "gpt") || strings.HasPrefix(model, "o1") || strings.HasPrefix(model, "o3"):
+		provider = "openai"
+		if envKey := os.Getenv("OPENAI_API_KEY"); envKey != "" {
+			apiKey = envKey
+		}
+	}
+	return provider, apiKey
+}
+
 // newAnalyzer creates an AI analyzer from the configuration, respecting the provider setting.
 // Optional overrides (model, maxTokens, temperature) take precedence over config values
 // when non-zero/non-empty. Use temperature < 0 to indicate "no override".
+// When --model overrides the model, provider and API key are auto-detected from the model name.
 func newAnalyzer(cfg *config.Config, model string, maxTokens int, temperature float64) (*ai.Analyzer, error) {
 	m := cfg.AI.Model
 	if model != "" {
@@ -45,27 +75,23 @@ func newAnalyzer(cfg *config.Config, model string, maxTokens int, temperature fl
 	if temperature >= 0 {
 		t = temperature
 	}
-	analyzer, err := ai.NewAnalyzerFromConfig(cfg.AI.Provider, cfg.AI.APIKey, m, t, mt)
+
+	// Auto-detect provider + API key from model name (handles --model overrides)
+	provider, apiKey := detectProviderAndKey(m, cfg.AI.Provider, cfg.AI.APIKey)
+
+	analyzer, err := ai.NewAnalyzerFromConfig(provider, apiKey, m, t, mt)
 	if err != nil {
 		return nil, err
 	}
 
 	// Set up secondary client for synthesis/flow generation if configured
 	if cfg.AI.SynthesisModel != "" {
-		synthProvider := cfg.AI.SynthesisProvider
-		if synthProvider == "" {
-			// Auto-detect provider from model name
-			if strings.HasPrefix(cfg.AI.SynthesisModel, "gemini") {
-				synthProvider = "google"
-			} else if strings.HasPrefix(cfg.AI.SynthesisModel, "claude") {
-				synthProvider = "anthropic"
-			} else {
-				synthProvider = cfg.AI.Provider
-			}
+		synthProvider, synthAPIKey := detectProviderAndKey(cfg.AI.SynthesisModel, cfg.AI.Provider, cfg.AI.APIKey)
+		if cfg.AI.SynthesisProvider != "" {
+			synthProvider = cfg.AI.SynthesisProvider
 		}
-		synthAPIKey := cfg.AI.SynthesisAPIKey
-		if synthAPIKey == "" {
-			synthAPIKey = cfg.AI.APIKey
+		if cfg.AI.SynthesisAPIKey != "" {
+			synthAPIKey = cfg.AI.SynthesisAPIKey
 		}
 		secondaryClient, synthErr := ai.NewClientFromConfig(synthProvider, synthAPIKey, cfg.AI.SynthesisModel, t, mt)
 		if synthErr != nil {

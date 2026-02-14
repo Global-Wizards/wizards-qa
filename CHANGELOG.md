@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.5] - 2026-02-14
+
+### Fixed
+- **Synthesis fails with API_KEY_INVALID when `--model` overrides provider** — When the frontend sends `--model claude-sonnet-4-5-20250929` but the config has `provider: google`, the CLI now auto-detects the correct provider and API key from the model name. Previously, synthesis would use the config's Gemini API key with a Claude model, causing `API_KEY_INVALID` errors from `googleapis.com`. The `detectProviderAndKey` function maps model prefixes (`claude-*`, `gemini-*`, `gpt-*`/`o1-*`/`o3-*`) to the correct provider and environment variable.
+
 ## [0.41.4] - 2026-02-14
 
 ### Fixed
