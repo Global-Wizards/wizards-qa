@@ -5,6 +5,24 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.2] - 2026-02-13
+
+### Added
+- **Credit estimation preview** — Analysis form now shows an estimated credit range (min–max) based on selected profile, model, modules, agent mode, and device count before starting an analysis. Includes USD equivalent. Added Opus 4.6 and Gemini 3 Flash Preview pricing to `ModelPricingTable`.
+
+## [0.38.1] - 2026-02-13
+
+### Fixed
+- **GetFlow/SaveFlowContent N+1 query** — Added `resolveFlowPath` helper that walks the flows directory with early exit on match, replacing the full `ListFlows()` call + linear scan in both `GetFlow` and `SaveFlowContent`.
+- **Untracked status goroutines in analyze.go** — Added `sync.WaitGroup` to all three analysis paths (batch, single, continued) so status-update goroutines complete before cleanup runs.
+- **BuildAnalysisPrompt/BuildSynthesisPrompt allocations** — Replaced string concatenation (`+=`) with `strings.Builder` to reduce GC pressure when building large prompts with multiple conditional sections.
+- **Missing agent_steps composite index** — Added `CREATE UNIQUE INDEX idx_agent_steps_analysis_step ON agent_steps(analysis_id, step_number)` for query performance and data integrity.
+- **Unchecked Scan errors in MigrateToProjects** — Added error handling for the `COUNT(*)` queries that gate the migration; previously failures silently skipped the migration.
+- **buildHistoryFromDB per-row parsing** — Replaced per-row `time.Parse(RFC3339)` with SQL `DATE()` + `GROUP BY` aggregation, reducing Go-side work from O(n) time parses to O(buckets) date parses.
+- **FindingsTab.vue debounce leak** — Added `onUnmounted` cleanup to clear the search debounce timeout.
+- **jurisdictions.js linear scans** — Pre-computed region and country lookup Maps at module load time, replacing per-call `filter()` on the 84-item array.
+- **Bare error returns in store.go** — Wrapped error returns with function-name context (`fmt.Errorf("FuncName: %w", err)`) in `SaveAnalysis`, `UpdateAnalysisStatus`, `UpdateAnalysisResult`, `ListAnalyses`, `DeleteAnalysis`, `SaveTestResult`, `ListTestResults`, `DeleteTestResult`.
+
 ## [0.38.0] - 2026-02-13
 
 ### Added

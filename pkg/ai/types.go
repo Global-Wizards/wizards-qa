@@ -56,9 +56,12 @@ var ModelPricingTable = map[string]ModelPricing{
 	"claude-sonnet-4-5-20250929": {InputPerMTok: 3.0, OutputPerMTok: 15.0, CacheCreatePerMTok: 3.75, CacheReadPerMTok: 0.30},
 	// Claude Haiku 4.5
 	"claude-haiku-4-5-20251001": {InputPerMTok: 0.80, OutputPerMTok: 4.0, CacheCreatePerMTok: 1.0, CacheReadPerMTok: 0.08},
+	// Claude Opus 4.6
+	"claude-opus-4-6": {InputPerMTok: 15.0, OutputPerMTok: 75.0, CacheCreatePerMTok: 18.75, CacheReadPerMTok: 1.50},
 	// Gemini
 	"gemini-2.0-flash":                {InputPerMTok: 0.10, OutputPerMTok: 0.40},
 	"gemini-2.5-flash-preview-05-20":  {InputPerMTok: 0.15, OutputPerMTok: 0.60},
+	"gemini-3-flash-preview":          {InputPerMTok: 0.25, OutputPerMTok: 1.50},
 	"gemini-pro":                      {InputPerMTok: 0.50, OutputPerMTok: 1.50},
 }
 
@@ -260,7 +263,8 @@ func DefaultAnalysisModules() AnalysisModules {
 // the enabled module sections included. This reduces token usage when modules
 // are disabled.
 func BuildAnalysisPrompt(modules AnalysisModules) string {
-	tmpl := `Analyze this web-based game for automated QA testing. You are provided with screenshots of the game in different states and page metadata.
+	var b strings.Builder
+	b.WriteString(`Analyze this web-based game for automated QA testing. You are provided with screenshots of the game in different states and page metadata.
 
 Game URL: {{url}}
 URL Hints: {{urlHints}}
@@ -276,27 +280,27 @@ ANALYSIS INSTRUCTIONS:
 3. For canvas-based games (Phaser, PIXI, etc.): game interactions are coordinate-based taps on the canvas. HTML overlays use text selectors.
 4. Describe ONLY mechanics, UI elements, and flows that are evidenced by the screenshots or metadata. Do not guess.
 5. For UI elements, provide percentage-based coordinates from the screenshots (e.g., "50%,80%").
-`
+`)
 	if modules.UIUX {
-		tmpl += `
+		b.WriteString(`
 UI/UX ANALYSIS:
 6. Evaluate visual design — alignments, layout consistency, color palette harmony, spacing, typography, visual hierarchy, accessibility (contrast ratios), animation quality. Report issues and strengths. Include 'positive' severity for things done well (good alignment, strong visual hierarchy, etc.).
-`
+`)
 	}
 	if modules.Wording {
-		tmpl += `
+		b.WriteString(`
 WORDING/TRANSLATION CHECK:
 7. Examine all visible text for grammar, spelling, inconsistent terminology, tone, truncated text, placeholder text (e.g., "Lorem ipsum"), translation completeness, text overflow. Include 'positive' severity for well-written text, and 'suggestion' for non-bug improvements.
-`
+`)
 	}
 	if modules.GameDesign {
-		tmpl += `
+		b.WriteString(`
 GAME DESIGN ANALYSIS:
 8. Analyze game design — reward systems, balance, progression, player engagement, difficulty curve, monetization fairness, tutorial/onboarding quality, feedback systems.
-`
+`)
 	}
 	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
-		tmpl += fmt.Sprintf(`
+		fmt.Fprintf(&b, `
 GLI COMPLIANCE ANALYSIS:
 Evaluate what is visible in the UI/screenshots against GLI (Gaming Laboratories International) compliance requirements for these jurisdictions: %s
 
@@ -318,7 +322,7 @@ For each finding, specify which jurisdictions it applies to, the relevant GLI st
 `, strings.Join(modules.GLIJurisdictions, ", "))
 	}
 
-	tmpl += `
+	b.WriteString(`
 SCENARIO GENERATION INSTRUCTIONS:
 9. Generate 3-6 test scenarios covering: happy path (main user flow), edge cases (boundary conditions), and failure scenarios (timeouts, disconnects).
 10. Each scenario must have concrete, actionable steps with specific coordinates or selectors from the screenshots.
@@ -384,10 +388,10 @@ Respond with a single JSON object matching this exact format:
       "priority": "high|medium|low",
       "tags": ["smoke", "regression"]
     }
-  ]`
+  ]`)
 
 	if modules.UIUX {
-		tmpl += `,
+		b.WriteString(`,
   "uiuxAnalysis": [
     {
       "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
@@ -396,10 +400,10 @@ Respond with a single JSON object matching this exact format:
       "location": "where in the UI",
       "suggestion": "recommended fix"
     }
-  ]`
+  ]`)
 	}
 	if modules.Wording {
-		tmpl += `,
+		b.WriteString(`,
   "wordingCheck": [
     {
       "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
@@ -409,10 +413,10 @@ Respond with a single JSON object matching this exact format:
       "location": "where this text appears",
       "suggestion": "corrected text"
     }
-  ]`
+  ]`)
 	}
 	if modules.GameDesign {
-		tmpl += `,
+		b.WriteString(`,
   "gameDesign": [
     {
       "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
@@ -421,10 +425,10 @@ Respond with a single JSON object matching this exact format:
       "impact": "how this affects player experience",
       "suggestion": "recommended improvement"
     }
-  ]`
+  ]`)
 	}
 	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
-		tmpl += `,
+		b.WriteString(`,
   "gliCompliance": [
     {
       "complianceCategory": "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation",
@@ -435,40 +439,41 @@ Respond with a single JSON object matching this exact format:
       "severity": "critical|major|minor|informational",
       "suggestion": "recommended action"
     }
-  ]`
+  ]`)
 	}
 
-	tmpl += `
-}`
+	b.WriteString(`
+}`)
 
-	return tmpl
+	return b.String()
 }
 
 // BuildSynthesisPrompt constructs the agent synthesis prompt with only
 // the enabled module sections included.
 func BuildSynthesisPrompt(modules AnalysisModules) string {
-	prompt := `Based on your exploration of this game, provide a comprehensive QA analysis as a single JSON object.
+	var b strings.Builder
+	b.WriteString(`Based on your exploration of this game, provide a comprehensive QA analysis as a single JSON object.
 
 You interacted with the game and observed its behavior through screenshots. Now produce a structured analysis based on ONLY what you actually observed during exploration.
-`
+`)
 
 	if modules.UIUX || modules.Wording || modules.GameDesign || (modules.GLI && len(modules.GLIJurisdictions) > 0) {
-		prompt += "\nIn addition to functional QA, also analyze:\n"
+		b.WriteString("\nIn addition to functional QA, also analyze:\n")
 		if modules.UIUX {
-			prompt += "- UI/UX quality: alignments, spacing, color harmony, typography, visual hierarchy, accessibility, animations\n"
+			b.WriteString("- UI/UX quality: alignments, spacing, color harmony, typography, visual hierarchy, accessibility, animations\n")
 		}
 		if modules.Wording {
-			prompt += "- Wording/translation: grammar, spelling, consistency, tone, truncation, placeholder text, text overflow\n"
+			b.WriteString("- Wording/translation: grammar, spelling, consistency, tone, truncation, placeholder text, text overflow\n")
 		}
 		if modules.GameDesign {
-			prompt += "- Game design: rewards, balance, progression, engagement, difficulty, monetization, tutorial, feedback\n"
+			b.WriteString("- Game design: rewards, balance, progression, engagement, difficulty, monetization, tutorial, feedback\n")
 		}
 		if modules.GLI && len(modules.GLIJurisdictions) > 0 {
-			prompt += fmt.Sprintf("- GLI compliance: Evaluate visible UI against gaming regulation standards for jurisdictions: %s. Check categories: rng_fairness, rtp_accuracy, game_rules, responsible_gaming, age_verification, data_protection, aml, advertising, bonus_fairness, technical_security, ui_compliance, geolocation\n", strings.Join(modules.GLIJurisdictions, ", "))
+			fmt.Fprintf(&b, "- GLI compliance: Evaluate visible UI against gaming regulation standards for jurisdictions: %s. Check categories: rng_fairness, rtp_accuracy, game_rules, responsible_gaming, age_verification, data_protection, aml, advertising, bonus_fairness, technical_security, ui_compliance, geolocation\n", strings.Join(modules.GLIJurisdictions, ", "))
 		}
 	}
 
-	prompt += `
+	b.WriteString(`
 Respond with a single JSON object matching this exact format:
 {
   "gameInfo": {
@@ -529,10 +534,10 @@ Respond with a single JSON object matching this exact format:
       "priority": "high|medium|low",
       "tags": ["smoke", "regression"]
     }
-  ]`
+  ]`)
 
 	if modules.UIUX {
-		prompt += `,
+		b.WriteString(`,
   "uiuxAnalysis": [
     {
       "category": "alignment|spacing|color|typography|responsive|hierarchy|accessibility|animation",
@@ -541,10 +546,10 @@ Respond with a single JSON object matching this exact format:
       "location": "where in the UI",
       "suggestion": "recommended fix"
     }
-  ]`
+  ]`)
 	}
 	if modules.Wording {
-		prompt += `,
+		b.WriteString(`,
   "wordingCheck": [
     {
       "category": "grammar|spelling|consistency|tone|truncation|placeholder|translation|overflow",
@@ -554,10 +559,10 @@ Respond with a single JSON object matching this exact format:
       "location": "where this text appears",
       "suggestion": "corrected text"
     }
-  ]`
+  ]`)
 	}
 	if modules.GameDesign {
-		prompt += `,
+		b.WriteString(`,
   "gameDesign": [
     {
       "category": "rewards|balance|progression|psychology|difficulty|monetization|tutorial|feedback",
@@ -566,10 +571,10 @@ Respond with a single JSON object matching this exact format:
       "impact": "how this affects player experience",
       "suggestion": "recommended improvement"
     }
-  ]`
+  ]`)
 	}
 	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
-		prompt += `,
+		b.WriteString(`,
   "gliCompliance": [
     {
       "complianceCategory": "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation",
@@ -580,15 +585,15 @@ Respond with a single JSON object matching this exact format:
       "severity": "critical|major|minor|informational",
       "suggestion": "recommended action"
     }
-  ]`
+  ]`)
 	}
 
-	prompt += `
+	b.WriteString(`
 }
 
-IMPORTANT: Base your analysis on what you actually observed during exploration. Include specific coordinates you discovered. Respond with valid JSON only.`
+IMPORTANT: Base your analysis on what you actually observed during exploration. Include specific coordinates you discovered. Respond with valid JSON only.`)
 
-	return prompt
+	return b.String()
 }
 
 // AgentStep records a single step in the agent exploration loop.

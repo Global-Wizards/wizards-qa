@@ -206,6 +206,23 @@
             </span>
           </p>
 
+          <div class="ml-7 mt-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Coins class="h-3.5 w-3.5 text-amber-500 shrink-0" />
+            <span>
+              Estimated:
+              <span class="font-mono font-medium text-amber-500">
+                {{ creditEstimate.low === creditEstimate.high
+                  ? `~${creditEstimate.low}`
+                  : `${creditEstimate.low}–${creditEstimate.high}` }}
+              </span>
+              credits
+              <span class="text-muted-foreground/60">
+                (${{ (creditEstimate.low / 100).toFixed(2) }}{{ creditEstimate.low !== creditEstimate.high
+                  ? `–$${(creditEstimate.high / 100).toFixed(2)}` : '' }})
+              </span>
+            </span>
+          </div>
+
           <!-- Custom fields -->
           <div v-if="showCustomFields" class="ml-7 grid gap-3 sm:grid-cols-2">
             <div class="space-y-1">
@@ -708,7 +725,8 @@ import { analysesApi, analyzeApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@vueuse/core'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor, FlaskConical, Scale } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor, FlaskConical, Scale, Coins } from 'lucide-vue-next'
+import { estimateCredits } from '@/lib/creditEstimate'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -864,6 +882,29 @@ function viewportCategoriesForDevice(deviceCategory) {
 const activeProfile = computed(() => {
   if (selectedProfile.value === 'custom') return null
   return getProfileByName(selectedProfile.value)
+})
+
+const creditEstimate = computed(() => {
+  const params = profileParams.value
+  let moduleCount = 0
+  if (moduleUiux.value) moduleCount++
+  if (moduleWording.value) moduleCount++
+  if (moduleGameDesign.value) moduleCount++
+  if (moduleTestFlows.value) moduleCount++
+  if (moduleGli.value) moduleCount++
+  if (moduleRunTests.value) moduleCount++
+  let deviceCount = 1
+  if (multiDeviceMode.value) {
+    deviceCount = Object.values(multiDevices.value).filter(d => d.enabled).length || 1
+  }
+  return estimateCredits({
+    model: params.model || 'claude-sonnet-4-5-20250929',
+    steps: params.agentSteps || 20,
+    maxSteps: params.maxTotalSteps || 0,
+    moduleCount,
+    deviceCount,
+    agentMode: useAgentMode.value,
+  })
 })
 
 const profileParams = computed(() => {
