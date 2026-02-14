@@ -355,6 +355,39 @@ func buildPageMetaJSON(pageMeta *scout.PageMeta) []byte {
 	return data
 }
 
+// buildAgentPageMetaJSON creates a leaner JSON representation of PageMeta
+// for the agent exploration prompt, omitting fields the agent doesn't need
+// (MetaTags, BodySnippet, Links) and capping ScriptSrcs at 8 entries.
+func buildAgentPageMetaJSON(pageMeta *scout.PageMeta) []byte {
+	type pageMetaForAgent struct {
+		Title         string   `json:"title"`
+		Description   string   `json:"description"`
+		Framework     string   `json:"framework"`
+		CanvasFound   bool     `json:"canvasFound"`
+		ClickStrategy string   `json:"clickStrategy,omitempty"`
+		ScriptSrcs    []string `json:"scriptSrcs"`
+		JSGlobals     []string `json:"jsGlobals,omitempty"`
+	}
+	scripts := pageMeta.ScriptSrcs
+	if len(scripts) > 8 {
+		scripts = scripts[:8]
+	}
+	promptMeta := pageMetaForAgent{
+		Title:         pageMeta.Title,
+		Description:   pageMeta.Description,
+		Framework:     pageMeta.Framework,
+		CanvasFound:   pageMeta.CanvasFound,
+		ClickStrategy: pageMeta.ClickStrategy,
+		ScriptSrcs:    scripts,
+		JSGlobals:     pageMeta.JSGlobals,
+	}
+	data, err := json.MarshalIndent(promptMeta, "", "  ")
+	if err != nil {
+		return []byte("{}")
+	}
+	return data
+}
+
 // AnalyzeFromURLWithMetaProgress is the main analysis pipeline.
 //
 // Pipeline (2 AI calls max):

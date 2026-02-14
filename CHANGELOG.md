@@ -5,6 +5,23 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.2] - 2026-02-14
+
+### Fixed
+- **Screenshot timeout on canvas games (SwiftShader)** — Removed offscreen canvas `drawImage` downscaling from the fast path and `Clip.Scale` from the CDP fallback. Both triggered expensive GPU readback cycles on SwiftShader, causing 37-45s per click due to the 20s screenshot timeout + retry. Now uses `toDataURL` directly at quality 0.15.
+- **Synthesis truncated JSON parse failure with Gemini Flash** — JSON repair now triggers on any parse failure, not just when `stopReason == "max_tokens"`. The `Generate()` path (used by Gemini) hardcodes `stopReason = "end_turn"`, so truncated responses were never repaired, causing CLI exit code 1.
+
+## [0.42.1] - 2026-02-14
+
+### Improved
+- **Agent exploration API payload reduction** — Screenshots sent to the AI are now significantly smaller:
+  - Canvas screenshots downscaled to max 1024px width via offscreen canvas (60-70% smaller for 1920px viewports).
+  - CDP fallback screenshots downscaled via `Clip.Scale` for viewports wider than 1024px.
+  - JPEG quality lowered from 0.20 to 0.15 (canvas fast path) and 20 to 15 (CDP fallback) — visually indistinguishable for UI element detection.
+  - Only 1 recent screenshot kept in conversation context instead of 2 (`keepRecent` 2→1) — tools execute sequentially so only the latest screenshot reflects current state.
+- **Leaner agent initial prompt** — Agent exploration now uses a trimmed page metadata payload (`buildAgentPageMetaJSON`) that omits `MetaTags`, `BodySnippet`, and `Links`, and caps `ScriptSrcs` at 8 entries. Saves 500-2000 tokens per API call.
+- **Combined impact** — ~60-70% smaller screenshots, ~5-10MB less cumulative API payload over a 20-step exploration, 20-40% faster API calls.
+
 ## [0.42.0] - 2026-02-14
 
 ### Added

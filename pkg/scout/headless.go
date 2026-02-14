@@ -21,13 +21,14 @@ type RodBrowserPage struct {
 	consoleLogs    []string
 	mu             sync.Mutex
 	viewportWidth  int    // stored for strategy re-detection
+	viewportHeight int    // stored for CDP screenshot downscale
 	deviceCategory string // stored for strategy re-detection
 }
 
 // NewRodBrowserPage creates a new RodBrowserPage wrapping the given rod page.
 // Defaults to desktop viewport width (1920) for click strategy selection.
 func NewRodBrowserPage(page *rod.Page) *RodBrowserPage {
-	return &RodBrowserPage{page: page, viewportWidth: 1920}
+	return &RodBrowserPage{page: page, viewportWidth: 1920, viewportHeight: 1080}
 }
 
 // CaptureScreenshot takes a JPEG screenshot and returns it as base64.
@@ -37,10 +38,11 @@ func NewRodBrowserPage(page *rod.Page) *RodBrowserPage {
 // if the fast path fails (e.g. no canvas, tainted canvas, HTML overlays).
 func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	// Fast path: extract directly from the game canvas (avoids compositor overhead)
+	// Uses toDataURL at low quality directly — no offscreen canvas copy, which stalls on SwiftShader.
 	result, err := r.page.Eval(`() => {
 		const c = document.querySelector('canvas');
 		if (c && c.width > 0 && c.height > 0) {
-			try { return c.toDataURL('image/jpeg', 0.2); } catch(e) {}
+			try { return c.toDataURL('image/jpeg', 0.15); } catch(e) {}
 		}
 		return '';
 	}`)
@@ -55,7 +57,7 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	}
 
 	// Fallback: CDP screenshot (handles HTML overlays, no-canvas pages, tainted canvases)
-	quality := 20
+	quality := 15
 	data, err := r.page.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format:           proto.PageCaptureScreenshotFormatJpeg,
 		Quality:          &quality,
@@ -314,6 +316,7 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	browserPage := &RodBrowserPage{
 		page:           page,
 		viewportWidth:  width,
+		viewportHeight: height,
 		deviceCategory: cfg.DeviceCategory,
 	}
 
@@ -451,7 +454,7 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	meta.ClickStrategy = browserPage.clickStrategy.Name()
 
 	// Take initial screenshot (JPEG for speed on SwiftShader)
-	quality := 20
+	quality := 15
 	data, ssErr := page.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format:           proto.PageCaptureScreenshotFormatJpeg,
 		Quality:          &quality,

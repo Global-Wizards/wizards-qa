@@ -66,7 +66,7 @@ func (a *Analyzer) AgentExplore(
 	}
 
 	// Build initial user message with page metadata + screenshot
-	pageMetaJSON := buildPageMetaJSON(pageMeta)
+	pageMetaJSON := buildAgentPageMetaJSON(pageMeta)
 
 	// Check for expired JWT tokens in the URL
 	var tokenSection string
@@ -473,7 +473,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		// Prune old screenshots from conversation to prevent unbounded context growth.
 		// Each base64 screenshot is ~100-200KB; without pruning, API calls escalate from
 		// ~10s to 70s+ as screenshots accumulate, consuming the entire timeout budget.
-		PruneOldScreenshots(messages, 2)
+		PruneOldScreenshots(messages, 1)
 	}
 
 	progress("agent_done", fmt.Sprintf("Agent exploration complete: %d steps, %d screenshots", len(steps), len(allScreenshots)))
@@ -567,8 +567,8 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 	// Parse as ComprehensiveAnalysisResult
 	parsed, parseErr := parseComprehensiveJSON(synthesisText)
-	if parseErr != nil && stopReason == "max_tokens" {
-		// JSON was truncated — try to repair by closing open brackets
+	if parseErr != nil {
+		// JSON may be truncated (Generate() doesn't expose stop_reason) — try to repair
 		repaired, repairErr := repairTruncatedJSON(synthesisText)
 		if repairErr == nil {
 			parsed, parseErr = parseComprehensiveJSON(repaired)
