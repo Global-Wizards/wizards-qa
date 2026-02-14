@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.0] - 2026-02-14
+
+### Added
+- **Public shareable report links** — Share button in analysis detail generates a unique public link. Anyone with the link can view the full analysis report (all tabs: overview, functional QA, UI/UX, wording, game design, GLI, test flows, exploration steps) without logging in. Idempotent: clicking Share again returns the same link. Shared links are automatically cleaned up when the analysis is deleted (CASCADE).
+
 ## [0.40.9] - 2026-02-14
 
 ### Fixed

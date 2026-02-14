@@ -1454,3 +1454,57 @@ func (s *Store) UpdateTestResultCredits(id string, credits int) error {
 	}
 	return nil
 }
+
+// --- Share Tokens ---
+
+// CreateShareToken inserts a new share token for an analysis.
+func (s *Store) CreateShareToken(token, analysisID, userID string) error {
+	now := time.Now().Format(time.RFC3339)
+	var createdBy *string
+	if userID != "" {
+		createdBy = &userID
+	}
+	_, err := s.db.Exec(
+		`INSERT INTO share_tokens (token, analysis_id, created_by, created_at) VALUES (?, ?, ?, ?)`,
+		token, analysisID, createdBy, now,
+	)
+	return err
+}
+
+// GetShareToken returns the existing share token for an analysis, or "" if none.
+func (s *Store) GetShareToken(analysisID string) (string, error) {
+	var token string
+	err := s.db.QueryRow(`SELECT token FROM share_tokens WHERE analysis_id = ? LIMIT 1`, analysisID).Scan(&token)
+	if err != nil {
+		return "", nil // no token found
+	}
+	return token, nil
+}
+
+// GetAnalysisByShareToken looks up an analysis via a share token.
+func (s *Store) GetAnalysisByShareToken(token string) (*AnalysisRecord, error) {
+	row := s.db.QueryRow(
+		`SELECT a.id, a.game_url, a.status, a.step, a.framework, a.game_name, a.flow_count, a.result,
+		        COALESCE(a.created_by,''), COALESCE(a.project_id,''), a.created_at, a.updated_at,
+		        COALESCE(a.error_message,''), COALESCE(a.modules,''), COALESCE(a.partial_result,''),
+		        COALESCE(a.agent_mode,0), COALESCE(a.profile,''), COALESCE(a.last_test_run_id,''),
+		        COALESCE(a.total_credits,0), COALESCE(a.input_tokens,0), COALESCE(a.output_tokens,0),
+		        COALESCE(a.api_call_count,0), COALESCE(a.ai_model,'')
+		 FROM analyses a
+		 JOIN share_tokens st ON st.analysis_id = a.id
+		 WHERE st.token = ?`, token,
+	)
+	var a AnalysisRecord
+	var resultJSON sql.NullString
+	var agentModeInt int
+	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON,
+		&a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt, &a.ErrorMessage, &a.Modules, &a.PartialResult,
+		&agentModeInt, &a.Profile, &a.LastTestRunID, &a.TotalCredits, &a.InputTokens, &a.OutputTokens,
+		&a.APICallCount, &a.AIModel)
+	if err != nil {
+		return nil, fmt.Errorf("shared analysis not found")
+	}
+	a.AgentMode = agentModeInt != 0
+	unmarshalJSONField(resultJSON, &a.Result, fmt.Sprintf("result for shared analysis %s", a.ID))
+	return &a, nil
+}

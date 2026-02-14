@@ -38,6 +38,10 @@
             <FlaskConical class="h-4 w-4 mr-1" />
             {{ runningTests ? 'Running...' : 'Run Tests' }}
           </Button>
+          <Button variant="outline" size="sm" @click="shareAnalysis" :disabled="sharing === true">
+            <Share2 class="h-4 w-4 mr-1" />
+            {{ sharing === true ? 'Sharing...' : sharing === 'copied' ? 'Copied!' : 'Share' }}
+          </Button>
           <DropdownMenu>
             <DropdownMenuTrigger as-child>
               <Button variant="outline" size="sm">
@@ -160,7 +164,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { analysesApi, testPlansApi, testsApi } from '@/lib/api'
 import { truncateUrl } from '@/lib/utils'
 import { formatDate } from '@/lib/dateUtils'
-import { ArrowLeft, Download, FlaskConical, Loader2, AlertCircle } from 'lucide-vue-next'
+import { ArrowLeft, Download, FlaskConical, Loader2, AlertCircle, Share2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Alert, AlertTitle, AlertDescription } from '@/components/ui/alert'
@@ -185,6 +189,7 @@ const activeTab = ref('overview')
 const runningTests = ref(false)
 const testResult = ref(null)
 const testResultLoading = ref(false)
+const sharing = ref(false)
 
 const analysis = computed(() => analysisData.value?.result?.analysis || null)
 const pageMeta = computed(() => analysisData.value?.result?.pageMeta || null)
@@ -220,6 +225,21 @@ function goBack() {
   } else {
     const basePath = route.params.projectId ? `/projects/${route.params.projectId}` : ''
     router.push(`${basePath}/analyses`)
+  }
+}
+
+async function shareAnalysis() {
+  sharing.value = true
+  try {
+    const data = await analysesApi.createShareLink(route.params.id)
+    const fullUrl = window.location.origin + data.url
+    await navigator.clipboard.writeText(fullUrl)
+    // Brief visual feedback: change button text temporarily
+    sharing.value = 'copied'
+    setTimeout(() => { sharing.value = false }, 2000)
+  } catch (err) {
+    console.error('Failed to create share link:', err)
+    sharing.value = false
   }
 }
 

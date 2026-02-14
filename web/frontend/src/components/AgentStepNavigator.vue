@@ -114,6 +114,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 const props = defineProps({
   analysisId: { type: String, required: true },
   initialSteps: { type: Array, default: null },
+  screenshotBaseUrl: { type: String, default: '' },
 })
 
 const steps = ref([])
@@ -123,8 +124,11 @@ const screenshotDialogOpen = ref(false)
 const selectedStep = computed(() => steps.value[selectedIndex.value] || null)
 
 function screenshotUrl(step) {
-  if (!step?.screenshotPath || !props.analysisId) return ''
-  // Use direct filename-based URL (no DB lookup required)
+  if (!step?.screenshotPath) return ''
+  if (props.screenshotBaseUrl) {
+    return props.screenshotBaseUrl + encodeURIComponent(step.screenshotPath)
+  }
+  if (!props.analysisId) return ''
   return analysesApi.screenshotUrl(props.analysisId, step.screenshotPath)
 }
 

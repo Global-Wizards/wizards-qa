@@ -139,6 +139,12 @@ func createTables(db *sql.DB) error {
 			reasoning TEXT DEFAULT '',
 			created_at TEXT NOT NULL
 		)`,
+		`CREATE TABLE IF NOT EXISTS share_tokens (
+			token TEXT PRIMARY KEY,
+			analysis_id TEXT NOT NULL REFERENCES analyses(id) ON DELETE CASCADE,
+			created_by TEXT REFERENCES users(id),
+			created_at TEXT NOT NULL
+		)`,
 	}
 
 	for _, s := range stmts {
@@ -208,6 +214,7 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_analyses_game_url ON analyses(game_url)`,
 		`CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at)`,
+		`CREATE INDEX IF NOT EXISTS idx_share_tokens_analysis ON share_tokens(analysis_id)`,
 	}
 	for _, stmt := range indexes {
 		if _, err := db.Exec(stmt); err != nil {

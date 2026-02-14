@@ -10,6 +10,7 @@ const router = createRouter({
   history: createWebHistory(),
   routes: [
     { path: '/login', component: () => import('./views/Login.vue'), meta: { public: true } },
+    { path: '/shared/:token', component: () => import('./views/SharedReport.vue'), meta: { public: true } },
     { path: '/', component: () => import('./views/Dashboard.vue') },
     { path: '/analyze', component: () => import('./views/Analyze.vue') },
     { path: '/analyses', component: () => import('./views/AnalysisList.vue') },

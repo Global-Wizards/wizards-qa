@@ -187,6 +187,22 @@ export const analysesApi = {
       a.click()
       URL.revokeObjectURL(url)
     }),
+  createShareLink: (id) => api.post(`/analyses/${id}/share`),
+}
+
+// Public API (no auth interceptor) for shared report endpoints
+const publicApi = axios.create({
+  baseURL: '/api',
+  timeout: 30000,
+  headers: { 'Content-Type': 'application/json' },
+})
+publicApi.interceptors.response.use((response) => response.data)
+
+export const sharedApi = {
+  getAnalysis: (token) => publicApi.get(`/shared/${token}`),
+  getSteps: (token) => publicApi.get(`/shared/${token}/steps`),
+  screenshotUrl: (token, filename) => `/api/shared/${token}/screenshots/${encodeURIComponent(filename)}`,
+  stepScreenshotUrl: (token, stepNumber) => `/api/shared/${token}/steps/${stepNumber}/screenshot`,
 }
 
 export const projectsApi = {

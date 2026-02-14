@@ -167,6 +167,12 @@ func (s *Server) setupRoutes() {
 	s.router.Get("/api/version", s.handleVersion)
 	s.router.Get("/api/changelog", s.handleChangelog)
 
+	// Public shared report routes (no auth)
+	s.router.Get("/api/shared/{token}", s.handleGetSharedAnalysis)
+	s.router.Get("/api/shared/{token}/steps", s.handleGetSharedAgentSteps)
+	s.router.Get("/api/shared/{token}/steps/{stepNumber}/screenshot", s.handleGetSharedStepScreenshot)
+	s.router.Get("/api/shared/{token}/screenshots/{filename}", s.handleGetSharedScreenshot)
+
 	// Protected routes (require auth)
 	s.router.Group(func(r chi.Router) {
 		r.Use(auth.Middleware(s.jwtSecret))
@@ -206,6 +212,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/analyses/{id}/screenshots/{filename}", s.handleAnalysisScreenshot)
 		r.Post("/api/analyses/{id}/message", s.handleSendAgentMessage)
 		r.Post("/api/analyses/{id}/continue", s.handleContinueAnalysis)
+		r.Post("/api/analyses/{id}/share", s.handleCreateShareLink)
 		r.Get("/api/tests/{testId}/steps/{flowName}/{stepIndex}/screenshot", s.handleTestStepScreenshot)
 
 		// Project routes
@@ -1058,6 +1065,163 @@ func (s *Server) handleAnalysisScreenshot(w http.ResponseWriter, r *http.Request
 	}
 	w.Header().Set("Cache-Control", "public, max-age=86400")
 	w.Write(imgData)
+}
+
+// serveScreenshotFile serves a screenshot file from disk for a given analysis ID and filename.
+func (s *Server) serveScreenshotFile(w http.ResponseWriter, analysisID, filename string) {
+	filename = filepath.Base(filename)
+	if filename == "." || filename == "/" || filename == "" {
+		respondError(w, http.StatusBadRequest, "Invalid filename")
+		return
+	}
+
+	dataDir := s.store.DataDir()
+	if dataDir == "" {
+		respondError(w, http.StatusNotFound, "Screenshot storage not configured")
+		return
+	}
+
+	fullPath := filepath.Join(dataDir, "screenshots", analysisID, filename)
+	imgData, err := os.ReadFile(fullPath)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Screenshot file not found")
+		return
+	}
+
+	if strings.HasSuffix(filename, ".webp") {
+		w.Header().Set("Content-Type", "image/webp")
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(imgData)
+}
+
+func (s *Server) handleCreateShareLink(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+
+	// Verify analysis exists
+	if _, err := s.store.GetAnalysis(id); err != nil {
+		respondError(w, http.StatusNotFound, "Analysis not found")
+		return
+	}
+
+	// Check if a token already exists
+	existing, err := s.store.GetShareToken(id)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to check share token")
+		return
+	}
+	if existing != "" {
+		respondJSON(w, http.StatusOK, map[string]string{
+			"token": existing,
+			"url":   "/shared/" + existing,
+		})
+		return
+	}
+
+	// Generate new token
+	b := make([]byte, 32)
+	if _, err := rand.Read(b); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to generate token")
+		return
+	}
+	token := hex.EncodeToString(b)
+
+	var userID string
+	if claims := auth.UserFromContext(r.Context()); claims != nil {
+		userID = claims.UserID
+	}
+
+	if err := s.store.CreateShareToken(token, id, userID); err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to create share token")
+		return
+	}
+
+	respondJSON(w, http.StatusOK, map[string]string{
+		"token": token,
+		"url":   "/shared/" + token,
+	})
+}
+
+func (s *Server) handleGetSharedAnalysis(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	analysis, err := s.store.GetAnalysisByShareToken(token)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Shared analysis not found")
+		return
+	}
+
+	resp := map[string]interface{}{
+		"id":            analysis.ID,
+		"gameUrl":       analysis.GameURL,
+		"status":        analysis.Status,
+		"step":          analysis.Step,
+		"framework":     analysis.Framework,
+		"gameName":      analysis.GameName,
+		"flowCount":     analysis.FlowCount,
+		"result":        analysis.Result,
+		"createdAt":     analysis.CreatedAt,
+		"updatedAt":     analysis.UpdatedAt,
+		"modules":       analysis.Modules,
+		"agentMode":     analysis.AgentMode,
+		"profile":       analysis.Profile,
+	}
+	respondJSON(w, http.StatusOK, resp)
+}
+
+func (s *Server) handleGetSharedAgentSteps(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	analysis, err := s.store.GetAnalysisByShareToken(token)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Shared analysis not found")
+		return
+	}
+
+	steps, err := s.store.ListAgentSteps(analysis.ID)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to list agent steps")
+		return
+	}
+	respondJSON(w, http.StatusOK, map[string]interface{}{
+		"steps": nonNil(steps),
+		"total": len(steps),
+	})
+}
+
+func (s *Server) handleGetSharedStepScreenshot(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	analysis, err := s.store.GetAnalysisByShareToken(token)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Shared analysis not found")
+		return
+	}
+
+	stepNumber, err := strconv.Atoi(chi.URLParam(r, "stepNumber"))
+	if err != nil {
+		respondError(w, http.StatusBadRequest, "Invalid step number")
+		return
+	}
+
+	screenshotPath, err := s.store.GetAgentStepScreenshot(analysis.ID, stepNumber)
+	if err != nil || screenshotPath == "" {
+		respondError(w, http.StatusNotFound, "Screenshot not found")
+		return
+	}
+
+	s.serveScreenshotFile(w, analysis.ID, screenshotPath)
+}
+
+func (s *Server) handleGetSharedScreenshot(w http.ResponseWriter, r *http.Request) {
+	token := chi.URLParam(r, "token")
+	analysis, err := s.store.GetAnalysisByShareToken(token)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Shared analysis not found")
+		return
+	}
+
+	filename := chi.URLParam(r, "filename")
+	s.serveScreenshotFile(w, analysis.ID, filename)
 }
 
 func (s *Server) handleDeleteTestPlan(w http.ResponseWriter, r *http.Request) {
