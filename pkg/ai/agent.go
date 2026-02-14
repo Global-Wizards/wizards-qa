@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,6 +36,11 @@ func (a *Analyzer) AgentExplore(
 	agent, ok := a.Client.(ToolUseAgent)
 	if !ok {
 		return nil, nil, fmt.Errorf("AI client does not support tool use (agent mode requires Claude)")
+	}
+
+	model := ""
+	if bc := baseClientOf(a.Client); bc != nil {
+		model = bc.Model
 	}
 
 	tools := AgentTools(cfg)
@@ -165,6 +171,15 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		thinkStart := time.Now()
 		resp, err := agent.CallWithTools(systemPrompt, messages, tools)
 		thinkingMs := int(time.Since(thinkStart).Milliseconds())
+		stepUsage := TokenUsage{
+			InputTokens:              resp.Usage.InputTokens,
+			OutputTokens:             resp.Usage.OutputTokens,
+			CacheCreationInputTokens: resp.Usage.CacheCreationInputTokens,
+			CacheReadInputTokens:     resp.Usage.CacheReadInputTokens,
+		}
+		stepCostUSD := stepUsage.EstimatedCost(model)
+		stepCredits := int(math.Ceil(stepCostUSD * 100))
+		tokensEmittedThisIteration := false
 		if err != nil {
 			progress("agent_error", fmt.Sprintf("Step %d API call failed: %s", step, err))
 			return nil, steps, fmt.Errorf("agent step %d API call failed: %w", step, err)
@@ -265,6 +280,14 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 					"input": string(block.Input), "result": resultMsg,
 					"error": "", "durationMs": 0, "thinkingMs": thinkingMs,
 				}
+				if !tokensEmittedThisIteration {
+					detail["inputTokens"] = stepUsage.InputTokens
+					detail["outputTokens"] = stepUsage.OutputTokens
+					detail["cacheReadTokens"] = stepUsage.CacheReadInputTokens
+					detail["cacheCreateTokens"] = stepUsage.CacheCreationInputTokens
+					detail["credits"] = stepCredits
+					tokensEmittedThisIteration = true
+				}
 				if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
 					progress("agent_step_detail", string(detailJSON))
 				}
@@ -322,6 +345,14 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 					"stepNumber": step, "toolName": "request_more_time",
 					"input": string(block.Input), "result": resultMsg,
 					"error": "", "durationMs": 0, "thinkingMs": thinkingMs,
+				}
+				if !tokensEmittedThisIteration {
+					detail["inputTokens"] = stepUsage.InputTokens
+					detail["outputTokens"] = stepUsage.OutputTokens
+					detail["cacheReadTokens"] = stepUsage.CacheReadInputTokens
+					detail["cacheCreateTokens"] = stepUsage.CacheCreationInputTokens
+					detail["credits"] = stepCredits
+					tokensEmittedThisIteration = true
 				}
 				if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
 					progress("agent_step_detail", string(detailJSON))
@@ -416,6 +447,14 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				"error":      errStr,
 				"durationMs": stepRecord.DurationMs,
 				"thinkingMs": thinkingMs,
+			}
+			if !tokensEmittedThisIteration {
+				detail["inputTokens"] = stepUsage.InputTokens
+				detail["outputTokens"] = stepUsage.OutputTokens
+				detail["cacheReadTokens"] = stepUsage.CacheReadInputTokens
+				detail["cacheCreateTokens"] = stepUsage.CacheCreationInputTokens
+				detail["credits"] = stepCredits
+				tokensEmittedThisIteration = true
 			}
 			if detailJSON, jsonErr := json.Marshal(detail); jsonErr == nil {
 				progress("agent_step_detail", string(detailJSON))

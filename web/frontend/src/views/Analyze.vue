@@ -160,6 +160,15 @@
               <FlaskConical class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Run Tests</span>
             </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="Evaluate game against GLI gaming compliance standards for selected jurisdictions">
+              <input type="checkbox" v-model="moduleGli" class="rounded border-gray-300" />
+              <Scale class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>GLI Compliance</span>
+            </label>
+          </div>
+          <!-- GLI Jurisdiction Selector -->
+          <div v-if="moduleGli" class="ml-7">
+            <JurisdictionSelector v-model="gliJurisdictions" />
           </div>
         </div>
 
@@ -289,6 +298,7 @@
           :elapsed-seconds="elapsedSeconds"
           :hint-cooldown="hintCooldown"
           :format-elapsed="formatElapsed"
+          :live-step-credits="liveStepCredits"
           :device-label="deviceLabel"
           @send-hint="sendHint"
           @expand-screenshot="expandStepScreenshot"
@@ -326,6 +336,10 @@
             <div>
               <span class="text-sm text-muted-foreground">Canvas</span>
               <p class="font-medium">{{ pageMeta?.canvasFound ? 'Yes' : 'No' }}</p>
+            </div>
+            <div v-if="totalCredits > 0">
+              <span class="text-sm text-muted-foreground">Credits Used</span>
+              <p class="font-medium text-amber-500">{{ totalCredits }}</p>
             </div>
           </div>
 
@@ -443,6 +457,34 @@
                 </div>
                 <p>{{ finding.description }}</p>
                 <p v-if="finding.impact" class="text-xs"><span class="text-muted-foreground">Impact:</span> {{ finding.impact }}</p>
+                <p v-if="finding.suggestion" class="text-muted-foreground text-xs">Suggestion: {{ finding.suggestion }}</p>
+              </div>
+            </div>
+          </details>
+
+          <!-- GLI Compliance -->
+          <details v-if="analysis?.gliCompliance?.length" class="group">
+            <summary class="cursor-pointer text-sm font-medium">GLI Compliance ({{ analysis.gliCompliance.length }})</summary>
+            <div class="mt-2 space-y-2">
+              <div v-for="(finding, i) in analysis.gliCompliance" :key="i" class="rounded-md border p-3 text-sm space-y-1">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span
+                    class="inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium"
+                    :class="{
+                      'bg-green-500/10 text-green-700 dark:text-green-300': finding.status === 'compliant',
+                      'bg-red-500/10 text-red-700 dark:text-red-300': finding.status === 'non_compliant',
+                      'bg-amber-500/10 text-amber-700 dark:text-amber-300': finding.status === 'needs_review',
+                      'bg-muted text-muted-foreground': finding.status === 'not_applicable',
+                    }"
+                  >{{ finding.status?.replace(/_/g, ' ') }}</span>
+                  <Badge variant="outline">{{ finding.complianceCategory?.replace(/_/g, ' ') }}</Badge>
+                  <Badge :variant="severityVariant(finding.severity)">{{ finding.severity }}</Badge>
+                </div>
+                <p>{{ finding.description }}</p>
+                <div v-if="finding.jurisdictions?.length" class="flex flex-wrap gap-1">
+                  <span v-for="j in finding.jurisdictions" :key="j" class="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">{{ j }}</span>
+                </div>
+                <p v-if="finding.gliReference" class="text-xs text-muted-foreground">Ref: {{ finding.gliReference }}</p>
                 <p v-if="finding.suggestion" class="text-muted-foreground text-xs">Suggestion: {{ finding.suggestion }}</p>
               </div>
             </div>
@@ -666,7 +708,7 @@ import { analysesApi, analyzeApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@vueuse/core'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor, FlaskConical } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor, FlaskConical, Scale } from 'lucide-vue-next'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -680,6 +722,7 @@ import AnalysisProgressPanel from '@/components/AnalysisProgressPanel.vue'
 import AgentStepNavigator from '@/components/AgentStepNavigator.vue'
 import AgentExplorationPanel from '@/components/AgentExplorationPanel.vue'
 import TestStepNavigator from '@/components/TestStepNavigator.vue'
+import JurisdictionSelector from '@/components/JurisdictionSelector.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -704,6 +747,8 @@ const moduleWording = useStorage('analyze-module-wording', true)
 const moduleGameDesign = useStorage('analyze-module-game-design', true)
 const moduleTestFlows = useStorage('analyze-module-test-flows', true)
 const moduleRunTests = useStorage('analyze-module-run-tests', false)
+const moduleGli = useStorage('analyze-module-gli', false)
+const gliJurisdictions = useStorage('analyze-gli-jurisdictions', [])
 watch(moduleTestFlows, (val) => { if (!val) moduleRunTests.value = false })
 const selectedViewport = useStorage('analyze-viewport', DEFAULT_VIEWPORT)
 
@@ -778,6 +823,9 @@ const {
   currentDeviceIndex,
   currentDeviceTotal,
   currentDeviceCategory,
+  // Credits
+  totalCredits,
+  liveStepCredits,
 } = useAnalysis()
 
 
@@ -983,6 +1031,9 @@ const analysisDetails = computed(() => {
   }
   if (analysis.value.gameDesign?.length) {
     details.push({ label: 'Game Design', value: `${analysis.value.gameDesign.length} observations` })
+  }
+  if (analysis.value.gliCompliance?.length) {
+    details.push({ label: 'GLI Compliance', value: `${analysis.value.gliCompliance.length} findings` })
   }
   return details
 })
@@ -1299,6 +1350,8 @@ async function handleAnalyze() {
     gameDesign: moduleGameDesign.value,
     testFlows: moduleTestFlows.value,
     runTests: moduleRunTests.value,
+    gli: moduleGli.value,
+    gliJurisdictions: moduleGli.value ? gliJurisdictions.value : undefined,
   }
   const params = { ...profileParams.value }
 

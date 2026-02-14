@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"math"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -127,6 +128,9 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 
 	var flowResults []store.FlowResult
 
+	// Track cumulative token usage for cost tracking
+	var totalUsage ai.TokenUsage
+
 	for fi, scenario := range scenarios {
 		flowStart := time.Now()
 
@@ -215,6 +219,13 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 				flowFailed = true
 				break
 			}
+
+			// Accumulate token usage
+			totalUsage.InputTokens += resp.Usage.InputTokens
+			totalUsage.OutputTokens += resp.Usage.OutputTokens
+			totalUsage.CacheCreationInputTokens += resp.Usage.CacheCreationInputTokens
+			totalUsage.CacheReadInputTokens += resp.Usage.CacheReadInputTokens
+			totalUsage.APICallCount++
 
 			// Append assistant response directly (same pattern as agent.go)
 			messages = append(messages, ai.AgentMessage{Role: "assistant", Content: resp.Content})
@@ -419,6 +430,26 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 				"flowName": scenario.Name,
 				"status":   flowStatus,
 				"duration": formatDuration(flowDuration),
+			},
+		})
+	}
+
+	// Persist total credits for the test run
+	totalCostUSD := totalUsage.EstimatedCost(aiModel)
+	totalCredits := int(math.Ceil(totalCostUSD * 100))
+	if totalCredits > 0 {
+		if err := s.store.UpdateTestResultCredits(testID, totalCredits); err != nil {
+			log.Printf("Warning: failed to update test result credits for %s: %v", testID, err)
+		}
+	}
+
+	// Broadcast test cost info
+	if totalCredits > 0 {
+		s.wsHub.Broadcast(ws.Message{
+			Type: "test_cost",
+			Data: map[string]interface{}{
+				"testId":  testID,
+				"credits": totalCredits,
 			},
 		})
 	}

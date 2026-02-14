@@ -42,7 +42,7 @@ export function isValidUrl(str) {
  */
 export function findingTier(severity) {
   if (severity === 'positive') return 'positive'
-  if (severity === 'suggestion' || severity === 'minor') return 'suggestion'
+  if (severity === 'suggestion' || severity === 'minor' || severity === 'informational') return 'suggestion'
   return 'bug' // critical, major, or unknown
 }
 

@@ -22,6 +22,7 @@ export function useTestExecution() {
   const commandProgress = ref([]) // { flowName, stepIndex, command, status }
   const activeFlow = ref(null) // { flowName, commandCount }
   const mode = ref('')
+  const totalCredits = ref(0)
 
   let cleanups = []
   let timerInterval = null
@@ -255,7 +256,13 @@ export function useTestExecution() {
       }
     })
 
-    cleanups = [offStarted, offProgress, offCompleted, offFailed, offFlowStarted, offCommandProgress, offStepScreenshot]
+    const offTestCost = ws.on('test_cost', (data) => {
+      if (data.testId === tid) {
+        totalCredits.value = data.credits || 0
+      }
+    })
+
+    cleanups = [offStarted, offProgress, offCompleted, offFailed, offFlowStarted, offCommandProgress, offStepScreenshot, offTestCost]
   }
 
   function startExecution(tid, pId, pName) {
@@ -272,6 +279,7 @@ export function useTestExecution() {
     commandProgress.value = []
     activeFlow.value = null
     mode.value = ''
+    totalCredits.value = 0
 
     startTimer()
     setupListeners(tid)
@@ -285,6 +293,7 @@ export function useTestExecution() {
     progress.value = []
     result.value = null
     mode.value = ''
+    totalCredits.value = 0
 
     try {
       const data = await testsApi.live(tid)
@@ -400,5 +409,6 @@ export function useTestExecution() {
     commandProgress,
     activeFlow,
     mode,
+    totalCredits,
   }
 }

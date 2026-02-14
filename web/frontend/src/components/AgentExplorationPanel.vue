@@ -53,6 +53,11 @@
             <Zap class="h-2.5 w-2.5" />Avg/Step
           </span>
         </div>
+        <!-- Credits used -->
+        <div v-if="liveStepCredits > 0" class="text-right">
+          <span class="text-sm font-mono font-semibold text-amber-500 block leading-tight">{{ liveStepCredits }}</span>
+          <span class="text-[10px] uppercase text-muted-foreground tracking-wider">Credits</span>
+        </div>
       </div>
     </div>
 
@@ -177,6 +182,10 @@
                   <!-- Duration pill -->
                   <span v-if="entry.durationMs" :class="['text-[10px] font-mono px-1.5 py-0.5 rounded-full shrink-0', durationColor(entry.durationMs)]">
                     {{ formatMs(entry.durationMs) }}
+                  </span>
+                  <!-- Credits -->
+                  <span v-if="entry.credits" class="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 shrink-0">
+                    {{ entry.credits }} cr
                   </span>
                   <!-- Cumulative timestamp -->
                   <span v-if="cumulativeTime(i) != null" class="text-[10px] text-muted-foreground/50 font-mono shrink-0 ml-auto">
@@ -314,6 +323,7 @@ const props = defineProps({
   elapsedSeconds: { type: Number, default: 0 },
   hintCooldown: { type: Boolean, default: false },
   formatElapsed: { type: Function, default: (s) => `${Math.floor(s / 60)}m ${s % 60}s` },
+  liveStepCredits: { type: Number, default: 0 },
   deviceLabel: { type: String, default: '' },
 })
 

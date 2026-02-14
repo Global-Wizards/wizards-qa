@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Global-Wizards/wizards-qa/pkg/ai"
@@ -33,6 +34,8 @@ func newScoutCmd() *cobra.Command {
 		noWording        bool
 		noGameDesign     bool
 		noTestFlows      bool
+		noGLI            bool
+		gliJurisdictions string
 		resumeFrom       string
 		resumeDataPath   string
 		adaptive         bool
@@ -155,11 +158,23 @@ Example:
 				return err
 			}
 
+			var parsedGLIJurisdictions []string
+			if gliJurisdictions != "" {
+				for _, j := range strings.Split(gliJurisdictions, ",") {
+					j = strings.TrimSpace(j)
+					if j != "" {
+						parsedGLIJurisdictions = append(parsedGLIJurisdictions, j)
+					}
+				}
+			}
+
 			modules := ai.AnalysisModules{
-				UIUX:       !noUIUX,
-				Wording:    !noWording,
-				GameDesign: !noGameDesign,
-				TestFlows:  !noTestFlows,
+				UIUX:             !noUIUX,
+				Wording:          !noWording,
+				GameDesign:       !noGameDesign,
+				TestFlows:        !noTestFlows,
+				GLI:              !noGLI,
+				GLIJurisdictions: parsedGLIJurisdictions,
 			}
 
 			// Emit scouting progress for --json mode
@@ -443,6 +458,8 @@ Example:
 	cmd.Flags().BoolVar(&noWording, "no-wording", false, "Disable wording/translation check module")
 	cmd.Flags().BoolVar(&noGameDesign, "no-game-design", false, "Disable game design analysis module")
 	cmd.Flags().BoolVar(&noTestFlows, "no-test-flows", false, "Disable test flow generation module")
+	cmd.Flags().BoolVar(&noGLI, "no-gli", false, "Disable GLI compliance analysis module")
+	cmd.Flags().StringVar(&gliJurisdictions, "gli-jurisdictions", "", "Comma-separated GLI jurisdiction IDs (e.g. gb,mt,us-nj)")
 	cmd.Flags().StringVar(&resumeFrom, "resume-from", "", "Resume from checkpoint step (internal)")
 	cmd.Flags().StringVar(&resumeDataPath, "resume-data", "", "Path to checkpoint data file (internal)")
 	cmd.Flags().StringVar(&viewport, "viewport", "", "Device viewport preset (e.g. desktop-std, iphone-16-pro, samsung-s24)")

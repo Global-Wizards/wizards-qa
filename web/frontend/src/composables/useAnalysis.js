@@ -51,6 +51,7 @@ const STEP_TO_STATUS = {
   user_hint: 'analyzing',
   flows_retry: 'generating',
   resuming: 'scouting',
+  cost_estimate: 'analyzing',
   // Multi-device batch step
   device_transition: 'scouting',
 }
@@ -98,6 +99,10 @@ export function useAnalysis() {
   const currentDeviceTotal = ref(0)
   const currentDeviceCategory = ref('')
 
+  // Credits / cost tracking
+  const totalCredits = ref(0)
+  const liveStepCredits = ref(0)
+
   // Browser test execution state (inline during analysis)
   const testRunId = ref(null)
   const testStepScreenshots = ref([])
@@ -142,6 +147,8 @@ export function useAnalysis() {
     currentDeviceIndex.value = 0
     currentDeviceTotal.value = 0
     currentDeviceCategory.value = ''
+    totalCredits.value = 0
+    liveStepCredits.value = 0
   }
 
   function startElapsedTimer() {
@@ -334,6 +341,7 @@ export function useAnalysis() {
     // Live agent event listeners
     const offStepDetail = ws.on('agent_step_detail', (data) => {
       if (analysisId.value && data.analysisId !== analysisId.value) return
+      if (data.credits) liveStepCredits.value += data.credits
       // Deduplicate: skip steps already loaded from DB on reconnect
       if (liveAgentSteps.value.some(s => s.type === 'tool' && s.stepNumber === data.stepNumber)) return
       const newStep = {
@@ -343,6 +351,7 @@ export function useAnalysis() {
         result: data.result,
         error: data.error,
         durationMs: data.durationMs,
+        credits: data.credits || 0,
         type: 'tool',
         timestamp: Date.now(),
       }
@@ -394,6 +403,11 @@ export function useAnalysis() {
       liveAgentSteps.value = [...liveAgentSteps.value.slice(-(MAX_LIVE_STEPS - 1)), hintEntry]
     })
 
+    const offAnalysisCost = ws.on('analysis_cost', (data) => {
+      if (analysisId.value && data.analysisId !== analysisId.value) return
+      totalCredits.value = data.credits || 0
+    })
+
     // Test execution WS listeners (inline browser tests during analysis)
     const offTestProgress = ws.on('test_progress', (data) => {
       if (!testRunId.value || data.testId !== testRunId.value) return
@@ -439,6 +453,7 @@ export function useAnalysis() {
       agentMode.value = result.mode === 'agent'
       devices.value = result.devices || []
       autoTestPlanId.value = data.testPlanId || null
+      totalCredits.value = data.totalCredits || liveStepCredits.value
       testRunId.value = data.testRunId || null
 
       // Debug log entry for completion
@@ -499,7 +514,7 @@ export function useAnalysis() {
       loadPersistedSteps(data.analysisId)
     })
 
-    cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offTestProgress, offTestStepScreenshot, offCompleted, offFailed]
+    cleanups = [offProgress, offStepDetail, offAgentReasoning, offAgentScreenshot, offUserHint, offAnalysisCost, offTestProgress, offTestStepScreenshot, offCompleted, offFailed]
 
     startStatusPolling()
   }
@@ -802,5 +817,8 @@ export function useAnalysis() {
     currentDeviceIndex,
     currentDeviceTotal,
     currentDeviceCategory,
+    // Credits
+    totalCredits,
+    liveStepCredits,
   }
 }

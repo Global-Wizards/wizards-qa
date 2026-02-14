@@ -1,7 +1,7 @@
 <template>
   <div class="space-y-4">
     <!-- Filter bar -->
-    <div v-if="findings?.length" class="flex flex-wrap items-center gap-2">
+    <div v-if="normalizedFindings.length" class="flex flex-wrap items-center gap-2">
       <!-- Tier pills -->
       <button
         :class="[
@@ -93,6 +93,7 @@
             <div class="flex flex-wrap items-center gap-2">
               <span class="inline-flex items-center rounded-full bg-green-500/10 px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300">positive</span>
               <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
+              <span v-if="type === 'gli' && finding.status" :class="['inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', gliStatusClass(finding.status)]">{{ finding.status?.replace(/_/g, ' ') }}</span>
               <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
             </div>
             <div v-if="type === 'wording' && finding.text" class="font-mono text-xs bg-muted px-3 py-2 rounded">"{{ finding.text }}"</div>
@@ -100,6 +101,10 @@
             <p v-if="type === 'gamedesign' && finding.impact" class="text-sm">
               <span class="text-muted-foreground font-medium">Impact:</span> {{ finding.impact }}
             </p>
+            <div v-if="type === 'gli' && finding.jurisdictions?.length" class="flex flex-wrap gap-1">
+              <span v-for="j in finding.jurisdictions" :key="j" class="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">{{ j }}</span>
+            </div>
+            <p v-if="type === 'gli' && finding.gliReference" class="text-xs text-muted-foreground">Ref: {{ finding.gliReference }}</p>
             <p v-if="finding.suggestion" class="text-sm text-muted-foreground italic">Suggestion: {{ finding.suggestion }}</p>
           </div>
         </div>
@@ -118,6 +123,7 @@
             <div class="flex flex-wrap items-center gap-2">
               <span class="inline-flex items-center rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-300">{{ finding.severity }}</span>
               <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
+              <span v-if="type === 'gli' && finding.status" :class="['inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', gliStatusClass(finding.status)]">{{ finding.status?.replace(/_/g, ' ') }}</span>
               <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
             </div>
             <div v-if="type === 'wording' && finding.text" class="font-mono text-xs bg-muted px-3 py-2 rounded">"{{ finding.text }}"</div>
@@ -125,6 +131,10 @@
             <p v-if="type === 'gamedesign' && finding.impact" class="text-sm">
               <span class="text-muted-foreground font-medium">Impact:</span> {{ finding.impact }}
             </p>
+            <div v-if="type === 'gli' && finding.jurisdictions?.length" class="flex flex-wrap gap-1">
+              <span v-for="j in finding.jurisdictions" :key="j" class="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">{{ j }}</span>
+            </div>
+            <p v-if="type === 'gli' && finding.gliReference" class="text-xs text-muted-foreground">Ref: {{ finding.gliReference }}</p>
             <p v-if="finding.suggestion" class="text-sm text-muted-foreground italic">Suggestion: {{ finding.suggestion }}</p>
           </div>
         </div>
@@ -153,6 +163,7 @@
               <span v-if="finding.severity === 'critical'" class="inline-flex items-center rounded-full bg-red-500/10 px-2 py-0.5 text-xs font-medium text-red-700 dark:text-red-300">critical</span>
               <span v-else class="inline-flex items-center rounded-full bg-orange-500/10 px-2 py-0.5 text-xs font-medium text-orange-700 dark:text-orange-300">major</span>
               <Badge v-if="finding.category" variant="outline">{{ finding.category }}</Badge>
+              <span v-if="type === 'gli' && finding.status" :class="['inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium', gliStatusClass(finding.status)]">{{ finding.status?.replace(/_/g, ' ') }}</span>
               <span v-if="finding.location" class="text-xs text-muted-foreground">{{ finding.location }}</span>
             </div>
             <div v-if="type === 'wording' && finding.text" class="font-mono text-xs bg-muted px-3 py-2 rounded">"{{ finding.text }}"</div>
@@ -160,6 +171,10 @@
             <p v-if="type === 'gamedesign' && finding.impact" class="text-sm">
               <span class="text-muted-foreground font-medium">Impact:</span> {{ finding.impact }}
             </p>
+            <div v-if="type === 'gli' && finding.jurisdictions?.length" class="flex flex-wrap gap-1">
+              <span v-for="j in finding.jurisdictions" :key="j" class="inline-flex items-center rounded-full bg-blue-500/10 px-2 py-0.5 text-[10px] font-medium text-blue-700 dark:text-blue-300">{{ j }}</span>
+            </div>
+            <p v-if="type === 'gli' && finding.gliReference" class="text-xs text-muted-foreground">Ref: {{ finding.gliReference }}</p>
             <p v-if="finding.suggestion" class="text-sm text-muted-foreground italic">Suggestion: {{ finding.suggestion }}</p>
           </div>
         </div>
@@ -168,12 +183,12 @@
 
     <!-- Empty state -->
     <div v-else class="text-center py-12 text-muted-foreground">
-      <p v-if="findings?.length">No findings match the current filters.</p>
+      <p v-if="normalizedFindings.length">No findings match the current filters.</p>
       <p v-else>No findings available.</p>
     </div>
 
     <!-- Role Checklists -->
-    <div v-if="findings?.length" class="mt-6 rounded-lg border">
+    <div v-if="normalizedFindings.length" class="mt-6 rounded-lg border">
       <button
         class="flex w-full items-center justify-between px-4 py-3 text-sm font-semibold select-none hover:bg-muted/50 transition-colors"
         @click="checklistOpen = !checklistOpen"
@@ -244,8 +259,26 @@ import { ChevronDown } from 'lucide-vue-next'
 
 const props = defineProps({
   findings: { type: Array, default: () => [] },
-  type: { type: String, default: 'uiux' }, // 'uiux' | 'wording' | 'gamedesign'
+  type: { type: String, default: 'uiux' }, // 'uiux' | 'wording' | 'gamedesign' | 'gli'
 })
+
+// Normalize GLI findings so complianceCategory maps to category for filters
+const normalizedFindings = computed(() => {
+  if (props.type !== 'gli') return props.findings || []
+  return (props.findings || []).map(f => ({
+    ...f,
+    category: f.complianceCategory || f.category,
+  }))
+})
+
+function gliStatusClass(status) {
+  switch (status) {
+    case 'compliant': return 'bg-green-500/10 text-green-700 dark:text-green-300'
+    case 'non_compliant': return 'bg-red-500/10 text-red-700 dark:text-red-300'
+    case 'needs_review': return 'bg-amber-500/10 text-amber-700 dark:text-amber-300'
+    default: return 'bg-muted text-muted-foreground'
+  }
+}
 
 const activeTier = ref('all')
 const activeCategory = ref('all')
@@ -264,8 +297,8 @@ watch(searchQuery, (val) => {
 })
 
 const counts = computed(() => {
-  const c = { critical: 0, major: 0, minor: 0, suggestion: 0, positive: 0 }
-  for (const f of props.findings || []) {
+  const c = { critical: 0, major: 0, minor: 0, suggestion: 0, positive: 0, informational: 0 }
+  for (const f of normalizedFindings.value) {
     if (f.severity in c) c[f.severity]++
   }
   return c
@@ -273,7 +306,7 @@ const counts = computed(() => {
 
 const tierCounts = computed(() => {
   const t = { positive: 0, suggestion: 0, bug: 0 }
-  for (const f of props.findings || []) {
+  for (const f of normalizedFindings.value) {
     t[findingTier(f.severity)]++
   }
   return t
@@ -281,7 +314,7 @@ const tierCounts = computed(() => {
 
 const categories = computed(() => {
   const set = new Set()
-  for (const f of props.findings || []) {
+  for (const f of normalizedFindings.value) {
     if (f.category) set.add(f.category)
   }
   return [...set].sort()
@@ -296,7 +329,7 @@ const activeFilterCount = computed(() => {
 })
 
 const filteredFindings = computed(() => {
-  let result = props.findings || []
+  let result = normalizedFindings.value
   if (activeTier.value !== 'all') {
     result = result.filter(f => findingTier(f.severity) === activeTier.value)
   }

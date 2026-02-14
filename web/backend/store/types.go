@@ -44,7 +44,8 @@ type TestResultSummary struct {
 	Timestamp   string  `json:"timestamp"`
 	Duration    string  `json:"duration"`
 	SuccessRate float64 `json:"successRate"`
-	ProjectID   string  `json:"projectId,omitempty"`
+	ProjectID    string  `json:"projectId,omitempty"`
+	TotalCredits int     `json:"totalCredits,omitempty"`
 }
 
 type TestResultDetail struct {
@@ -58,7 +59,8 @@ type TestResultDetail struct {
 	ErrorOutput string       `json:"errorOutput,omitempty"`
 	CreatedBy   string       `json:"createdBy,omitempty"`
 	ProjectID   string       `json:"projectId,omitempty"`
-	PlanID      string       `json:"planId,omitempty"`
+	PlanID       string       `json:"planId,omitempty"`
+	TotalCredits int          `json:"totalCredits,omitempty"`
 }
 
 type HistoryPoint struct {
@@ -154,6 +156,11 @@ type AnalysisRecord struct {
 	AgentMode      bool        `json:"agentMode"`
 	Profile        string      `json:"profile,omitempty"`
 	LastTestRunID  string      `json:"lastTestRunId,omitempty"`
+	TotalCredits   int         `json:"totalCredits,omitempty"`
+	InputTokens    int         `json:"inputTokens,omitempty"`
+	OutputTokens   int         `json:"outputTokens,omitempty"`
+	APICallCount   int         `json:"apiCallCount,omitempty"`
+	AIModel        string      `json:"aiModel,omitempty"`
 }
 
 type AgentStepRecord struct {
@@ -169,6 +176,9 @@ type AgentStepRecord struct {
 	Error          string `json:"error,omitempty"`
 	Reasoning      string `json:"reasoning,omitempty"`
 	CreatedAt      string `json:"createdAt"`
+	InputTokens    int    `json:"inputTokens,omitempty"`
+	OutputTokens   int    `json:"outputTokens,omitempty"`
+	Credits        int    `json:"credits,omitempty"`
 }
 
 type AnalysesFile struct {

@@ -30,6 +30,7 @@
         >
           <span class="font-mono text-muted-foreground w-5 shrink-0">{{ step.stepNumber }}</span>
           <span class="truncate flex-1">{{ step.toolName }}</span>
+          <span v-if="step.credits" class="text-[10px] font-mono text-amber-500 shrink-0">{{ step.credits }}</span>
           <component :is="stepIcon(step)" class="h-3 w-3 shrink-0" :class="stepIconClass(step)" />
         </button>
       </div>
@@ -51,6 +52,8 @@
           <Badge variant="outline">{{ selectedStep.toolName }}</Badge>
           <span class="text-xs text-muted-foreground">{{ selectedStep.durationMs }}ms</span>
         </div>
+        <!-- Credits -->
+        <span v-if="selectedStep.credits" class="text-xs font-mono text-amber-500">{{ selectedStep.credits }} credits</span>
 
         <!-- Input -->
         <div v-if="selectedStep.input">

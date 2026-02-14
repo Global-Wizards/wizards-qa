@@ -23,11 +23,13 @@ import (
 )
 
 type AnalysisModules struct {
-	UIUX       *bool `json:"uiux,omitempty"`
-	Wording    *bool `json:"wording,omitempty"`
-	GameDesign *bool `json:"gameDesign,omitempty"`
-	TestFlows  *bool `json:"testFlows,omitempty"`
-	RunTests   *bool `json:"runTests,omitempty"`
+	UIUX             *bool    `json:"uiux,omitempty"`
+	Wording          *bool    `json:"wording,omitempty"`
+	GameDesign       *bool    `json:"gameDesign,omitempty"`
+	TestFlows        *bool    `json:"testFlows,omitempty"`
+	RunTests         *bool    `json:"runTests,omitempty"`
+	GLI              *bool    `json:"gli,omitempty"`
+	GLIJurisdictions []string `json:"gliJurisdictions,omitempty"`
 }
 
 type AnalysisRequest struct {
@@ -227,12 +229,16 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 	// Serialize modules to JSON for persistence
 	modulesJSON := ""
 	{
-		m := map[string]bool{
+		m := map[string]interface{}{
 			"uiux":       req.Modules.UIUX == nil || *req.Modules.UIUX,
 			"wording":    req.Modules.Wording == nil || *req.Modules.Wording,
 			"gameDesign": req.Modules.GameDesign == nil || *req.Modules.GameDesign,
 			"testFlows":  req.Modules.TestFlows == nil || *req.Modules.TestFlows,
 			"runTests":   req.Modules.RunTests != nil && *req.Modules.RunTests,
+			"gli":        req.Modules.GLI != nil && *req.Modules.GLI,
+		}
+		if len(req.Modules.GLIJurisdictions) > 0 {
+			m["gliJurisdictions"] = req.Modules.GLIJurisdictions
 		}
 		if b, err := json.Marshal(m); err == nil {
 			modulesJSON = string(b)
@@ -491,6 +497,12 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 		if req.Modules.TestFlows != nil && !*req.Modules.TestFlows {
 			args = append(args, "--no-test-flows")
 		}
+		if req.Modules.GLI != nil && !*req.Modules.GLI {
+			args = append(args, "--no-gli")
+		}
+		if len(req.Modules.GLIJurisdictions) > 0 {
+			args = append(args, "--gli-jurisdictions", strings.Join(req.Modules.GLIJurisdictions, ","))
+		}
 
 		log.Printf("Batch analysis %s [%s %d/%d]: executing %s %s", analysisID, device.Category, deviceNum, deviceTotal, cliPath, strings.Join(args, " "))
 		cmd := exec.CommandContext(ctx, cliPath, args...)
@@ -590,15 +602,18 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 							})
 
 							stepRecord := store.AgentStepRecord{
-								AnalysisID: analysisID,
-								StepNumber: intFromMap(detailData, "stepNumber"),
-								ToolName:   strFromMap(detailData, "toolName"),
-								Input:      strFromMap(detailData, "input"),
-								Result:     strFromMap(detailData, "result"),
-								DurationMs: intFromMap(detailData, "durationMs"),
-								ThinkingMs: intFromMap(detailData, "thinkingMs"),
-								Error:      strFromMap(detailData, "error"),
-								Reasoning:  latestReasoning,
+								AnalysisID:   analysisID,
+								StepNumber:   intFromMap(detailData, "stepNumber"),
+								ToolName:     strFromMap(detailData, "toolName"),
+								Input:        strFromMap(detailData, "input"),
+								Result:       strFromMap(detailData, "result"),
+								DurationMs:   intFromMap(detailData, "durationMs"),
+								ThinkingMs:   intFromMap(detailData, "thinkingMs"),
+								Error:        strFromMap(detailData, "error"),
+								Reasoning:    latestReasoning,
+								InputTokens:  intFromMap(detailData, "inputTokens"),
+								OutputTokens: intFromMap(detailData, "outputTokens"),
+								Credits:      intFromMap(detailData, "credits"),
 							}
 							if dbID, saveErr := s.store.SaveAgentStep(stepRecord); saveErr != nil {
 								log.Printf("Warning: failed to save agent step %d for %s: %v", stepRecord.StepNumber, analysisID, saveErr)
@@ -606,6 +621,19 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 								lastStepDBID = dbID
 							}
 							latestReasoning = ""
+						}
+					case "cost_estimate":
+						var costData map[string]interface{}
+						if err := json.Unmarshal([]byte(message), &costData); err == nil {
+							s.store.UpdateAnalysisCost(analysisID,
+								intFromMap(costData, "credits"),
+								intFromMap(costData, "inputTokens"),
+								intFromMap(costData, "outputTokens"),
+								intFromMap(costData, "apiCallCount"),
+								strFromMap(costData, "model"),
+							)
+							costData["analysisId"] = analysisID
+							s.wsHub.Broadcast(ws.Message{Type: "analysis_cost", Data: costData})
 						}
 					case "agent_reasoning":
 						latestReasoning = message
@@ -976,12 +1004,16 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	// Serialize modules to JSON for persistence
 	modulesJSON := ""
 	{
-		m := map[string]bool{
-			"uiux":      req.Modules.UIUX == nil || *req.Modules.UIUX,
-			"wording":   req.Modules.Wording == nil || *req.Modules.Wording,
+		m := map[string]interface{}{
+			"uiux":       req.Modules.UIUX == nil || *req.Modules.UIUX,
+			"wording":    req.Modules.Wording == nil || *req.Modules.Wording,
 			"gameDesign": req.Modules.GameDesign == nil || *req.Modules.GameDesign,
-			"testFlows": req.Modules.TestFlows == nil || *req.Modules.TestFlows,
-			"runTests":  req.Modules.RunTests != nil && *req.Modules.RunTests,
+			"testFlows":  req.Modules.TestFlows == nil || *req.Modules.TestFlows,
+			"runTests":   req.Modules.RunTests != nil && *req.Modules.RunTests,
+			"gli":        req.Modules.GLI != nil && *req.Modules.GLI,
+		}
+		if len(req.Modules.GLIJurisdictions) > 0 {
+			m["gliJurisdictions"] = req.Modules.GLIJurisdictions
 		}
 		if b, err := json.Marshal(m); err == nil {
 			modulesJSON = string(b)
@@ -1186,6 +1218,12 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	if req.Modules.TestFlows != nil && !*req.Modules.TestFlows {
 		args = append(args, "--no-test-flows")
 	}
+	if req.Modules.GLI != nil && !*req.Modules.GLI {
+		args = append(args, "--no-gli")
+	}
+	if len(req.Modules.GLIJurisdictions) > 0 {
+		args = append(args, "--gli-jurisdictions", strings.Join(req.Modules.GLIJurisdictions, ","))
+	}
 	log.Printf("Analysis %s: executing %s %s", analysisID, cliPath, strings.Join(args, " "))
 	cmd := exec.CommandContext(ctx, cliPath, args...)
 	cmd.Env = append(os.Environ(), "NO_COLOR=1")
@@ -1262,15 +1300,18 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 
 						// Persist step to database
 						stepRecord := store.AgentStepRecord{
-							AnalysisID: analysisID,
-							StepNumber: intFromMap(detailData, "stepNumber"),
-							ToolName:   strFromMap(detailData, "toolName"),
-							Input:      strFromMap(detailData, "input"),
-							Result:     strFromMap(detailData, "result"),
-							DurationMs: intFromMap(detailData, "durationMs"),
-							ThinkingMs: intFromMap(detailData, "thinkingMs"),
-							Error:      strFromMap(detailData, "error"),
-							Reasoning:  latestReasoning,
+							AnalysisID:   analysisID,
+							StepNumber:   intFromMap(detailData, "stepNumber"),
+							ToolName:     strFromMap(detailData, "toolName"),
+							Input:        strFromMap(detailData, "input"),
+							Result:       strFromMap(detailData, "result"),
+							DurationMs:   intFromMap(detailData, "durationMs"),
+							ThinkingMs:   intFromMap(detailData, "thinkingMs"),
+							Error:        strFromMap(detailData, "error"),
+							Reasoning:    latestReasoning,
+							InputTokens:  intFromMap(detailData, "inputTokens"),
+							OutputTokens: intFromMap(detailData, "outputTokens"),
+							Credits:      intFromMap(detailData, "credits"),
 						}
 						if dbID, saveErr := s.store.SaveAgentStep(stepRecord); saveErr != nil {
 							log.Printf("Warning: failed to save agent step %d for %s: %v", stepRecord.StepNumber, analysisID, saveErr)
@@ -1279,6 +1320,19 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 						}
 						// Clear reasoning after attaching to a step
 						latestReasoning = ""
+					}
+				case "cost_estimate":
+					var costData map[string]interface{}
+					if err := json.Unmarshal([]byte(message), &costData); err == nil {
+						s.store.UpdateAnalysisCost(analysisID,
+							intFromMap(costData, "credits"),
+							intFromMap(costData, "inputTokens"),
+							intFromMap(costData, "outputTokens"),
+							intFromMap(costData, "apiCallCount"),
+							strFromMap(costData, "model"),
+						)
+						costData["analysisId"] = analysisID
+						s.wsHub.Broadcast(ws.Message{Type: "analysis_cost", Data: costData})
 					}
 				case "agent_reasoning":
 					latestReasoning = message
@@ -2069,19 +2123,33 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 
 	// Reconstruct module flags
 	if analysis.Modules != "" {
-		var mods map[string]bool
+		var mods map[string]interface{}
 		if json.Unmarshal([]byte(analysis.Modules), &mods) == nil {
-			if v, ok := mods["uiux"]; ok && !v {
+			if v, ok := mods["uiux"].(bool); ok && !v {
 				args = append(args, "--no-uiux")
 			}
-			if v, ok := mods["wording"]; ok && !v {
+			if v, ok := mods["wording"].(bool); ok && !v {
 				args = append(args, "--no-wording")
 			}
-			if v, ok := mods["gameDesign"]; ok && !v {
+			if v, ok := mods["gameDesign"].(bool); ok && !v {
 				args = append(args, "--no-game-design")
 			}
-			if v, ok := mods["testFlows"]; ok && !v {
+			if v, ok := mods["testFlows"].(bool); ok && !v {
 				args = append(args, "--no-test-flows")
+			}
+			if v, ok := mods["gli"].(bool); ok && !v {
+				args = append(args, "--no-gli")
+			}
+			if jArr, ok := mods["gliJurisdictions"].([]interface{}); ok && len(jArr) > 0 {
+				var ids []string
+				for _, j := range jArr {
+					if s, ok := j.(string); ok {
+						ids = append(ids, s)
+					}
+				}
+				if len(ids) > 0 {
+					args = append(args, "--gli-jurisdictions", strings.Join(ids, ","))
+				}
 			}
 		}
 	}

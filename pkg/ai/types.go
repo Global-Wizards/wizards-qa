@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -68,10 +69,11 @@ type AnalysisResult struct {
 	UIElements   []UIElement         `json:"uiElements,omitempty"`
 	UserFlows    []UserFlow          `json:"userFlows,omitempty"`
 	EdgeCases    []EdgeCase          `json:"edgeCases,omitempty"`
-	UIUXAnalysis []UIUXFinding       `json:"uiuxAnalysis,omitempty"`
-	WordingCheck []WordingFinding    `json:"wordingCheck,omitempty"`
-	GameDesign   []GameDesignFinding `json:"gameDesign,omitempty"`
-	RawResponse  string              `json:"rawResponse,omitempty"`
+	UIUXAnalysis  []UIUXFinding       `json:"uiuxAnalysis,omitempty"`
+	WordingCheck  []WordingFinding    `json:"wordingCheck,omitempty"`
+	GameDesign    []GameDesignFinding `json:"gameDesign,omitempty"`
+	GLICompliance []GLIFinding        `json:"gliCompliance,omitempty"`
+	RawResponse   string              `json:"rawResponse,omitempty"`
 }
 
 // ComprehensiveAnalysisResult combines game analysis with test scenarios in a
@@ -84,23 +86,25 @@ type ComprehensiveAnalysisResult struct {
 	UserFlows    []UserFlow          `json:"userFlows"`
 	EdgeCases    []EdgeCase          `json:"edgeCases"`
 	Scenarios    []TestScenario      `json:"scenarios"`
-	UIUXAnalysis []UIUXFinding       `json:"uiuxAnalysis,omitempty"`
-	WordingCheck []WordingFinding    `json:"wordingCheck,omitempty"`
-	GameDesign   []GameDesignFinding `json:"gameDesign,omitempty"`
+	UIUXAnalysis  []UIUXFinding       `json:"uiuxAnalysis,omitempty"`
+	WordingCheck  []WordingFinding    `json:"wordingCheck,omitempty"`
+	GameDesign    []GameDesignFinding `json:"gameDesign,omitempty"`
+	GLICompliance []GLIFinding        `json:"gliCompliance,omitempty"`
 }
 
 // ToAnalysisResult converts a ComprehensiveAnalysisResult to the legacy AnalysisResult
 // for backward compatibility with callers that expect the old type.
 func (c *ComprehensiveAnalysisResult) ToAnalysisResult() *AnalysisResult {
 	return &AnalysisResult{
-		GameInfo:     c.GameInfo,
-		Mechanics:    c.Mechanics,
-		UIElements:   c.UIElements,
-		UserFlows:    c.UserFlows,
-		EdgeCases:    c.EdgeCases,
-		UIUXAnalysis: c.UIUXAnalysis,
-		WordingCheck: c.WordingCheck,
-		GameDesign:   c.GameDesign,
+		GameInfo:      c.GameInfo,
+		Mechanics:     c.Mechanics,
+		UIElements:    c.UIElements,
+		UserFlows:     c.UserFlows,
+		EdgeCases:     c.EdgeCases,
+		UIUXAnalysis:  c.UIUXAnalysis,
+		WordingCheck:  c.WordingCheck,
+		GameDesign:    c.GameDesign,
+		GLICompliance: c.GLICompliance,
 	}
 }
 
@@ -175,6 +179,17 @@ type GameDesignFinding struct {
 	Suggestion  string `json:"suggestion"`  // Recommended improvement
 }
 
+// GLIFinding represents a single GLI compliance observation.
+type GLIFinding struct {
+	ComplianceCategory string   `json:"complianceCategory"` // rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation
+	Description        string   `json:"description"`
+	Status             string   `json:"status"`             // compliant|non_compliant|needs_review|not_applicable
+	Jurisdictions      []string `json:"jurisdictions"`      // jurisdiction IDs this applies to
+	GLIReference       string   `json:"gliReference"`       // e.g. "GLI-19 Section 3.4.1"
+	Severity           string   `json:"severity"`           // critical|major|minor|informational
+	Suggestion         string   `json:"suggestion"`
+}
+
 // TestScenario represents a test scenario generated from analysis
 type TestScenario struct {
 	Name        string   `json:"name"`
@@ -228,10 +243,12 @@ type BrowserPage interface {
 
 // AnalysisModules controls which optional analysis sections are enabled.
 type AnalysisModules struct {
-	UIUX       bool
-	Wording    bool
-	GameDesign bool
-	TestFlows  bool
+	UIUX             bool
+	Wording          bool
+	GameDesign       bool
+	TestFlows        bool
+	GLI              bool
+	GLIJurisdictions []string // e.g. ["gb", "mt", "us-nj"]
 }
 
 // DefaultAnalysisModules returns modules with everything enabled.
@@ -277,6 +294,28 @@ WORDING/TRANSLATION CHECK:
 GAME DESIGN ANALYSIS:
 8. Analyze game design — reward systems, balance, progression, player engagement, difficulty curve, monetization fairness, tutorial/onboarding quality, feedback systems.
 `
+	}
+	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
+		tmpl += fmt.Sprintf(`
+GLI COMPLIANCE ANALYSIS:
+Evaluate what is visible in the UI/screenshots against GLI (Gaming Laboratories International) compliance requirements for these jurisdictions: %s
+
+Check these compliance categories based on what you can observe:
+- rng_fairness: RNG certification indicators, fairness displays
+- rtp_accuracy: RTP/payout percentage displays and accuracy
+- game_rules: Game rules accessibility, clarity, and completeness
+- responsible_gaming: Self-exclusion options, deposit limits, session timers, reality checks
+- age_verification: Age gate presence, verification mechanisms
+- data_protection: Privacy policy links, data handling notices, cookie consent
+- aml: Anti-money laundering indicators (transaction limits, identity verification)
+- advertising: Promotional content compliance, bonus terms visibility
+- bonus_fairness: Wagering requirements clarity, bonus terms transparency
+- technical_security: SSL indicators, secure connection markers
+- ui_compliance: Required regulatory information display (license numbers, logos, warnings)
+- geolocation: Geo-blocking indicators, location verification
+
+For each finding, specify which jurisdictions it applies to, the relevant GLI standard reference, compliance status, and severity.
+`, strings.Join(modules.GLIJurisdictions, ", "))
 	}
 
 	tmpl += `
@@ -384,6 +423,20 @@ Respond with a single JSON object matching this exact format:
     }
   ]`
 	}
+	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
+		tmpl += `,
+  "gliCompliance": [
+    {
+      "complianceCategory": "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation",
+      "description": "...",
+      "status": "compliant|non_compliant|needs_review|not_applicable",
+      "jurisdictions": ["jurisdiction_id"],
+      "gliReference": "GLI-19 Section X.Y.Z",
+      "severity": "critical|major|minor|informational",
+      "suggestion": "recommended action"
+    }
+  ]`
+	}
 
 	tmpl += `
 }`
@@ -399,7 +452,7 @@ func BuildSynthesisPrompt(modules AnalysisModules) string {
 You interacted with the game and observed its behavior through screenshots. Now produce a structured analysis based on ONLY what you actually observed during exploration.
 `
 
-	if modules.UIUX || modules.Wording || modules.GameDesign {
+	if modules.UIUX || modules.Wording || modules.GameDesign || (modules.GLI && len(modules.GLIJurisdictions) > 0) {
 		prompt += "\nIn addition to functional QA, also analyze:\n"
 		if modules.UIUX {
 			prompt += "- UI/UX quality: alignments, spacing, color harmony, typography, visual hierarchy, accessibility, animations\n"
@@ -409,6 +462,9 @@ You interacted with the game and observed its behavior through screenshots. Now 
 		}
 		if modules.GameDesign {
 			prompt += "- Game design: rewards, balance, progression, engagement, difficulty, monetization, tutorial, feedback\n"
+		}
+		if modules.GLI && len(modules.GLIJurisdictions) > 0 {
+			prompt += fmt.Sprintf("- GLI compliance: Evaluate visible UI against gaming regulation standards for jurisdictions: %s. Check categories: rng_fairness, rtp_accuracy, game_rules, responsible_gaming, age_verification, data_protection, aml, advertising, bonus_fairness, technical_security, ui_compliance, geolocation\n", strings.Join(modules.GLIJurisdictions, ", "))
 		}
 	}
 
@@ -509,6 +565,20 @@ Respond with a single JSON object matching this exact format:
       "severity": "critical|major|minor|positive",
       "impact": "how this affects player experience",
       "suggestion": "recommended improvement"
+    }
+  ]`
+	}
+	if modules.GLI && len(modules.GLIJurisdictions) > 0 {
+		prompt += `,
+  "gliCompliance": [
+    {
+      "complianceCategory": "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation",
+      "description": "...",
+      "status": "compliant|non_compliant|needs_review|not_applicable",
+      "jurisdictions": ["jurisdiction_id"],
+      "gliReference": "GLI-19 Section X.Y.Z",
+      "severity": "critical|major|minor|informational",
+      "suggestion": "recommended action"
     }
   ]`
 	}

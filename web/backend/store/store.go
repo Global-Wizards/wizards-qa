@@ -324,12 +324,12 @@ func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, game
 
 func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 	row := s.db.QueryRow(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at, COALESCE(error_message,''), COALESCE(modules,''), COALESCE(partial_result,''), COALESCE(agent_mode,0), COALESCE(profile,''), COALESCE(last_test_run_id,'') FROM analyses WHERE id = ?`, id,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, result, COALESCE(created_by,''), COALESCE(project_id,''), created_at, updated_at, COALESCE(error_message,''), COALESCE(modules,''), COALESCE(partial_result,''), COALESCE(agent_mode,0), COALESCE(profile,''), COALESCE(last_test_run_id,''), COALESCE(total_credits,0), COALESCE(input_tokens,0), COALESCE(output_tokens,0), COALESCE(api_call_count,0), COALESCE(ai_model,'') FROM analyses WHERE id = ?`, id,
 	)
 	var a AnalysisRecord
 	var resultJSON sql.NullString
 	var agentModeInt int
-	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt, &a.ErrorMessage, &a.Modules, &a.PartialResult, &agentModeInt, &a.Profile, &a.LastTestRunID)
+	err := row.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &resultJSON, &a.CreatedBy, &a.ProjectID, &a.CreatedAt, &a.UpdatedAt, &a.ErrorMessage, &a.Modules, &a.PartialResult, &agentModeInt, &a.Profile, &a.LastTestRunID, &a.TotalCredits, &a.InputTokens, &a.OutputTokens, &a.APICallCount, &a.AIModel)
 	if err != nil {
 		return nil, fmt.Errorf("analysis not found: %s", id)
 	}
@@ -347,7 +347,7 @@ func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 
 func (s *Store) ListAnalyses(limit, offset int) ([]AnalysisRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(modules,''), COALESCE(partial_result,''), created_at, updated_at FROM analyses ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(modules,''), COALESCE(partial_result,''), created_at, updated_at, COALESCE(total_credits,0) FROM analyses ORDER BY created_at DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -357,7 +357,7 @@ func (s *Store) ListAnalyses(limit, offset int) ([]AnalysisRecord, error) {
 	var analyses []AnalysisRecord
 	for rows.Next() {
 		var a AnalysisRecord
-		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.PartialResult, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.PartialResult, &a.CreatedAt, &a.UpdatedAt, &a.TotalCredits); err != nil {
 			continue
 		}
 		analyses = append(analyses, a)
@@ -403,10 +403,11 @@ func (s *Store) SaveAgentStep(step AgentStepRecord) (int64, error) {
 		step.CreatedAt = time.Now().Format(time.RFC3339)
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO agent_steps (analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, thinking_ms, error, reasoning, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO agent_steps (analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, thinking_ms, error, reasoning, created_at, input_tokens, output_tokens, credits)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		step.AnalysisID, step.StepNumber, step.ToolName, step.Input, step.Result,
 		step.ScreenshotPath, step.DurationMs, step.ThinkingMs, step.Error, step.Reasoning, step.CreatedAt,
+		step.InputTokens, step.OutputTokens, step.Credits,
 	)
 	if err != nil {
 		return 0, err
@@ -421,7 +422,7 @@ func (s *Store) UpdateAgentStepScreenshot(id int64, screenshotPath string) error
 
 func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, COALESCE(thinking_ms,0), error, reasoning, created_at
+		`SELECT id, analysis_id, step_number, tool_name, input, result, screenshot_path, duration_ms, COALESCE(thinking_ms,0), error, reasoning, created_at, COALESCE(input_tokens,0), COALESCE(output_tokens,0), COALESCE(credits,0)
 		 FROM agent_steps WHERE analysis_id = ? ORDER BY step_number ASC`, analysisID,
 	)
 	if err != nil {
@@ -433,7 +434,7 @@ func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
 	for rows.Next() {
 		var step AgentStepRecord
 		if err := rows.Scan(&step.ID, &step.AnalysisID, &step.StepNumber, &step.ToolName, &step.Input,
-			&step.Result, &step.ScreenshotPath, &step.DurationMs, &step.ThinkingMs, &step.Error, &step.Reasoning, &step.CreatedAt); err != nil {
+			&step.Result, &step.ScreenshotPath, &step.DurationMs, &step.ThinkingMs, &step.Error, &step.Reasoning, &step.CreatedAt, &step.InputTokens, &step.OutputTokens, &step.Credits); err != nil {
 			continue
 		}
 		steps = append(steps, step)
@@ -476,16 +477,16 @@ func (s *Store) SaveTestResult(result TestResultDetail) error {
 	}
 
 	_, err = s.db.Exec(
-		`INSERT INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_by, project_id, plan_id, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, result.ProjectID, result.PlanID, ts,
+		`INSERT INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_by, project_id, plan_id, total_credits, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, result.ProjectID, result.PlanID, result.TotalCredits, ts,
 	)
 	return err
 }
 
 func (s *Store) ListTestResults(limit, offset int) ([]TestResultSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,'') FROM test_results ORDER BY timestamp DESC LIMIT ? OFFSET ?`, limit, offset,
+		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,''), COALESCE(total_credits,0) FROM test_results ORDER BY timestamp DESC LIMIT ? OFFSET ?`, limit, offset,
 	)
 	if err != nil {
 		return nil, err
@@ -495,7 +496,7 @@ func (s *Store) ListTestResults(limit, offset int) ([]TestResultSummary, error) 
 	var summaries []TestResultSummary
 	for rows.Next() {
 		var r TestResultSummary
-		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID, &r.TotalCredits); err != nil {
 			continue
 		}
 		summaries = append(summaries, r)
@@ -505,11 +506,11 @@ func (s *Store) ListTestResults(limit, offset int) ([]TestResultSummary, error) 
 
 func (s *Store) GetTestResult(id string) (*TestResultDetail, error) {
 	row := s.db.QueryRow(
-		`SELECT id, name, status, timestamp, duration, success_rate, flows, error_output, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(plan_id,'') FROM test_results WHERE id = ?`, id,
+		`SELECT id, name, status, timestamp, duration, success_rate, flows, error_output, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(plan_id,''), COALESCE(total_credits,0) FROM test_results WHERE id = ?`, id,
 	)
 	var r TestResultDetail
 	var flowsJSON sql.NullString
-	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &flowsJSON, &r.ErrorOutput, &r.CreatedBy, &r.ProjectID, &r.PlanID)
+	err := row.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &flowsJSON, &r.ErrorOutput, &r.CreatedBy, &r.ProjectID, &r.PlanID, &r.TotalCredits)
 	if err != nil {
 		return nil, fmt.Errorf("test result not found: %s", id)
 	}
@@ -1297,7 +1298,7 @@ func (s *Store) UpdateProjectMemberRole(projectID, userID, role string) error {
 
 func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error) {
 	rows, err := s.db.Query(
-		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(modules,''), COALESCE(partial_result,''), created_at, updated_at FROM analyses WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
+		`SELECT id, game_url, status, step, framework, game_name, flow_count, COALESCE(created_by,''), COALESCE(project_id,''), COALESCE(modules,''), COALESCE(partial_result,''), created_at, updated_at, COALESCE(total_credits,0) FROM analyses WHERE project_id = ? ORDER BY created_at DESC LIMIT 200`, projectID,
 	)
 	if err != nil {
 		return nil, err
@@ -1307,7 +1308,7 @@ func (s *Store) ListAnalysesByProject(projectID string) ([]AnalysisRecord, error
 	var analyses []AnalysisRecord
 	for rows.Next() {
 		var a AnalysisRecord
-		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.PartialResult, &a.CreatedAt, &a.UpdatedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.GameURL, &a.Status, &a.Step, &a.Framework, &a.GameName, &a.FlowCount, &a.CreatedBy, &a.ProjectID, &a.Modules, &a.PartialResult, &a.CreatedAt, &a.UpdatedAt, &a.TotalCredits); err != nil {
 			continue
 		}
 		analyses = append(analyses, a)
@@ -1345,7 +1346,7 @@ func (s *Store) ListTestPlansByProject(projectID string) ([]TestPlanSummary, err
 
 func (s *Store) ListTestResultsByProject(projectID string) ([]TestResultSummary, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,'') FROM test_results WHERE project_id = ? ORDER BY timestamp DESC LIMIT 200`, projectID,
+		`SELECT id, name, status, timestamp, duration, success_rate, COALESCE(project_id,''), COALESCE(total_credits,0) FROM test_results WHERE project_id = ? ORDER BY timestamp DESC LIMIT 200`, projectID,
 	)
 	if err != nil {
 		return nil, err
@@ -1355,7 +1356,7 @@ func (s *Store) ListTestResultsByProject(projectID string) ([]TestResultSummary,
 	var summaries []TestResultSummary
 	for rows.Next() {
 		var r TestResultSummary
-		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID); err != nil {
+		if err := rows.Scan(&r.ID, &r.Name, &r.Status, &r.Timestamp, &r.Duration, &r.SuccessRate, &r.ProjectID, &r.TotalCredits); err != nil {
 			continue
 		}
 		summaries = append(summaries, r)
@@ -1429,4 +1430,17 @@ func formatSize(bytes int64) string {
 	default:
 		return fmt.Sprintf("%d B", bytes)
 	}
+}
+
+// UpdateAnalysisCost updates the cost tracking fields for an analysis.
+func (s *Store) UpdateAnalysisCost(id string, credits, inputTokens, outputTokens, apiCalls int, model string) error {
+	_, err := s.db.Exec(`UPDATE analyses SET total_credits=?, input_tokens=?, output_tokens=?, api_call_count=?, ai_model=? WHERE id=?`,
+		credits, inputTokens, outputTokens, apiCalls, model, id)
+	return err
+}
+
+// UpdateTestResultCredits updates the total credits for a test result.
+func (s *Store) UpdateTestResultCredits(id string, credits int) error {
+	_, err := s.db.Exec(`UPDATE test_results SET total_credits=? WHERE id=?`, credits, id)
+	return err
 }

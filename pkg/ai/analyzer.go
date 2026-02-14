@@ -63,7 +63,7 @@ func NewAnalyzerFromConfig(provider, apiKey, model string, temperature float64, 
 	return NewAnalyzer(client), nil
 }
 
-// emitCostEstimate sends a cost_estimate progress event with accumulated token usage.
+// emitCostEstimate sends a cost_estimate progress event with accumulated token usage as structured JSON.
 func (a *Analyzer) emitCostEstimate(progress func(step, message string)) {
 	if a.Usage.APICallCount == 0 {
 		return
@@ -73,11 +73,19 @@ func (a *Analyzer) emitCostEstimate(progress func(step, message string)) {
 		model = bc.Model
 	}
 	cost := a.Usage.EstimatedCost(model)
-	progress("cost_estimate", fmt.Sprintf(
-		"Tokens: %d in + %d out = %d total (%d cached) | Est. cost: $%.4f (%d API calls)",
-		a.Usage.InputTokens, a.Usage.OutputTokens, a.Usage.TotalTokens,
-		a.Usage.CacheReadInputTokens, cost, a.Usage.APICallCount,
-	))
+	data := map[string]interface{}{
+		"inputTokens":       a.Usage.InputTokens,
+		"outputTokens":      a.Usage.OutputTokens,
+		"cacheReadTokens":   a.Usage.CacheReadInputTokens,
+		"cacheCreateTokens": a.Usage.CacheCreationInputTokens,
+		"totalTokens":       a.Usage.TotalTokens,
+		"apiCallCount":      a.Usage.APICallCount,
+		"costUsd":           cost,
+		"credits":           int(math.Ceil(cost * 100)),
+		"model":             model,
+	}
+	jsonBytes, _ := json.Marshal(data)
+	progress("cost_estimate", string(jsonBytes))
 }
 
 // parseURLHints extracts game-relevant hints from URL parameters.

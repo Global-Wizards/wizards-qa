@@ -70,6 +70,10 @@
             Game Design
             <Badge v-if="gameDesignCount" variant="secondary" class="ml-1.5 text-xs px-1.5 py-0">{{ gameDesignCount }}</Badge>
           </TabsTrigger>
+          <TabsTrigger v-if="showGliTab" value="gli" :disabled="!gliCount">
+            GLI Compliance
+            <Badge v-if="gliCount" variant="secondary" class="ml-1.5 text-xs px-1.5 py-0">{{ gliCount }}</Badge>
+          </TabsTrigger>
           <TabsTrigger v-if="showFlowsTab" value="flows" :disabled="!flowCount">
             Test Flows
             <Badge v-if="flowCount" variant="secondary" class="ml-1.5 text-xs px-1.5 py-0">{{ flowCount }}</Badge>
@@ -97,6 +101,9 @@
           </TabsContent>
           <TabsContent v-if="showGameDesignTab" value="gamedesign">
             <FindingsTab :findings="analysis?.gameDesign" type="gamedesign" />
+          </TabsContent>
+          <TabsContent v-if="showGliTab" value="gli">
+            <FindingsTab :findings="analysis?.gliCompliance" type="gli" />
           </TabsContent>
           <TabsContent v-if="showFlowsTab" value="flows">
             <TestFlowsTab :flows="flows" :game-url="analysisData.gameUrl" />
@@ -199,10 +206,12 @@ const showUiuxTab = computed(() => enabledModules.value.uiux !== false)
 const showWordingTab = computed(() => enabledModules.value.wording !== false)
 const showGameDesignTab = computed(() => enabledModules.value.gameDesign !== false)
 const showFlowsTab = computed(() => enabledModules.value.testFlows !== false)
+const showGliTab = computed(() => enabledModules.value.gli === true)
 
 const uiuxCount = computed(() => analysis.value?.uiuxAnalysis?.length || 0)
 const wordingCount = computed(() => analysis.value?.wordingCheck?.length || 0)
 const gameDesignCount = computed(() => analysis.value?.gameDesign?.length || 0)
+const gliCount = computed(() => analysis.value?.gliCompliance?.length || 0)
 const flowCount = computed(() => flows.value?.length || 0)
 
 function goBack() {

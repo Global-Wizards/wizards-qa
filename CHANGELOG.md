@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.38.0] - 2026-02-13
+
+### Added
+- **GLI Compliance analysis module** — New optional analysis module that evaluates games against GLI (Gaming Laboratories International) compliance standards. Includes hierarchical jurisdiction selector (70+ jurisdictions across 5 regions), `GLIFinding` type with compliance categories (RNG fairness, RTP accuracy, responsible gaming, etc.), status tracking (compliant/non-compliant/needs_review), jurisdiction-specific findings, and GLI standard references. Full-stack implementation: `--no-gli` / `--gli-jurisdictions` CLI flags, backend pipeline with modules JSON persistence, `JurisdictionSelector.vue` component with tri-state checkbox tree, GLI tab in `AnalysisDetail.vue`, and extended `FindingsTab.vue` with GLI-specific rendering (status badges, jurisdiction pills, reference text).
+
+## [0.37.0] - 2026-02-13
+
+### Added
+- **Credits/cost tracking** — Full-stack cost tracking feature (1 credit = $0.01). `emitCostEstimate` now emits structured JSON with token counts, cost in USD, and credits. Agent `agent_step_detail` events include per-step token usage on the first tool block of each API call iteration. Database migrations add cost columns to `analyses`, `agent_steps`, and `test_results` tables. All CRUD methods persist and return token counts and credits. Both analysis PROGRESS handlers parse `cost_estimate` events and broadcast `analysis_cost` WebSocket messages in real time. Frontend `useAnalysis` composable tracks `totalCredits` and `liveStepCredits`, `AgentExplorationPanel` shows live credits in the header and per-step pills, `Analyze.vue` displays total credits in the completion summary, and `AgentStepNavigator` shows credits on persisted steps. Test executor (`agent_executor.go`) accumulates token usage across AI calls and persists credits via `UpdateTestResultCredits`, broadcasting `test_cost` WebSocket messages. Frontend `useTestExecution` exposes a reactive `totalCredits` ref.
+
 ## [0.36.1] - 2026-02-13
 
 ### Fixed
