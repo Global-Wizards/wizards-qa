@@ -443,7 +443,7 @@ onMounted(async () => {
     activeTab.value = initialTab
   }
 
-  const [testsResult] = await Promise.allSettled([
+  await Promise.allSettled([
     (async () => {
       try {
         const data = projectId.value

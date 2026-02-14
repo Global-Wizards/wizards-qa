@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"net/url"
 	"os"
@@ -125,7 +126,11 @@ func (a *Analyzer) emitCostEstimate(progress func(step, message string)) {
 	if secondaryModel != "" {
 		data["secondaryModel"] = secondaryModel
 	}
-	jsonBytes, _ := json.Marshal(data)
+	jsonBytes, err := json.Marshal(data)
+	if err != nil {
+		log.Printf("Warning: failed to marshal cost estimate: %v", err)
+		return
+	}
 	progress("cost_estimate", string(jsonBytes))
 }
 
@@ -340,7 +345,11 @@ func buildPageMetaJSON(pageMeta *scout.PageMeta) []byte {
 		Links:       pageMeta.Links,
 		JSGlobals:   pageMeta.JSGlobals,
 	}
-	data, _ := json.MarshalIndent(promptMeta, "", "  ")
+	data, err := json.MarshalIndent(promptMeta, "", "  ")
+	if err != nil {
+		log.Printf("Warning: failed to marshal page meta JSON: %v", err)
+		return []byte("{}")
+	}
 	return data
 }
 
@@ -408,7 +417,11 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 	pageMetaJSON := buildPageMetaJSON(pageMeta)
 
 	urlHints := parseURLHints(gameURL)
-	urlHintsJSON, _ := json.Marshal(urlHints)
+	urlHintsJSON, err := json.Marshal(urlHints)
+	if err != nil {
+		log.Printf("Warning: failed to marshal URL hints: %v", err)
+		urlHintsJSON = []byte("{}")
+	}
 
 	screenshotSection := ""
 	switch len(screenshots) {
@@ -524,8 +537,14 @@ Respond with structured JSON matching the ComprehensiveAnalysisResult format (ga
 
 	// Write checkpoint after analysis succeeds
 	if opts.checkpointDir != "" && comprehensiveResult != nil {
-		pageMetaJSON, _ := json.Marshal(pageMeta)
-		analysisJSON, _ := json.Marshal(comprehensiveResult)
+		pageMetaJSON, pmErr := json.Marshal(pageMeta)
+		if pmErr != nil {
+			log.Printf("Warning: failed to marshal page meta for checkpoint: %v", pmErr)
+		}
+		analysisJSON, aErr := json.Marshal(comprehensiveResult)
+		if aErr != nil {
+			log.Printf("Warning: failed to marshal analysis for checkpoint: %v", aErr)
+		}
 		if cpErr := WriteCheckpoint(opts.checkpointDir, CheckpointData{
 			Step:     "analyzed",
 			PageMeta: pageMetaJSON,
@@ -636,7 +655,10 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 		EdgeCases:  result.EdgeCases,
 		Scenarios:  scenarios,
 	}
-	analysisJSON, _ := json.MarshalIndent(analysisForFlow, "", "  ")
+	analysisJSON, err := json.MarshalIndent(analysisForFlow, "", "  ")
+	if err != nil {
+		return nil, fmt.Errorf("marshaling analysis for flow generation: %w", err)
+	}
 
 	screenshotSection := ""
 	switch len(screenshots) {

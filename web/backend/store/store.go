@@ -8,10 +8,10 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
 
+	"github.com/Global-Wizards/wizards-qa/pkg/util"
 	"gopkg.in/yaml.v3"
 )
 
@@ -19,8 +19,8 @@ import (
 var ErrNotFound = errors.New("not found")
 
 var (
-	varPattern    = regexp.MustCompile(`\{\{(\w+)\}\}`)
-	safeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-]+$`)
+	varPattern    = util.VarPattern
+	safeNameRegex = util.SafeNameRegex
 )
 
 type Store struct {
@@ -836,6 +836,10 @@ func (s *Store) recentTests(limit int) []TestResultSummary {
 }
 
 func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
+	return s.buildHistoryFromDBFiltered(days, "")
+}
+
+func (s *Store) buildHistoryFromDBFiltered(days int, projectID string) []HistoryPoint {
 	now := time.Now()
 	history := make([]HistoryPoint, 0, days)
 
@@ -848,12 +852,25 @@ func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
 	}
 
 	cutoff := now.AddDate(0, 0, -days).Format(time.RFC3339)
-	rows, err := s.db.Query(
-		`SELECT DATE(timestamp) AS day, status, COUNT(*) AS cnt
-		 FROM test_results
-		 WHERE timestamp >= ?
-		 GROUP BY day, status`, cutoff)
-	if err == nil {
+
+	var rows *sql.Rows
+	var err error
+	if projectID != "" {
+		rows, err = s.db.Query(
+			`SELECT DATE(timestamp) AS day, status, COUNT(*) AS cnt
+			 FROM test_results
+			 WHERE timestamp >= ? AND project_id = ?
+			 GROUP BY day, status`, cutoff, projectID)
+	} else {
+		rows, err = s.db.Query(
+			`SELECT DATE(timestamp) AS day, status, COUNT(*) AS cnt
+			 FROM test_results
+			 WHERE timestamp >= ?
+			 GROUP BY day, status`, cutoff)
+	}
+	if err != nil {
+		log.Printf("Warning: failed to query test history: %v", err)
+	} else {
 		defer rows.Close()
 		for rows.Next() {
 			var day, status string
@@ -874,6 +891,9 @@ func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
 					pt.Failed += cnt
 				}
 			}
+		}
+		if err := rows.Err(); err != nil {
+			log.Printf("Warning: error iterating test history rows: %v", err)
 		}
 	}
 
@@ -1360,7 +1380,7 @@ func (s *Store) GetStatsByProject(projectID string) (*Stats, error) {
 	}
 
 	recent := s.recentTestsByProject(projectID, 10)
-	history := s.buildHistoryFromDB(14) // reuse global for now
+	history := s.buildHistoryFromDBFiltered(14, projectID)
 
 	var totalAnalyses, totalPlans int
 	if err := s.db.QueryRow(`SELECT (SELECT COUNT(*) FROM analyses WHERE project_id = ?), (SELECT COUNT(*) FROM test_plans WHERE project_id = ?)`, projectID, projectID).Scan(&totalAnalyses, &totalPlans); err != nil {

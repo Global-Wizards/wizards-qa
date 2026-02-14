@@ -36,7 +36,7 @@ type runningTest struct {
 
 const maxRunningTestLogs = 500
 
-var safeNameRegex = regexp.MustCompile(`^[a-zA-Z0-9_\-\s.]+$`)
+var safeNameRegex = util.SafeNameRegex
 
 // executeTestRun runs the wizards-qa CLI as a subprocess and streams progress via WebSocket.
 // Must be called in a goroutine with panic recovery (see launchTestRun).
@@ -471,10 +471,8 @@ func (s *Server) regenerateFlowsFromAnalysis(analysisID string) error {
 }
 
 // varSubstitute replaces {{VAR}} patterns in a single pass.
-var varRegex = regexp.MustCompile(`\{\{(\w+)\}\}`)
-
 func varSubstitute(content string, vars map[string]string) string {
-	return varRegex.ReplaceAllStringFunc(content, func(match string) string {
+	return util.VarPattern.ReplaceAllStringFunc(content, func(match string) string {
 		key := match[2 : len(match)-2]
 		if val, ok := vars[key]; ok {
 			return val

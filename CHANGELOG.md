@@ -5,6 +5,20 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.1] - 2026-02-14
+
+### Fixed
+- **Bug: Project stats showed global history** — `GetStatsByProject()` now calls `buildHistoryFromDBFiltered(projectID)` instead of the global `buildHistoryFromDB()`, returning project-scoped test history.
+- **Silent `json.Marshal` errors** — 6 calls in `analyzer.go` now log warnings or return errors instead of discarding failures with `_`.
+- **Dead code: duplicate `isValidUrl`** — Removed local copy in `EditTestPlan.vue`; imports from `@/lib/utils`.
+- **Unused variable** — Removed unused `testsResult` destructure from `Promise.allSettled` in `Tests.vue`.
+
+### Improved
+- **DRY: Shared regex patterns** — Consolidated duplicate `varPattern`/`varRegex` and inconsistent `safeNameRegex` from `executor.go` and `store.go` into `pkg/util/patterns.go`. Store now uses the same pattern (allows spaces/periods) as executor.
+- **Missing indexes** — Added `projects(updated_at DESC)` and `users(created_at)` indexes for ORDER BY queries in `ListProjects()` and `ListUsers()`.
+- **`rows.Err()` check** — `buildHistoryFromDBFiltered()` now checks for iteration errors and logs query failures.
+- **Memoized `parsedModules`** — `AnalysisList.vue` caches `JSON.parse` results in a `WeakMap` to avoid re-parsing on every filter change.
+
 ## [0.40.0] - 2026-02-14
 
 ### Improved

@@ -206,6 +206,8 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_analyses_status ON analyses(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_plans_status ON test_plans(status)`,
 		`CREATE INDEX IF NOT EXISTS idx_analyses_game_url ON analyses(game_url)`,
+		`CREATE INDEX IF NOT EXISTS idx_projects_updated ON projects(updated_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_users_created ON users(created_at)`,
 	}
 	for _, stmt := range indexes {
 		if _, err := db.Exec(stmt); err != nil {

@@ -109,9 +109,15 @@ const moduleFilters = reactive([
   { key: 'testFlows', label: 'Flows', icon: PlayCircle, active: false },
 ])
 
+const modulesCache = new WeakMap()
 function parsedModules(item) {
   if (!item.modules) return null
-  try { return JSON.parse(item.modules) } catch { return null }
+  if (modulesCache.has(item)) return modulesCache.get(item)
+  try {
+    const parsed = JSON.parse(item.modules)
+    modulesCache.set(item, parsed)
+    return parsed
+  } catch { return null }
 }
 
 const filteredAnalyses = computed(() => {

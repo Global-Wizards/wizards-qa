@@ -344,6 +344,7 @@ import { Codemirror } from 'vue-codemirror'
 import { yaml } from '@codemirror/lang-yaml'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { testPlansApi, flowsApi } from '@/lib/api'
+import { isValidUrl } from '@/lib/utils'
 import { formatDate } from '@/lib/dateUtils'
 import { useTheme } from '@/composables/useTheme'
 import { Card, CardContent } from '@/components/ui/card'
@@ -455,15 +456,6 @@ const hasChanges = computed(() => {
   if (JSON.stringify(currentVars) !== JSON.stringify(snapshot.variables)) return true
   return false
 })
-
-function isValidUrl(str) {
-  try {
-    const url = new URL(str)
-    return url.protocol === 'http:' || url.protocol === 'https:'
-  } catch {
-    return false
-  }
-}
 
 function entriesToMap(entries) {
   const map = {}
