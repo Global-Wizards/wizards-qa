@@ -90,10 +90,17 @@ router.isReady().then(() => {
 
   // Load user on startup
   const { loadUser } = useAuth()
-  loadUser().then(() => {
-    const { isAuthenticated } = useAuth()
-    if (!isAuthenticated.value && window.location.pathname !== '/login') {
-      router.push('/login')
-    }
-  })
+  loadUser()
+    .then(() => {
+      const { isAuthenticated } = useAuth()
+      if (!isAuthenticated.value && window.location.pathname !== '/login') {
+        router.push('/login')
+      }
+    })
+    .catch(() => {
+      // Auth initialization failed — redirect to login
+      if (window.location.pathname !== '/login') {
+        router.push('/login')
+      }
+    })
 })

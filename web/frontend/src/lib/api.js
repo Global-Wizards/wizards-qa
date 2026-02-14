@@ -176,6 +176,7 @@ export const analysesApi = {
   export: (id, format = 'json') =>
     axios.get(`/api/analyses/${id}/export?format=${format}`, {
       responseType: 'blob',
+      timeout: 60000,
       headers: { Authorization: `Bearer ${localStorage.getItem(STORAGE_KEYS.accessToken)}` },
     }).then((r) => {
       const ext = format === 'markdown' ? 'md' : 'json'

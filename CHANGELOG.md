@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.6] - 2026-02-14
+
+### Fixed
+- **Nil pointer panics in headless browser Eval results** — All `page.Eval()` call sites in `headless.go` now check for nil results before accessing `.Value`. Rod can return nil results without an error in edge cases (page navigation during eval, detached frames). Affected: `CaptureScreenshot`, `Click`, `EvalJS`, `GetPageInfo`, canvas polling, and JS global detection (both `ScoutURLHeadless` and `ScoutURLHeadlessKeepAlive`).
+- **Viewport nil safety in agent executor** — Added a nil guard after the fallback `GetViewportByName` call, preventing a potential panic if the default viewport preset is missing.
+- **Unhandled promise rejection on auth init** — `loadUser()` in `main.js` now has a `.catch()` handler that redirects to `/login` on failure, preventing uncaught promise rejections.
+- **Export API call missing timeout** — The analysis export download now has a 60-second timeout instead of no timeout, preventing indefinite hangs on large exports.
+- **Suppressed WaitIdle lint warnings** — All `WaitIdle()` calls now explicitly discard the error with `_ =` to indicate the timeout is intentional and best-effort.
+
 ## [0.41.5] - 2026-02-14
 
 ### Fixed

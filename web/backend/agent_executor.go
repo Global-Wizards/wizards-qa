@@ -91,6 +91,10 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 	if vp == nil {
 		vp = scout.GetViewportByName(scout.DefaultViewportName)
 	}
+	if vp == nil {
+		s.finishTestRun(planID, testID, planName, startTime, nil, fmt.Errorf("no viewport preset found for %q", viewport), createdBy)
+		return
+	}
 
 	// Create AI client
 	apiKey := os.Getenv("ANTHROPIC_API_KEY")

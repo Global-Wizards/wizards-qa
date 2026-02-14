@@ -40,7 +40,7 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 		}
 		return '';
 	}`)
-	if err == nil {
+	if err == nil && result != nil {
 		dataURL := result.Value.Str()
 		if strings.HasPrefix(dataURL, "data:image/") {
 			parts := strings.SplitN(dataURL, ",", 2)
@@ -89,7 +89,7 @@ func (r *RodBrowserPage) Click(x, y int) error {
 	if err != nil {
 		return fmt.Errorf("click at (%d,%d): %w", x, y, err)
 	}
-	if result.Value.Str() == "no_element" {
+	if result == nil || result.Value.Str() == "no_element" {
 		return fmt.Errorf("click at (%d,%d): no element at coordinates", x, y)
 	}
 	return nil
@@ -120,6 +120,9 @@ func (r *RodBrowserPage) EvalJS(expr string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("JS eval failed: %w", err)
 	}
+	if result == nil {
+		return "", nil
+	}
 	return result.Value.Str(), nil
 }
 
@@ -149,7 +152,7 @@ func (r *RodBrowserPage) GetPageInfo() (title, pageURL, visibleText string, err 
 		const text = document.body ? document.body.innerText : '';
 		return text.substring(0, 3000);
 	}`)
-	if evalErr == nil {
+	if evalErr == nil && result != nil {
 		visibleText = result.Value.Str()
 	}
 	return title, pageURL, visibleText, nil
@@ -173,7 +176,7 @@ func (r *RodBrowserPage) Navigate(url string) error {
 	if err := r.page.WaitLoad(); err != nil {
 		return fmt.Errorf("wait load after navigate: %w", err)
 	}
-	r.page.WaitIdle(3 * time.Second)
+	_ = r.page.WaitIdle(3 * time.Second) // best-effort; timeout is not an error
 	return nil
 }
 
@@ -331,7 +334,7 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		return nil, nil, nil, fmt.Errorf("waiting for page load: %w", err)
 	}
 
-	page.Context(ctx).WaitIdle(1500 * time.Millisecond)
+	_ = page.Context(ctx).WaitIdle(1500 * time.Millisecond) // best-effort
 
 	// Wait for canvas + game framework readiness with exponential backoff polling
 	canvasFound := false
@@ -350,7 +353,7 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 			if (canvas.width > 0 && canvas.height > 0) return 'canvas_ok';
 			return 'waiting';
 		}`)
-		if evalErr == nil {
+		if evalErr == nil && ready != nil {
 			state := ready.Value.Str()
 			if state == "ready" || state == "canvas_ok" || state == "error_visible" {
 				canvasFound = true
@@ -392,8 +395,11 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		if (canvases.length > 0) found.push("canvas:" + canvases.length);
 		return found;
 	}`)
-	if evalErr == nil && globals.Value.Arr() != nil {
+	if evalErr == nil && globals != nil && globals.Value.Arr() != nil {
 		for _, v := range globals.Value.Arr() {
+			if v.Nil() {
+				continue
+			}
 			meta.JSGlobals = append(meta.JSGlobals, v.Str())
 		}
 		detectFrameworkFromGlobals(meta)
@@ -527,14 +533,14 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	}
 
 	// Extended wait for JS frameworks to initialize
-	page.Context(ctx).WaitIdle(3 * time.Second)
+	_ = page.Context(ctx).WaitIdle(3 * time.Second) // best-effort
 
 	// Wait for canvas to appear with exponential backoff polling
 	canvasFound := false
 	canvasPollInterval := 100 * time.Millisecond
 	for i := 0; i < 15; i++ {
 		hasCanvas, evalErr := page.Eval(`() => document.querySelector('canvas') !== null`)
-		if evalErr == nil && hasCanvas.Value.Bool() {
+		if evalErr == nil && hasCanvas != nil && hasCanvas.Value.Bool() {
 			canvasFound = true
 			break
 		}
@@ -571,8 +577,11 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 		if (canvases.length > 0) found.push("canvas:" + canvases.length);
 		return found;
 	}`)
-	if evalErr == nil && globals.Value.Arr() != nil {
+	if evalErr == nil && globals != nil && globals.Value.Arr() != nil {
 		for _, v := range globals.Value.Arr() {
+			if v.Nil() {
+				continue
+			}
 			meta.JSGlobals = append(meta.JSGlobals, v.Str())
 		}
 		// Update framework from JS globals (authoritative)
