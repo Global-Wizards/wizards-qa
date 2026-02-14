@@ -516,7 +516,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 		var synthResp *ToolUseResponse
 		synthAttempt := 0
-		synthErr := retry.Do(ctx, retryCfg, func() error {
+		synthErr := retry.DoWithRetryable(ctx, retryCfg, IsRetryableAPIError, func() error {
 			synthAttempt++
 			if synthAttempt > 1 {
 				progress("synthesis_retry", fmt.Sprintf("Retrying synthesis (attempt %d/%d)...", synthAttempt, retryCfg.MaxAttempts))
@@ -541,10 +541,14 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	} else {
 		// Flatten messages to plaintext and use Generate() — works with any client
 		explorationHistory := flattenMessagesForSynthesis(messages)
+		// Cap exploration text to ~100K chars (~25K tokens) to stay within Gemini limits
+		if len(explorationHistory) > 100000 {
+			explorationHistory = explorationHistory[:100000] + "\n[... exploration truncated for synthesis ...]"
+		}
 		fullPrompt := explorationHistory + "\n\n" + synthesisPrompt
 
 		synthAttempt := 0
-		synthErr := retry.Do(ctx, retryCfg, func() error {
+		synthErr := retry.DoWithRetryable(ctx, retryCfg, IsRetryableAPIError, func() error {
 			synthAttempt++
 			if synthAttempt > 1 {
 				progress("synthesis_retry", fmt.Sprintf("Retrying synthesis (attempt %d/%d)...", synthAttempt, retryCfg.MaxAttempts))

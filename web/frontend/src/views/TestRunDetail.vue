@@ -317,6 +317,7 @@
 <script setup>
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useProjectPath } from '@/composables/useProjectPath'
 import {
   Loader2, CheckCircle2, XCircle, Terminal, Copy, ChevronDown,
   ArrowDown, ArrowLeft, RefreshCw,
@@ -434,25 +435,17 @@ watch(() => logs.value.length, () => {
 })
 
 // Navigation
-const projectId = computed(() => route.params.projectId || '')
+const { basePath } = useProjectPath()
 
 function goBack() {
-  if (projectId.value) {
-    router.push(`/projects/${projectId.value}/tests?tab=plans`)
-  } else {
-    router.push('/tests?tab=plans')
-  }
+  router.push(`${basePath.value}/tests?tab=plans`)
 }
 
 async function rerun() {
   if (!planId.value) return
   try {
     const data = await testPlansApi.run(planId.value, { mode: execMode.value || 'browser' })
-    if (projectId.value) {
-      router.replace(`/projects/${projectId.value}/tests/run/${data.testId}`)
-    } else {
-      router.replace(`/tests/run/${data.testId}`)
-    }
+    router.replace(`${basePath.value}/tests/run/${data.testId}`)
     startExecution(data.testId, planId.value, planName.value)
   } catch (err) {
     alert('Failed to re-run: ' + (err.message || 'Unknown error'))

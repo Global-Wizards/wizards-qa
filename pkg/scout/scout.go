@@ -175,9 +175,13 @@ func HandleScript(n *html.Node, meta *PageMeta, allScriptContent *strings.Builde
 			return
 		}
 	}
-	// Inline script — walk all children for framework detection
+	// Inline script — walk all children for framework detection (capped at 512KB)
+	const maxScriptContentBytes = 512 * 1024
 	for c := n.FirstChild; c != nil; c = c.NextSibling {
 		if c.Type == html.TextNode {
+			if allScriptContent.Len() >= maxScriptContentBytes {
+				return
+			}
 			allScriptContent.WriteString(c.Data)
 			allScriptContent.WriteString("\n")
 		}

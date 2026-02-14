@@ -207,9 +207,10 @@
 import { ref, computed, h, onMounted, onUnmounted } from 'vue'
 import { refDebounced } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
+import { useProjectPath } from '@/composables/useProjectPath'
 import { AlertCircle, Play, Trash2, Eye, Loader2, Pencil } from 'lucide-vue-next'
 import { createColumnHelper } from '@tanstack/vue-table'
-import { testsApi, testPlansApi, testPlansDeleteApi, projectsApi } from '@/lib/api'
+import { testsApi, testPlansApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { getWebSocket } from '@/lib/websocket'
 import { Card, CardContent } from '@/components/ui/card'
@@ -226,7 +227,7 @@ import LoadingSkeleton from '@/components/LoadingSkeleton.vue'
 
 const route = useRoute()
 const router = useRouter()
-const projectId = computed(() => route.params.projectId || '')
+const { projectId, basePath } = useProjectPath()
 
 const activeTab = ref('results')
 const loading = ref(true)
@@ -312,13 +313,11 @@ const plans = ref([])
 const runError = ref(null)
 
 function openDetail(test) {
-  const base = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${base}/tests/run/${test.id}`)
+  router.push(`${basePath.value}/tests/run/${test.id}`)
 }
 
 function navigateToRunning(plan) {
-  const base = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${base}/tests/run/${plan.lastRunId}`)
+  router.push(`${basePath.value}/tests/run/${plan.lastRunId}`)
 }
 
 function openPlanEditor(plan) {
@@ -326,8 +325,7 @@ function openPlanEditor(plan) {
     navigateToRunning(plan)
     return
   }
-  const base = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${base}/tests/plans/${plan.id}`)
+  router.push(`${basePath.value}/tests/plans/${plan.id}`)
 }
 
 async function deleteTest(test) {
@@ -370,9 +368,8 @@ async function runPlan(plan, mode = 'browser') {
     const data = await testPlansApi.run(plan.id, opts)
     plan.status = 'running'
     plan.lastRunId = data.testId
-    const base = projectId.value ? `/projects/${projectId.value}` : ''
     router.push({
-      path: `${base}/tests/run/${data.testId}`,
+      path: `${basePath.value}/tests/run/${data.testId}`,
       query: { fresh: '1', planId: plan.id, planName: plan.name },
     })
   } catch (err) {
@@ -383,7 +380,7 @@ async function runPlan(plan, mode = 'browser') {
 async function deletePlan(plan) {
   if (!confirm(`Delete test plan "${plan.name}"? This cannot be undone.`)) return
   try {
-    await testPlansDeleteApi.delete(plan.id)
+    await testPlansApi.delete(plan.id)
     plans.value = plans.value.filter((p) => p.id !== plan.id)
   } catch (err) {
     runError.value = 'Failed to delete plan: ' + err.message
@@ -446,18 +443,21 @@ onMounted(async () => {
     activeTab.value = initialTab
   }
 
-  try {
-    const data = projectId.value
-      ? await projectsApi.tests(projectId.value)
-      : await testsApi.list()
-    tests.value = data.tests || []
-  } catch (err) {
-    error.value = err.message
-  } finally {
-    loading.value = false
-  }
-
-  await loadPlans()
+  const [testsResult] = await Promise.allSettled([
+    (async () => {
+      try {
+        const data = projectId.value
+          ? await projectsApi.tests(projectId.value)
+          : await testsApi.list()
+        tests.value = data.tests || []
+      } catch (err) {
+        error.value = err.message
+      } finally {
+        loading.value = false
+      }
+    })(),
+    loadPlans(),
+  ]
 
   // Auto-switch to plans tab when results are empty but plans exist (only when no explicit tab param)
   if (!route.query.tab && tests.value.length === 0 && plans.value.length > 0) {

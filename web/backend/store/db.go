@@ -203,6 +203,9 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_test_results_project_created ON test_results(project_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_plans_project_created ON test_plans(project_id, created_at DESC)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_results_timestamp ON test_results(timestamp)`,
+		`CREATE INDEX IF NOT EXISTS idx_analyses_status ON analyses(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_test_plans_status ON test_plans(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_analyses_game_url ON analyses(game_url)`,
 	}
 	for _, stmt := range indexes {
 		if _, err := db.Exec(stmt); err != nil {
@@ -211,6 +214,22 @@ func runMigrations(db *sql.DB) error {
 	}
 
 	return nil
+}
+
+// collectGameURLs executes a query that returns a single TEXT column and adds each value to dst.
+func collectGameURLs(db *sql.DB, query string, dst map[string]bool) {
+	rows, err := db.Query(query)
+	if err != nil {
+		log.Printf("collectGameURLs: %v", err)
+		return
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var u string
+		if rows.Scan(&u) == nil {
+			dst[u] = true
+		}
+	}
 }
 
 // MigrateToProjects auto-creates projects from existing game_url data.
@@ -233,90 +252,70 @@ func (s *Store) MigrateToProjects() {
 
 	// Collect distinct game_urls
 	urls := make(map[string]bool)
-	rows, err := s.db.Query(`SELECT DISTINCT game_url FROM analyses WHERE project_id = '' AND game_url != ''`)
-	if err == nil {
-		defer rows.Close()
-		for rows.Next() {
-			var u string
-			if rows.Scan(&u) == nil {
-				urls[u] = true
-			}
-		}
-	}
-	rows2, err := s.db.Query(`SELECT DISTINCT game_url FROM test_plans WHERE project_id = '' AND game_url != ''`)
-	if err == nil {
-		defer rows2.Close()
-		for rows2.Next() {
-			var u string
-			if rows2.Scan(&u) == nil {
-				urls[u] = true
-			}
-		}
-	}
+	collectGameURLs(s.db, `SELECT DISTINCT game_url FROM analyses WHERE project_id = '' AND game_url != ''`, urls)
+	collectGameURLs(s.db, `SELECT DISTINCT game_url FROM test_plans WHERE project_id = '' AND game_url != ''`, urls)
 
 	created := 0
 	now := time.Now().Format(time.RFC3339)
 
 	for gameURL := range urls {
-		// Derive project name from hostname
-		name := gameURL
-		if parsed, err := neturl.Parse(gameURL); err == nil && parsed.Host != "" {
-			name = parsed.Host
+		if migrateOneProject(s, gameURL, now, created) {
+			created++
 		}
-
-		projectID := fmt.Sprintf("proj-%d-%d", time.Now().UnixNano(), created)
-
-		// Wrap INSERT + UPDATEs in a transaction to prevent partial migration
-		tx, err := s.db.Begin()
-		if err != nil {
-			log.Printf("MigrateToProjects: failed to begin transaction for %s: %v", gameURL, err)
-			continue
-		}
-		defer tx.Rollback() // no-op after successful Commit
-
-		_, err = tx.Exec(
-			`INSERT INTO projects (id, name, game_url, description, color, icon, tags, settings, created_at, updated_at)
-			 VALUES (?, ?, ?, '', '#6366f1', 'gamepad-2', '[]', '{}', ?, ?)`,
-			projectID, name, gameURL, now, now,
-		)
-		if err != nil {
-			tx.Rollback()
-			log.Printf("MigrateToProjects: failed to create project for %s: %v", gameURL, err)
-			continue
-		}
-
-		// Assign analyses
-		if _, err := tx.Exec(`UPDATE analyses SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
-			tx.Rollback()
-			log.Printf("MigrateToProjects: failed to assign analyses for %s: %v", gameURL, err)
-			continue
-		}
-		// Assign test plans
-		if _, err := tx.Exec(`UPDATE test_plans SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
-			tx.Rollback()
-			log.Printf("MigrateToProjects: failed to assign test plans for %s: %v", gameURL, err)
-			continue
-		}
-		// Assign test results via test plan's last_run_id
-		if _, err := tx.Exec(`UPDATE test_results SET project_id = ? WHERE id IN (
-			SELECT last_run_id FROM test_plans WHERE project_id = ? AND last_run_id != ''
-		)`, projectID, projectID); err != nil {
-			tx.Rollback()
-			log.Printf("MigrateToProjects: failed to assign test results for project %s: %v", projectID, err)
-			continue
-		}
-
-		if err := tx.Commit(); err != nil {
-			log.Printf("MigrateToProjects: failed to commit transaction for %s: %v", gameURL, err)
-			continue
-		}
-
-		created++
 	}
 
 	if created > 0 {
 		log.Printf("MigrateToProjects: auto-created %d project(s) from existing game_url data", created)
 	}
+}
+
+// migrateOneProject handles a single project migration inside its own function scope
+// so that defer tx.Rollback() fires at the correct time (per-iteration, not at function exit).
+func migrateOneProject(s *Store, gameURL, now string, index int) bool {
+	name := gameURL
+	if parsed, err := neturl.Parse(gameURL); err == nil && parsed.Host != "" {
+		name = parsed.Host
+	}
+
+	projectID := fmt.Sprintf("proj-%d-%d", time.Now().UnixNano(), index)
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		log.Printf("MigrateToProjects: failed to begin transaction for %s: %v", gameURL, err)
+		return false
+	}
+	defer tx.Rollback() // no-op after successful Commit
+
+	if _, err = tx.Exec(
+		`INSERT INTO projects (id, name, game_url, description, color, icon, tags, settings, created_at, updated_at)
+		 VALUES (?, ?, ?, '', '#6366f1', 'gamepad-2', '[]', '{}', ?, ?)`,
+		projectID, name, gameURL, now, now,
+	); err != nil {
+		log.Printf("MigrateToProjects: failed to create project for %s: %v", gameURL, err)
+		return false
+	}
+
+	if _, err := tx.Exec(`UPDATE analyses SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
+		log.Printf("MigrateToProjects: failed to assign analyses for %s: %v", gameURL, err)
+		return false
+	}
+	if _, err := tx.Exec(`UPDATE test_plans SET project_id = ? WHERE game_url = ? AND project_id = ''`, projectID, gameURL); err != nil {
+		log.Printf("MigrateToProjects: failed to assign test plans for %s: %v", gameURL, err)
+		return false
+	}
+	if _, err := tx.Exec(`UPDATE test_results SET project_id = ? WHERE id IN (
+		SELECT last_run_id FROM test_plans WHERE project_id = ? AND last_run_id != ''
+	)`, projectID, projectID); err != nil {
+		log.Printf("MigrateToProjects: failed to assign test results for project %s: %v", projectID, err)
+		return false
+	}
+
+	if err := tx.Commit(); err != nil {
+		log.Printf("MigrateToProjects: failed to commit transaction for %s: %v", gameURL, err)
+		return false
+	}
+
+	return true
 }
 
 // MigrateFromJSON performs a one-time migration of existing JSON data files into SQLite.
@@ -349,6 +348,13 @@ func (s *Store) migrateAnalyses(dataDir string) {
 		return
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		log.Printf("Migration: failed to begin transaction for analyses: %v", err)
+		return
+	}
+	defer tx.Rollback() // no-op after successful Commit
+
 	migrated := 0
 	for _, a := range file.Analyses {
 		resultJSON, marshalErr := marshalToPtr(a.Result)
@@ -366,7 +372,7 @@ func (s *Store) migrateAnalyses(dataDir string) {
 			updatedAt = now
 		}
 
-		_, err := s.db.Exec(
+		_, err := tx.Exec(
 			`INSERT OR IGNORE INTO analyses (id, game_url, status, step, framework, game_name, flow_count, result, created_at, updated_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			a.ID, a.GameURL, a.Status, a.Step, a.Framework, a.GameName, a.FlowCount, resultJSON, createdAt, updatedAt,
@@ -376,6 +382,10 @@ func (s *Store) migrateAnalyses(dataDir string) {
 			continue
 		}
 		migrated++
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("Migration: failed to commit analyses transaction: %v", err)
+		return
 	}
 	if migrated > 0 {
 		log.Printf("Migration: migrated %d analyses from JSON", migrated)
@@ -400,6 +410,13 @@ func (s *Store) migrateTestResults(dataDir string) {
 		file.Results = results
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		log.Printf("Migration: failed to begin transaction for test results: %v", err)
+		return
+	}
+	defer tx.Rollback() // no-op after successful Commit
+
 	migrated := 0
 	for _, r := range file.Results {
 		flowsJSON, marshalErr := marshalToPtr(r.Flows)
@@ -412,7 +429,7 @@ func (s *Store) migrateTestResults(dataDir string) {
 			ts = time.Now().Format(time.RFC3339)
 		}
 
-		_, err := s.db.Exec(
+		_, err := tx.Exec(
 			`INSERT OR IGNORE INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.ID, r.Name, r.Status, ts, r.Duration, r.SuccessRate, flowsJSON, r.ErrorOutput, ts,
@@ -422,6 +439,10 @@ func (s *Store) migrateTestResults(dataDir string) {
 			continue
 		}
 		migrated++
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("Migration: failed to commit test results transaction: %v", err)
+		return
 	}
 	if migrated > 0 {
 		log.Printf("Migration: migrated %d test results from JSON", migrated)
@@ -441,6 +462,13 @@ func (s *Store) migrateTestPlans(dataDir string) {
 		return
 	}
 
+	tx, err := s.db.Begin()
+	if err != nil {
+		log.Printf("Migration: failed to begin transaction for test plans: %v", err)
+		return
+	}
+	defer tx.Rollback() // no-op after successful Commit
+
 	migrated := 0
 	for _, p := range file.Plans {
 		flowNamesJSON, marshalErr := marshalToPtr(p.FlowNames)
@@ -458,7 +486,7 @@ func (s *Store) migrateTestPlans(dataDir string) {
 			createdAt = time.Now().Format(time.RFC3339)
 		}
 
-		_, err := s.db.Exec(
+		_, err := tx.Exec(
 			`INSERT OR IGNORE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_at)
 			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			p.ID, p.Name, p.Description, p.GameURL, flowNamesJSON, variablesJSON, p.Status, p.LastRunID, createdAt,
@@ -468,6 +496,10 @@ func (s *Store) migrateTestPlans(dataDir string) {
 			continue
 		}
 		migrated++
+	}
+	if err := tx.Commit(); err != nil {
+		log.Printf("Migration: failed to commit test plans transaction: %v", err)
+		return
 	}
 	if migrated > 0 {
 		log.Printf("Migration: migrated %d test plans from JSON", migrated)

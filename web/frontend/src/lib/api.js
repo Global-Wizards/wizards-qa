@@ -189,10 +189,6 @@ export const analysesApi = {
     }),
 }
 
-export const testPlansDeleteApi = {
-  delete: (id) => api.delete(`/test-plans/${id}`),
-}
-
 export const projectsApi = {
   list: () => api.get('/projects'),
   get: (id) => api.get(`/projects/${id}`),

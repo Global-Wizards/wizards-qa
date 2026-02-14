@@ -77,10 +77,12 @@
 
 <script setup>
 import { ref, computed, reactive, onMounted, h } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useIntervalFn, useClipboard } from '@vueuse/core'
+import { useRouter } from 'vue-router'
+import { useProjectPath } from '@/composables/useProjectPath'
+import { useIntervalFn, useClipboard, refDebounced } from '@vueuse/core'
 import { createColumnHelper } from '@tanstack/vue-table'
 import { analysesApi, projectsApi } from '@/lib/api'
+import { statusVariant } from '@/lib/utils'
 import { timeAgo, fullTimestamp } from '@/lib/dateUtils'
 import { Plus, RefreshCw, Trash2, Loader2, Sparkles, Eye, Type, Gamepad2, PlayCircle, Copy, Check } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
@@ -91,13 +93,13 @@ import { Tooltip, TooltipTrigger, TooltipContent } from '@/components/ui/tooltip
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select'
 import { DataTable, DataTableColumnHeader } from '@/components/ui/data-table'
 
-const route = useRoute()
 const router = useRouter()
-const projectId = computed(() => route.params.projectId || '')
+const { projectId, basePath } = useProjectPath()
 
 const loading = ref(true)
 const analyses = ref([])
 const searchQuery = ref('')
+const debouncedSearch = refDebounced(searchQuery, 300)
 const statusFilter = ref('all')
 
 const moduleFilters = reactive([
@@ -112,15 +114,6 @@ function parsedModules(item) {
   try { return JSON.parse(item.modules) } catch { return null }
 }
 
-function statusVariant(status) {
-  switch (status) {
-    case 'completed': return 'default'
-    case 'running': return 'secondary'
-    case 'failed': return 'destructive'
-    default: return 'outline'
-  }
-}
-
 const filteredAnalyses = computed(() => {
   let list = analyses.value
 
@@ -128,8 +121,8 @@ const filteredAnalyses = computed(() => {
     list = list.filter((a) => a.status === statusFilter.value)
   }
 
-  if (searchQuery.value.trim()) {
-    const q = searchQuery.value.toLowerCase()
+  if (debouncedSearch.value.trim()) {
+    const q = debouncedSearch.value.toLowerCase()
     list = list.filter(
       (a) =>
         (a.gameName || '').toLowerCase().includes(q) ||
@@ -254,22 +247,19 @@ async function refreshAnalyses() {
 useIntervalFn(refreshAnalyses, 5000)
 
 function navigateToNewAnalysis() {
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${basePath}/analyze`)
+  router.push(`${basePath.value}/analyze`)
 }
 
 function viewAnalysis(item) {
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
   if (item.status === 'running') {
-    router.push({ path: `${basePath}/analyze`, query: { analysisId: item.id } })
+    router.push({ path: `${basePath.value}/analyze`, query: { analysisId: item.id } })
   } else {
-    router.push(`${basePath}/analyses/${item.id}`)
+    router.push(`${basePath.value}/analyses/${item.id}`)
   }
 }
 
 function reAnalyze(item) {
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push({ path: `${basePath}/analyze`, query: { gameUrl: item.gameUrl } })
+  router.push({ path: `${basePath.value}/analyze`, query: { gameUrl: item.gameUrl } })
 }
 
 async function deleteAnalysis(item) {

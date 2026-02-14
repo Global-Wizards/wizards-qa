@@ -5,6 +5,20 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.0] - 2026-02-14
+
+### Improved
+- **N+1 query fix: Agent step screenshot** — Added `GetAgentStepScreenshot(analysisID, stepNumber)` targeted query; screenshot endpoint no longer fetches all steps to find one (`server.go`).
+- **Transaction safety: JSON migrations** — `migrateAnalyses`, `migrateTestResults`, `migrateTestPlans` now run inside transactions for atomicity and speed (`db.go`).
+- **Missing indexes** — Added indexes on `analyses.status`, `test_plans.status`, `analyses.game_url` to eliminate table scans on common filters (`db.go`).
+- **Consistent RowsAffected checks** — `UpdateAnalysisError`, `UpdateAnalysisPartialResult`, `UpdateAnalysisTestRunID`, `UpdateAgentStepScreenshot`, `UpdateAnalysisCost`, `UpdateTestResultCredits` now return "not found" errors instead of silently succeeding (`store.go`).
+- **DRY: `collectGameURLs` helper** — Extracted duplicated migration game-URL query+scan loop into shared helper (`db.go`).
+- **DRY: `isSensitiveKey` helper** — Extracted repeated 4-way `strings.Contains` check into named function (`store.go`).
+- **DRY: `useProjectPath` composable** — Extracted repeated `projectId.value ? /projects/... : ''` pattern (16 instances across 6 views) into shared composable (`useProjectPath.js`).
+- **Performance: Debounced search** — `AnalysisList.vue` search input now uses `refDebounced(300ms)` to avoid re-filtering on every keystroke.
+- **Performance: Array push** — `useTestExecution.js` uses `.push()` instead of spread-copy on every WebSocket log/progress update.
+- **Performance: Parallel loads** — `Tests.vue` `onMounted` now loads test results and plans concurrently via `Promise.allSettled`.
+
 ## [0.39.6] - 2026-02-14
 
 ### Changed

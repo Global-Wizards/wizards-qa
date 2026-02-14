@@ -35,9 +35,6 @@ export function isValidUrl(str) {
 }
 
 /**
- * Trigger a file download from in-memory content.
- */
-/**
  * Map finding severity to a tier: 'positive', 'suggestion', or 'bug'.
  */
 export function findingTier(severity) {
@@ -58,6 +55,18 @@ export function severityVariant(severity) {
     case 'suggestion': return 'secondary'
     case 'positive': return 'outline'
     default: return 'secondary'
+  }
+}
+
+/**
+ * Map analysis status to Badge variant.
+ */
+export function statusVariant(status) {
+  switch (status) {
+    case 'completed': return 'default'
+    case 'running': return 'secondary'
+    case 'failed': return 'destructive'
+    default: return 'outline'
   }
 }
 

@@ -219,7 +219,14 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	if dpr <= 0 {
 		dpr = 1
 	}
-	page.MustSetViewport(width, height, dpr, false)
+	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+		Width:             width,
+		Height:            height,
+		DeviceScaleFactor: dpr,
+	}); err != nil {
+		cleanup()
+		return nil, nil, nil, fmt.Errorf("setting viewport: %w", err)
+	}
 
 	browserPage := &RodBrowserPage{page: page}
 
@@ -403,14 +410,24 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	if dpr2 <= 0 {
 		dpr2 = 1
 	}
-	page.MustSetViewport(width, height, dpr2, false)
+	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
+		Width:             width,
+		Height:            height,
+		DeviceScaleFactor: dpr2,
+	}); err != nil {
+		return nil, fmt.Errorf("setting viewport: %w", err)
+	}
 
-	// Collect console logs for framework clues
+	// Collect console logs for framework clues (capped at 512KB)
+	const maxConsoleLogBytes = 512 * 1024
 	var consoleLogs strings.Builder
 	go page.EachEvent(func(e *proto.RuntimeConsoleAPICalled) {
 		for _, arg := range e.Args {
 			str := arg.Value.Str()
 			if str != "" {
+				if consoleLogs.Len() >= maxConsoleLogBytes {
+					return
+				}
 				consoleLogs.WriteString(str)
 				consoleLogs.WriteString(" ")
 			}

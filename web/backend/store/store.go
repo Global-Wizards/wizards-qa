@@ -500,8 +500,28 @@ func (s *Store) SaveAgentStep(step AgentStepRecord) (int64, error) {
 }
 
 func (s *Store) UpdateAgentStepScreenshot(id int64, screenshotPath string) error {
-	_, err := s.db.Exec(`UPDATE agent_steps SET screenshot_path = ? WHERE id = ?`, screenshotPath, id)
-	return err
+	result, err := s.db.Exec(`UPDATE agent_steps SET screenshot_path = ? WHERE id = ?`, screenshotPath, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("agent step not found: %d", id)
+	}
+	return nil
+}
+
+// GetAgentStepScreenshot returns the screenshot path for a specific agent step,
+// avoiding the need to fetch all steps for an analysis.
+func (s *Store) GetAgentStepScreenshot(analysisID string, stepNumber int) (string, error) {
+	var path string
+	err := s.db.QueryRow(
+		`SELECT screenshot_path FROM agent_steps WHERE analysis_id = ? AND step_number = ? LIMIT 1`,
+		analysisID, stepNumber,
+	).Scan(&path)
+	if err != nil {
+		return "", err
+	}
+	return path, nil
 }
 
 func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
@@ -517,20 +537,38 @@ func (s *Store) ListAgentSteps(analysisID string) ([]AgentStepRecord, error) {
 
 func (s *Store) UpdateAnalysisTestRunID(id, testRunID string) error {
 	now := time.Now().Format(time.RFC3339)
-	_, err := s.db.Exec(`UPDATE analyses SET last_test_run_id = ?, updated_at = ? WHERE id = ?`, testRunID, now, id)
-	return err
+	result, err := s.db.Exec(`UPDATE analyses SET last_test_run_id = ?, updated_at = ? WHERE id = ?`, testRunID, now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("analysis not found: %s", id)
+	}
+	return nil
 }
 
 func (s *Store) UpdateAnalysisError(id, errorMessage string) error {
 	now := time.Now().Format(time.RFC3339)
-	_, err := s.db.Exec(`UPDATE analyses SET error_message = ?, updated_at = ? WHERE id = ?`, errorMessage, now, id)
-	return err
+	result, err := s.db.Exec(`UPDATE analyses SET error_message = ?, updated_at = ? WHERE id = ?`, errorMessage, now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("analysis not found: %s", id)
+	}
+	return nil
 }
 
 func (s *Store) UpdateAnalysisPartialResult(id, partialResult string) error {
 	now := time.Now().Format(time.RFC3339)
-	_, err := s.db.Exec(`UPDATE analyses SET partial_result = ?, updated_at = ? WHERE id = ?`, partialResult, now, id)
-	return err
+	result, err := s.db.Exec(`UPDATE analyses SET partial_result = ?, updated_at = ? WHERE id = ?`, partialResult, now, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("analysis not found: %s", id)
+	}
+	return nil
 }
 
 // --- Test Results (SQLite) ---
@@ -849,6 +887,12 @@ func (s *Store) buildHistoryFromDB(days int) []HistoryPoint {
 	return history
 }
 
+// isSensitiveKey returns true if a lowercased config key likely holds a secret.
+func isSensitiveKey(lowKey string) bool {
+	return strings.Contains(lowKey, "key") || strings.Contains(lowKey, "token") ||
+		strings.Contains(lowKey, "secret") || strings.Contains(lowKey, "password")
+}
+
 // --- Config ---
 
 func (s *Store) GetConfig() (*ConfigData, error) {
@@ -873,7 +917,7 @@ func (s *Store) GetConfig() (*ConfigData, error) {
 		strVal := fmt.Sprintf("%v", val)
 		lowKey := strings.ToLower(key)
 
-		if strings.Contains(lowKey, "key") || strings.Contains(lowKey, "token") || strings.Contains(lowKey, "secret") || strings.Contains(lowKey, "password") {
+		if isSensitiveKey(lowKey) {
 			strVal = "***REDACTED***"
 		}
 
@@ -1368,13 +1412,25 @@ func formatSize(bytes int64) string {
 
 // UpdateAnalysisCost updates the cost tracking fields for an analysis.
 func (s *Store) UpdateAnalysisCost(id string, credits, inputTokens, outputTokens, apiCalls int, model string) error {
-	_, err := s.db.Exec(`UPDATE analyses SET total_credits=?, input_tokens=?, output_tokens=?, api_call_count=?, ai_model=? WHERE id=?`,
+	result, err := s.db.Exec(`UPDATE analyses SET total_credits=?, input_tokens=?, output_tokens=?, api_call_count=?, ai_model=? WHERE id=?`,
 		credits, inputTokens, outputTokens, apiCalls, model, id)
-	return err
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("analysis not found: %s", id)
+	}
+	return nil
 }
 
 // UpdateTestResultCredits updates the total credits for a test result.
 func (s *Store) UpdateTestResultCredits(id string, credits int) error {
-	_, err := s.db.Exec(`UPDATE test_results SET total_credits=? WHERE id=?`, credits, id)
-	return err
+	result, err := s.db.Exec(`UPDATE test_results SET total_credits=? WHERE id=?`, credits, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("test result not found: %s", id)
+	}
+	return nil
 }

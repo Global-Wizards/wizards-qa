@@ -992,21 +992,8 @@ func (s *Server) handleAgentStepScreenshot(w http.ResponseWriter, r *http.Reques
 		return
 	}
 
-	steps, err := s.store.ListAgentSteps(id)
-	if err != nil {
-		respondError(w, http.StatusNotFound, "Analysis not found")
-		return
-	}
-
-	var screenshotPath string
-	for _, step := range steps {
-		if step.StepNumber == stepNumber && step.ScreenshotPath != "" {
-			screenshotPath = step.ScreenshotPath
-			break
-		}
-	}
-
-	if screenshotPath == "" {
+	screenshotPath, err := s.store.GetAgentStepScreenshot(id, stepNumber)
+	if err != nil || screenshotPath == "" {
 		respondError(w, http.StatusNotFound, "Screenshot not found")
 		return
 	}

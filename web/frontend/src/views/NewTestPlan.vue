@@ -238,6 +238,7 @@
 <script setup>
 import { ref, reactive, computed, onMounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
+import { useProjectPath } from '@/composables/useProjectPath'
 import { useForm } from 'vee-validate'
 import { toTypedSchema } from '@vee-validate/zod'
 import { templatesApi, testPlansApi, analysesApi } from '@/lib/api'
@@ -255,7 +256,7 @@ import { FormField, FormItem, FormLabel, FormControl, FormMessage } from '@/comp
 const router = useRouter()
 const route = useRoute()
 const { currentProject } = useProject()
-const projectId = computed(() => route.params.projectId || '')
+const { projectId, basePath } = useProjectPath()
 const currentStep = ref('details')
 const templatesLoading = ref(true)
 const templatesError = ref(null)
@@ -337,8 +338,7 @@ async function createPlan() {
       projectId: projectId.value,
       analysisId: analysisId.value || undefined,
     })
-    const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-    router.push(`${basePath}/tests`)
+    router.push(`${basePath.value}/tests`)
   } catch (err) {
     createError.value = err.message
   } finally {

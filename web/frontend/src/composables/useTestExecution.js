@@ -144,7 +144,7 @@ export function useTestExecution() {
               logs.value = [...trimmed, data.line]
             }
           } else {
-            logs.value = [...logs.value, data.line]
+            logs.value.push(data.line)
           }
           detectPhase(data.line)
         }
@@ -158,10 +158,9 @@ export function useTestExecution() {
             existing.status = data.status
             if (data.duration) existing.duration = data.duration
           } else {
-            progress.value = [
-              ...progress.value,
+            progress.value.push(
               { flowName: data.flowName, status: data.status, duration: data.duration || '' },
-            ]
+            )
           }
         }
       }

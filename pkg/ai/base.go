@@ -86,7 +86,7 @@ func (b *BaseClient) Generate(prompt string, ctx map[string]interface{}) (string
 // callAPI makes an HTTP request with retry logic, delegating to the provider's callAPIOnce.
 func (b *BaseClient) callAPI(prompt string) (string, error) {
 	var response string
-	err := retry.Do(context.Background(), retry.DefaultConfig(), func() error {
+	err := retry.DoWithRetryable(context.Background(), retry.DefaultConfig(), IsRetryableAPIError, func() error {
 		resp, err := b.caller.callAPIOnce(prompt)
 		if err != nil {
 			return err

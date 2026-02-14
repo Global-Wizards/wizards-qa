@@ -717,6 +717,7 @@
 import { ref, computed, watch, nextTick, onMounted } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { useRouter, useRoute } from 'vue-router'
+import { useProjectPath } from '@/composables/useProjectPath'
 import { useAnalysis } from '@/composables/useAnalysis'
 import { truncateUrl, isValidUrl, severityVariant } from '@/lib/utils'
 import { ANALYSIS_PROFILES, getProfileByName } from '@/lib/profiles'
@@ -745,7 +746,7 @@ import JurisdictionSelector from '@/components/JurisdictionSelector.vue'
 const router = useRouter()
 const route = useRoute()
 const { currentProject } = useProject()
-const projectId = computed(() => route.params.projectId || '')
+const { projectId, basePath } = useProjectPath()
 const gameUrl = ref('')
 const analyzing = ref(false)
 const useAgentMode = useStorage('analyze-agent-mode', true)
@@ -1469,24 +1470,21 @@ function handleReset() {
 }
 
 function navigateToNewPlan() {
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
   const query = { gameUrl: gameUrl.value }
   if (currentAnalysisId.value) {
     query.analysisId = currentAnalysisId.value
   } else {
     query.flows = flowList.value.map((f) => f.name).join(',')
   }
-  router.push({ path: `${basePath}/tests/new`, query })
+  router.push({ path: `${basePath.value}/tests/new`, query })
 }
 
 function navigateToTestPlan() {
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${basePath}/tests/plans/${autoTestPlanId.value}`)
+  router.push(`${basePath.value}/tests/plans/${autoTestPlanId.value}`)
 }
 
 function navigateToFlows() {
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${basePath}/flows`)
+  router.push(`${basePath.value}/flows`)
 }
 
 const canContinue = ref(false)
@@ -1718,19 +1716,16 @@ async function copyDebugLog() {
 }
 
 function navigateToAnalysesList() {
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${basePath}/analyses`)
+  router.push(`${basePath.value}/analyses`)
 }
 
 function viewAnalysis(item) {
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${basePath}/analyses/${item.id}`)
+  router.push(`${basePath.value}/analyses/${item.id}`)
 }
 
 function viewCurrentAnalysis() {
   if (!currentAnalysisId.value) return
-  const basePath = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${basePath}/analyses/${currentAnalysisId.value}`)
+  router.push(`${basePath.value}/analyses/${currentAnalysisId.value}`)
 }
 
 async function loadRecentAnalyses() {

@@ -337,6 +337,7 @@
 <script setup>
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { useProjectPath } from '@/composables/useProjectPath'
 import { useClipboard } from '@vueuse/core'
 import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX, Bug, Copy, Check, ChevronDown, ChevronRight, Wand2 } from 'lucide-vue-next'
 import { Codemirror } from 'vue-codemirror'
@@ -359,7 +360,7 @@ const router = useRouter()
 const { isDark } = useTheme()
 
 const planId = computed(() => route.params.planId)
-const projectId = computed(() => route.params.projectId || '')
+const { projectId, basePath } = useProjectPath()
 
 const loading = ref(true)
 const error = ref(null)
@@ -543,8 +544,7 @@ async function validateAllFlows() {
 }
 
 function goBack() {
-  const base = projectId.value ? `/projects/${projectId.value}` : ''
-  router.push(`${base}/tests?tab=plans`)
+  router.push(`${basePath.value}/tests?tab=plans`)
 }
 
 async function save() {
@@ -600,9 +600,8 @@ async function runPlan(mode = 'browser') {
       opts.viewport = 'desktop-std'
     }
     const data = await testPlansApi.run(planId.value, opts)
-    const base = projectId.value ? `/projects/${projectId.value}` : ''
     router.push({
-      path: `${base}/tests/run/${data.testId}`,
+      path: `${basePath.value}/tests/run/${data.testId}`,
       query: { fresh: '1', planId: planId.value, planName: plan.value.name },
     })
   } catch (err) {
