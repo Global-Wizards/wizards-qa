@@ -5,6 +5,34 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.0] - 2026-02-13
+
+### Added
+- **`Store.Close()` method** — Properly close the database connection on server shutdown.
+- **`Store.CreateProjectWithOwner()` transactional method** — Atomically create a project and add the owner as a member, preventing orphaned projects.
+- **`Store.DeleteTestResultsBatch()` method** — Batch delete test results in a single SQL query instead of N individual calls.
+- **`Store.ErrNotFound` sentinel error** — Standardized not-found error for `GetTestPlanByAnalysis` and future use.
+- **`RunningTestTracker` helper** — Extracted shared lock/unlock/map patterns from executor, agent_executor, and browser_executor into a single reusable struct.
+- **`constants.go`** — Centralized mode constants (`ModeAgent`, `ModeBrowser`, `ModeMaestro`) and timeout values.
+- **Composite database indexes** — Added `(project_id, created_at DESC)` indexes on analyses, test_results, and test_plans for faster project-scoped queries.
+- **Frontend: `@/lib/constants.js`** — Shared `MAX_LOGS` constant used by `useAnalysis.js` and `useTestExecution.js`.
+- **Frontend: `@/lib/wsHelpers.js`** — Reusable `useWsListeners()` composable for auto-cleaned WebSocket event handlers.
+- **Frontend: `@/lib/storageKeys.js`** — Centralized localStorage key constants for discoverability.
+
+### Fixed
+- **Critical: `marshalToPtr` silent data loss** — Now returns `(*string, error)` instead of silently returning `nil` on marshal failure. All call sites updated to check errors.
+- **Unsanitized `flow.Name` in screenshot filename** — Applied `url.PathEscape()` to browser executor screenshot paths, preventing path traversal via flow names containing `/` or `..`.
+- **Silent `json.Unmarshal` errors** — Added warning logs for unmarshal failures in `GetAnalysis`, `GetProject`, and `ListProjects`, matching the existing pattern in `GetTestResult`.
+- **`os.RemoveAll` error not logged in `DeleteTestResult`** — Now logs a warning if screenshot directory cleanup fails.
+- **Race condition in `analyze.go` screenshot handler** — Copied `tmpDir` value under lock before releasing, preventing use-after-delete race with cleanup goroutine.
+- **Frontend: Memory leak in `useConnectionStatus.js`** — Moved WS listener registration to module level since refs are module-level singletons, eliminating leaked listeners.
+- **Frontend: Uncleared `setTimeout` in `EditTestPlan.vue`** — Timer ID now stored and cleared in `onUnmounted`.
+- **Frontend: Missing ARIA labels** — Added `aria-label` attributes to search input in Tests.vue and checkboxes in Analyze.vue.
+
+### Improved
+- **Frontend: `resetState()` helper in `useAnalysis.js`** — Extracted 30+ repeated `ref.value = ...` assignments into a single function, called from `start()`, `startBatch()`, and `reset()`.
+- **Migration error comment** — Added explanation of why string matching is used for SQLite "duplicate column" detection.
+
 ## [0.35.3] - 2026-02-13
 
 ### Fixed

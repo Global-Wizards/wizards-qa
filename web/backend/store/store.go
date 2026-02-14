@@ -3,6 +3,7 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -13,6 +14,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 )
+
+// ErrNotFound is returned when a requested entity does not exist.
+var ErrNotFound = errors.New("not found")
 
 var (
 	varPattern    = regexp.MustCompile(`\{\{(\w+)\}\}`)
@@ -44,6 +48,11 @@ func (s *Store) SetDataDir(dir string) {
 // DataDir returns the data directory path.
 func (s *Store) DataDir() string {
 	return s.dataDir
+}
+
+// Close closes the underlying database connection.
+func (s *Store) Close() error {
+	return s.db.Close()
 }
 
 // Ping checks database connectivity.
@@ -131,17 +140,18 @@ func isSafeName(name string) bool {
 	return safeNameRegex.MatchString(name)
 }
 
-// marshalToPtr marshals v to a JSON string pointer. Returns nil if v is nil or marshaling fails.
-func marshalToPtr(v interface{}) *string {
+// marshalToPtr marshals v to a JSON string pointer. Returns nil if v is nil.
+// Returns an error if marshaling fails, preventing silent data loss.
+func marshalToPtr(v interface{}) (*string, error) {
 	if v == nil {
-		return nil
+		return nil, nil
 	}
 	b, err := json.Marshal(v)
 	if err != nil {
-		return nil
+		return nil, fmt.Errorf("marshalToPtr: %w", err)
 	}
 	s := string(b)
-	return &s
+	return &s, nil
 }
 
 // --- Flows ---
@@ -249,7 +259,10 @@ func (s *Store) GetReport(id string) (*ReportDetail, error) {
 // --- Analyses (SQLite) ---
 
 func (s *Store) SaveAnalysis(record AnalysisRecord) error {
-	resultJSON := marshalToPtr(record.Result)
+	resultJSON, err := marshalToPtr(record.Result)
+	if err != nil {
+		return fmt.Errorf("marshaling analysis result: %w", err)
+	}
 	now := time.Now().Format(time.RFC3339)
 	if record.CreatedAt == "" {
 		record.CreatedAt = now
@@ -266,7 +279,7 @@ func (s *Store) SaveAnalysis(record AnalysisRecord) error {
 	if record.AgentMode {
 		agentModeInt = 1
 	}
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT INTO analyses (id, game_url, status, step, framework, game_name, flow_count, result, created_by, project_id, modules, agent_mode, profile, created_at, updated_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		record.ID, record.GameURL, record.Status, record.Step, record.Framework,
@@ -292,7 +305,10 @@ func (s *Store) UpdateAnalysisStatus(id, status, step string) error {
 
 func (s *Store) UpdateAnalysisResult(id, status string, result interface{}, gameName, framework string, flowCount int) error {
 	now := time.Now().Format(time.RFC3339)
-	resultJSON := marshalToPtr(result)
+	resultJSON, err := marshalToPtr(result)
+	if err != nil {
+		return fmt.Errorf("marshaling analysis result: %w", err)
+	}
 	res, err := s.db.Exec(
 		`UPDATE analyses SET status = ?, step = '', result = ?, game_name = ?, framework = ?, flow_count = ?, updated_at = ? WHERE id = ?`,
 		status, resultJSON, gameName, framework, flowCount, now, id,
@@ -320,7 +336,9 @@ func (s *Store) GetAnalysis(id string) (*AnalysisRecord, error) {
 	a.AgentMode = agentModeInt != 0
 	if resultJSON.Valid && resultJSON.String != "" {
 		var parsed interface{}
-		if err := json.Unmarshal([]byte(resultJSON.String), &parsed); err == nil {
+		if err := json.Unmarshal([]byte(resultJSON.String), &parsed); err != nil {
+			log.Printf("Warning: failed to unmarshal result JSON for analysis %s: %v", id, err)
+		} else {
 			a.Result = parsed
 		}
 	}
@@ -444,7 +462,10 @@ func (s *Store) UpdateAnalysisPartialResult(id, partialResult string) error {
 // --- Test Results (SQLite) ---
 
 func (s *Store) SaveTestResult(result TestResultDetail) error {
-	flowsJSON := marshalToPtr(result.Flows)
+	flowsJSON, err := marshalToPtr(result.Flows)
+	if err != nil {
+		return fmt.Errorf("marshaling test result flows: %w", err)
+	}
 	ts := result.Timestamp
 	if ts == "" {
 		ts = time.Now().Format(time.RFC3339)
@@ -454,7 +475,7 @@ func (s *Store) SaveTestResult(result TestResultDetail) error {
 		createdBy = &result.CreatedBy
 	}
 
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT INTO test_results (id, name, status, timestamp, duration, success_rate, flows, error_output, created_by, project_id, plan_id, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		result.ID, result.Name, result.Status, ts, result.Duration, result.SuccessRate, flowsJSON, result.ErrorOutput, createdBy, result.ProjectID, result.PlanID, ts,
@@ -510,15 +531,53 @@ func (s *Store) DeleteTestResult(id string) error {
 	}
 	// Clean up screenshot files on disk
 	screenshotDir := filepath.Join(s.dataDir, "test-screenshots", id)
-	os.RemoveAll(screenshotDir)
+	if err := os.RemoveAll(screenshotDir); err != nil && !os.IsNotExist(err) {
+		log.Printf("Warning: failed to clean up test screenshots for %s: %v", id, err)
+	}
 	return nil
+}
+
+// DeleteTestResultsBatch deletes multiple test results in a single query.
+// Returns the number of actually deleted records.
+func (s *Store) DeleteTestResultsBatch(ids []string) (int, error) {
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	placeholders := make([]string, len(ids))
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		placeholders[i] = "?"
+		args[i] = id
+	}
+	query := fmt.Sprintf(`DELETE FROM test_results WHERE id IN (%s)`, strings.Join(placeholders, ","))
+	result, err := s.db.Exec(query, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := result.RowsAffected()
+
+	// Clean up screenshot directories
+	for _, id := range ids {
+		screenshotDir := filepath.Join(s.dataDir, "test-screenshots", id)
+		if err := os.RemoveAll(screenshotDir); err != nil && !os.IsNotExist(err) {
+			log.Printf("Warning: failed to clean up test screenshots for %s: %v", id, err)
+		}
+	}
+
+	return int(n), nil
 }
 
 // --- Test Plans (SQLite) ---
 
 func (s *Store) SaveTestPlan(plan TestPlan) error {
-	flowNamesJSON := marshalToPtr(plan.FlowNames)
-	variablesJSON := marshalToPtr(plan.Variables)
+	flowNamesJSON, err := marshalToPtr(plan.FlowNames)
+	if err != nil {
+		return fmt.Errorf("marshaling test plan flow names: %w", err)
+	}
+	variablesJSON, err := marshalToPtr(plan.Variables)
+	if err != nil {
+		return fmt.Errorf("marshaling test plan variables: %w", err)
+	}
 	if plan.CreatedAt == "" {
 		plan.CreatedAt = time.Now().Format(time.RFC3339)
 	}
@@ -527,7 +586,7 @@ func (s *Store) SaveTestPlan(plan TestPlan) error {
 		createdBy = &plan.CreatedBy
 	}
 
-	_, err := s.db.Exec(
+	_, err = s.db.Exec(
 		`INSERT OR REPLACE INTO test_plans (id, name, description, game_url, flow_names, variables, status, last_run_id, created_by, project_id, analysis_id, mode, created_at)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		plan.ID, plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Status, plan.LastRunID, createdBy, plan.ProjectID, plan.AnalysisID, plan.Mode, plan.CreatedAt,
@@ -536,8 +595,14 @@ func (s *Store) SaveTestPlan(plan TestPlan) error {
 }
 
 func (s *Store) UpdateTestPlan(plan TestPlan) error {
-	flowNamesJSON := marshalToPtr(plan.FlowNames)
-	variablesJSON := marshalToPtr(plan.Variables)
+	flowNamesJSON, err := marshalToPtr(plan.FlowNames)
+	if err != nil {
+		return fmt.Errorf("marshaling test plan flow names: %w", err)
+	}
+	variablesJSON, err := marshalToPtr(plan.Variables)
+	if err != nil {
+		return fmt.Errorf("marshaling test plan variables: %w", err)
+	}
 	result, err := s.db.Exec(
 		`UPDATE test_plans SET name = ?, description = ?, game_url = ?, flow_names = ?, variables = ?, mode = ? WHERE id = ?`,
 		plan.Name, plan.Description, plan.GameURL, flowNamesJSON, variablesJSON, plan.Mode, plan.ID,
@@ -863,7 +928,7 @@ func (s *Store) GetTestPlanByAnalysis(analysisID string) (*TestPlanSummary, erro
 	var flowNamesJSON sql.NullString
 	err := row.Scan(&p.ID, &p.Name, &p.Status, &flowNamesJSON, &p.CreatedAt, &p.LastRunID, &p.ProjectID, &p.AnalysisID, &p.Mode)
 	if err != nil {
-		return nil, nil // not found — not an error
+		return nil, ErrNotFound
 	}
 	if flowNamesJSON.Valid && flowNamesJSON.String != "" {
 		var names []string
@@ -1024,8 +1089,12 @@ func (s *Store) GetProject(id string) (*Project, error) {
 	if err != nil {
 		return nil, fmt.Errorf("project not found: %s", id)
 	}
-	json.Unmarshal([]byte(tagsJSON), &p.Tags)
-	json.Unmarshal([]byte(settingsJSON), &p.Settings)
+	if err := json.Unmarshal([]byte(tagsJSON), &p.Tags); err != nil {
+		log.Printf("Warning: failed to unmarshal tags for project %s: %v", id, err)
+	}
+	if err := json.Unmarshal([]byte(settingsJSON), &p.Settings); err != nil {
+		log.Printf("Warning: failed to unmarshal settings for project %s: %v", id, err)
+	}
 	if p.Tags == nil {
 		p.Tags = []string{}
 	}
@@ -1061,8 +1130,12 @@ func (s *Store) ListProjects() ([]ProjectSummary, error) {
 			&ps.AnalysisCount, &ps.PlanCount, &ps.TestCount, &ps.MemberCount); err != nil {
 			continue
 		}
-		json.Unmarshal([]byte(tagsJSON), &ps.Tags)
-		json.Unmarshal([]byte(settingsJSON), &ps.Settings)
+		if err := json.Unmarshal([]byte(tagsJSON), &ps.Tags); err != nil {
+			log.Printf("Warning: failed to unmarshal tags for project %s: %v", ps.ID, err)
+		}
+		if err := json.Unmarshal([]byte(settingsJSON), &ps.Settings); err != nil {
+			log.Printf("Warning: failed to unmarshal settings for project %s: %v", ps.ID, err)
+		}
 		if ps.Tags == nil {
 			ps.Tags = []string{}
 		}
@@ -1129,6 +1202,41 @@ func (s *Store) GetProjectMemberRole(projectID, userID string) (string, error) {
 }
 
 // --- Project Members ---
+
+// CreateProjectWithOwner atomically creates a project and adds the owner as a member in a transaction.
+func (s *Store) CreateProjectWithOwner(p Project, ownerMember ProjectMember) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin transaction: %w", err)
+	}
+	defer tx.Rollback()
+
+	tagsJSON, _ := json.Marshal(p.Tags)
+	settingsJSON, _ := json.Marshal(p.Settings)
+	var createdBy *string
+	if p.CreatedBy != "" {
+		createdBy = &p.CreatedBy
+	}
+	_, err = tx.Exec(
+		`INSERT INTO projects (id, name, game_url, description, color, icon, tags, settings, created_by, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.GameURL, p.Description, p.Color, p.Icon, string(tagsJSON), string(settingsJSON), createdBy, p.CreatedAt, p.UpdatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("insert project: %w", err)
+	}
+
+	_, err = tx.Exec(
+		`INSERT INTO project_members (id, project_id, user_id, role, created_at)
+		 VALUES (?, ?, ?, ?, ?)`,
+		ownerMember.ID, ownerMember.ProjectID, ownerMember.UserID, ownerMember.Role, ownerMember.CreatedAt,
+	)
+	if err != nil {
+		return fmt.Errorf("add owner member: %w", err)
+	}
+
+	return tx.Commit()
+}
 
 func (s *Store) AddProjectMember(m ProjectMember) error {
 	_, err := s.db.Exec(

@@ -37,7 +37,7 @@
             {{ analyzing ? 'Starting...' : 'Analyze Game' }}
           </Button>
           <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="AI explores the game interactively via browser tools">
-            <input type="checkbox" v-model="useAgentMode" class="rounded border-gray-300" />
+            <input type="checkbox" v-model="useAgentMode" class="rounded border-gray-300" aria-label="Agent Mode" />
             Agent Mode
           </label>
         </div>
@@ -50,12 +50,12 @@
           </div>
           <div class="ml-7 grid gap-2 sm:grid-cols-2">
             <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="AI can request additional exploration steps when it finds unexplored areas">
-              <input type="checkbox" v-model="moduleDynamicSteps" class="rounded border-gray-300" />
+              <input type="checkbox" v-model="moduleDynamicSteps" class="rounded border-gray-300" aria-label="Dynamic Steps" />
               <TrendingUp class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Dynamic Steps</span>
             </label>
             <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="AI can extend exploration time for more thorough testing">
-              <input type="checkbox" v-model="moduleDynamicTimeout" class="rounded border-gray-300" />
+              <input type="checkbox" v-model="moduleDynamicTimeout" class="rounded border-gray-300" aria-label="Dynamic Timeout" />
               <Timer class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Dynamic Timeout</span>
             </label>

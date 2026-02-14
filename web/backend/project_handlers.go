@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"log"
 	"net/http"
 	"time"
 
@@ -89,21 +88,22 @@ func (s *Server) handleCreateProject(w http.ResponseWriter, r *http.Request) {
 		p.CreatedBy = claims.UserID
 	}
 
-	if err := s.store.SaveProject(p); err != nil {
-		respondError(w, http.StatusInternalServerError, "Failed to create project")
-		return
-	}
-
-	// Auto-add creator as owner member
 	if p.CreatedBy != "" {
-		if err := s.store.AddProjectMember(store.ProjectMember{
+		// Atomically create project and add creator as owner
+		if err := s.store.CreateProjectWithOwner(p, store.ProjectMember{
 			ID:        newID("pm"),
 			ProjectID: p.ID,
 			UserID:    p.CreatedBy,
 			Role:      "owner",
 			CreatedAt: now,
 		}); err != nil {
-			log.Printf("Warning: failed to add creator as project member for %s: %v", p.ID, err)
+			respondError(w, http.StatusInternalServerError, "Failed to create project")
+			return
+		}
+	} else {
+		if err := s.store.SaveProject(p); err != nil {
+			respondError(w, http.StatusInternalServerError, "Failed to create project")
+			return
 		}
 	}
 

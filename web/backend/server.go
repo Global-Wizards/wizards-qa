@@ -52,8 +52,7 @@ type Server struct {
 	browserTestSem   chan struct{} // limits concurrent browser test runs
 	activeAnalyses   map[string]*activeAnalysis
 	activeAnalysesMu sync.Mutex
-	runningTests     map[string]*runningTest
-	runningTestsMu   sync.Mutex
+	runningTests *RunningTestTracker
 }
 
 func NewServer(port string) *Server {
@@ -117,7 +116,7 @@ func NewServer(port string) *Server {
 		analysisSem:    make(chan struct{}, 1), // max 1 concurrent analysis (Chrome uses 200-400MB)
 		browserTestSem: make(chan struct{}, 1), // max 1 concurrent browser test run
 		activeAnalyses: make(map[string]*activeAnalysis),
-		runningTests:   make(map[string]*runningTest),
+		runningTests:   NewRunningTestTracker(),
 	}
 	s.setupMiddleware()
 	s.setupRoutes()
@@ -332,11 +331,7 @@ func (s *Server) handleGetLiveTest(w http.ResponseWriter, r *http.Request) {
 	id := chi.URLParam(r, "id")
 
 	// Check running tests first
-	s.runningTestsMu.Lock()
-	rt, ok := s.runningTests[id]
-	s.runningTestsMu.Unlock()
-
-	if ok {
+	if rt := s.runningTests.Get(id); rt != nil {
 		respondJSON(w, http.StatusOK, rt)
 		return
 	}
@@ -1082,11 +1077,10 @@ func (s *Server) handleDeleteTestResultsBatch(w http.ResponseWriter, r *http.Req
 		respondError(w, http.StatusBadRequest, "Missing or empty ids array")
 		return
 	}
-	deleted := 0
-	for _, id := range req.IDs {
-		if err := s.store.DeleteTestResult(id); err == nil {
-			deleted++
-		}
+	deleted, err := s.store.DeleteTestResultsBatch(req.IDs)
+	if err != nil {
+		respondError(w, http.StatusInternalServerError, "Failed to delete test results")
+		return
 	}
 	respondJSON(w, http.StatusOK, map[string]interface{}{"deleted": deleted})
 }
@@ -1225,14 +1219,12 @@ func (s *Server) cleanupStaleRunningTests() {
 	for {
 		select {
 		case <-ticker.C:
-			s.runningTestsMu.Lock()
-			for id, rt := range s.runningTests {
+			for id, rt := range s.runningTests.GetAll() {
 				if time.Since(rt.StartedAt) > 30*time.Minute {
 					log.Printf("Cleaning up stale running test %s (started %s ago)", id, time.Since(rt.StartedAt).Round(time.Second))
-					delete(s.runningTests, id)
+					s.runningTests.Remove(id)
 				}
 			}
-			s.runningTestsMu.Unlock()
 		case <-s.serverCtx.Done():
 			return
 		}
@@ -1268,5 +1260,10 @@ func main() {
 	log.Printf("Wizards QA Dashboard v%s starting on http://localhost:%s", Version, port)
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatal(err)
+	}
+
+	// Clean up database connection
+	if err := server.store.Close(); err != nil {
+		log.Printf("Warning: failed to close database: %v", err)
 	}
 }

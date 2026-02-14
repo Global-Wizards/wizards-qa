@@ -65,16 +65,14 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 		TestID:     testID,
 		PlanID:     planID,
 		PlanName:   planName,
-		Mode:       "agent",
+		Mode:       ModeAgent,
 		StartedAt:  startTime,
 		TotalFlows: totalFlows,
 		Flows:      []store.FlowResult{},
 		Logs:       []string{},
 		Status:     "running",
 	}
-	s.runningTestsMu.Lock()
-	s.runningTests[testID] = rt
-	s.runningTestsMu.Unlock()
+	s.runningTests.Register(testID, rt)
 
 	s.wsHub.Broadcast(ws.Message{
 		Type: "test_started",
@@ -83,7 +81,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 			"planId":     planID,
 			"name":       planName,
 			"totalFlows": totalFlows,
-			"mode":       "agent",
+			"mode":       ModeAgent,
 		},
 	})
 
@@ -103,7 +101,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 	aiClient := ai.NewClaudeClient(apiKey, aiModel, 0.3, 4096)
 
 	// Launch headless browser
-	ctx, cancel := context.WithTimeout(s.serverCtx, 15*time.Minute)
+	ctx, cancel := context.WithTimeout(s.serverCtx, AnalysisTimeout)
 	defer cancel()
 
 	s.broadcastTestLog(testID, planID, "Launching headless browser for agent test execution...")
@@ -399,11 +397,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 		flowResults = append(flowResults, fr)
 
 		// Update running test state
-		s.runningTestsMu.Lock()
-		if rt, ok := s.runningTests[testID]; ok {
-			rt.Flows = append(rt.Flows, fr)
-		}
-		s.runningTestsMu.Unlock()
+		s.runningTests.AppendFlow(testID, fr)
 
 		statusEmoji := "✅"
 		if flowFailed {
@@ -414,14 +408,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 			logLine += " - " + failReason
 		}
 
-		s.runningTestsMu.Lock()
-		if rt, ok := s.runningTests[testID]; ok {
-			if len(rt.Logs) >= maxRunningTestLogs {
-				rt.Logs = rt.Logs[1:]
-			}
-			rt.Logs = append(rt.Logs, logLine)
-		}
-		s.runningTestsMu.Unlock()
+		s.runningTests.AppendLog(testID, logLine)
 
 		s.wsHub.Broadcast(ws.Message{
 			Type: "test_progress",

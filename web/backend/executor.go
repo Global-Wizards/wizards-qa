@@ -53,16 +53,14 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 		TestID:     testID,
 		PlanID:     planID,
 		PlanName:   planName,
-		Mode:       "maestro",
+		Mode:       ModeMaestro,
 		StartedAt:  startTime,
 		TotalFlows: totalFlows,
 		Flows:      []store.FlowResult{},
 		Logs:       []string{},
 		Status:     "running",
 	}
-	s.runningTestsMu.Lock()
-	s.runningTests[testID] = rt
-	s.runningTestsMu.Unlock()
+	s.runningTests.Register(testID, rt)
 
 	s.wsHub.Broadcast(ws.Message{
 		Type: "test_started",
@@ -71,13 +69,13 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 			"planId":     planID,
 			"name":       planName,
 			"totalFlows": totalFlows,
-			"mode":       "maestro",
+			"mode":       ModeMaestro,
 		},
 	})
 
 	cliPath := envOrDefault("WIZARDS_QA_CLI_PATH", "wizards-qa")
 
-	ctx, cancel := context.WithTimeout(s.serverCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(s.serverCtx, TestExecutionTimeout)
 	defer cancel()
 
 	args := []string{"run", "--flows", flowDir}
@@ -118,22 +116,11 @@ func (s *Server) executeTestRun(planID, testID string, flowDir string, planName 
 			flowResults = append(flowResults, fr)
 
 			// Update running test state
-			s.runningTestsMu.Lock()
-			if rt, ok := s.runningTests[testID]; ok {
-				rt.Flows = append(rt.Flows, fr)
-			}
-			s.runningTestsMu.Unlock()
+			s.runningTests.AppendFlow(testID, fr)
 		}
 
 		// Update running test logs
-		s.runningTestsMu.Lock()
-		if rt, ok := s.runningTests[testID]; ok {
-			if len(rt.Logs) >= maxRunningTestLogs {
-				rt.Logs = rt.Logs[1:]
-			}
-			rt.Logs = append(rt.Logs, line)
-		}
-		s.runningTestsMu.Unlock()
+		s.runningTests.AppendLog(testID, line)
 
 		s.wsHub.Broadcast(ws.Message{
 			Type: "test_progress",
@@ -184,9 +171,7 @@ func (s *Server) launchTestRun(planID, testID, flowDir, planName string, cleanup
 // finishTestRun saves the result and broadcasts completion.
 func (s *Server) finishTestRun(planID, testID, planName string, startTime time.Time, flows []store.FlowResult, runErr error, createdBy string) {
 	// Remove from running tests
-	s.runningTestsMu.Lock()
-	delete(s.runningTests, testID)
-	s.runningTestsMu.Unlock()
+	s.runningTests.Remove(testID)
 
 	duration := time.Since(startTime)
 	status := store.StatusPassed

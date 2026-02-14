@@ -1,8 +1,7 @@
 import { ref, computed, onUnmounted } from 'vue'
 import { getWebSocket } from '@/lib/websocket'
 import { testsApi, authUrl } from '@/lib/api'
-
-const MAX_LOGS = 500
+import { MAX_LOGS } from '@/lib/constants'
 const MAX_STEP_SCREENSHOTS = 100
 
 export function useTestExecution() {

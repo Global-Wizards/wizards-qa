@@ -18,7 +18,7 @@
       <TabsContent value="results">
         <!-- Search -->
         <div class="mb-4">
-          <Input v-model="search" placeholder="Search tests..." class="max-w-sm" />
+          <Input v-model="search" placeholder="Search tests..." class="max-w-sm" aria-label="Search tests" />
         </div>
 
         <!-- Bulk Action Bar -->

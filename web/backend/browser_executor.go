@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -95,16 +96,14 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 		TestID:     testID,
 		PlanID:     planID,
 		PlanName:   planName,
-		Mode:       "browser",
+		Mode:       ModeBrowser,
 		StartedAt:  startTime,
 		TotalFlows: totalFlows,
 		Flows:      []store.FlowResult{},
 		Logs:       []string{},
 		Status:     "running",
 	}
-	s.runningTestsMu.Lock()
-	s.runningTests[testID] = rt
-	s.runningTestsMu.Unlock()
+	s.runningTests.Register(testID, rt)
 
 	s.wsHub.Broadcast(ws.Message{
 		Type: "test_started",
@@ -113,7 +112,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 			"planId":     planID,
 			"name":       planName,
 			"totalFlows": totalFlows,
-			"mode":       "browser",
+			"mode":       ModeBrowser,
 		},
 	})
 
@@ -131,7 +130,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 	}
 
 	// Launch headless browser
-	ctx, cancel := context.WithTimeout(s.serverCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(s.serverCtx, TestExecutionTimeout)
 	defer cancel()
 
 	s.broadcastTestLog(testID, planID, "Launching headless browser...")
@@ -232,11 +231,12 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 				if dataDir != "" {
 					dstDir := filepath.Join(dataDir, "test-screenshots", testID)
 					if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
-						fname := fmt.Sprintf("flow-%s-step-%d.webp", flow.Name, ci)
+						escapedName := url.PathEscape(flow.Name)
+						fname := fmt.Sprintf("flow-%s-step-%d.webp", escapedName, ci)
 						dstPath := filepath.Join(dstDir, fname)
 						if imgData, decErr := base64.StdEncoding.DecodeString(screenshot); decErr == nil {
 							if writeErr := os.WriteFile(dstPath, imgData, 0644); writeErr == nil {
-								screenshotURL = fmt.Sprintf("/api/tests/%s/steps/%s/%d/screenshot", testID, flow.Name, ci)
+								screenshotURL = fmt.Sprintf("/api/tests/%s/steps/%s/%d/screenshot", testID, escapedName, ci)
 							}
 						}
 					}
@@ -286,11 +286,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 		flowResults = append(flowResults, fr)
 
 		// Update running test state
-		s.runningTestsMu.Lock()
-		if rt, ok := s.runningTests[testID]; ok {
-			rt.Flows = append(rt.Flows, fr)
-		}
-		s.runningTestsMu.Unlock()
+		s.runningTests.AppendFlow(testID, fr)
 
 		statusEmoji := "✅"
 		if !flowPassed {
@@ -302,14 +298,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 		}
 
 		// Update running test log buffer only (no broadcast — the full message below handles it)
-		s.runningTestsMu.Lock()
-		if rt, ok := s.runningTests[testID]; ok {
-			if len(rt.Logs) >= maxRunningTestLogs {
-				rt.Logs = rt.Logs[1:]
-			}
-			rt.Logs = append(rt.Logs, logLine)
-		}
-		s.runningTestsMu.Unlock()
+		s.runningTests.AppendLog(testID, logLine)
 
 		// Single broadcast with full flow result data
 		s.wsHub.Broadcast(ws.Message{
@@ -330,14 +319,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 
 // broadcastTestLog sends a log line via WebSocket and updates the running test log buffer.
 func (s *Server) broadcastTestLog(testID, planID, line string) {
-	s.runningTestsMu.Lock()
-	if rt, ok := s.runningTests[testID]; ok {
-		if len(rt.Logs) >= maxRunningTestLogs {
-			rt.Logs = rt.Logs[1:]
-		}
-		rt.Logs = append(rt.Logs, line)
-	}
-	s.runningTestsMu.Unlock()
+	s.runningTests.AppendLog(testID, line)
 
 	s.wsHub.Broadcast(ws.Message{
 		Type: "test_progress",

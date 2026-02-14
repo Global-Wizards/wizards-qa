@@ -1,10 +1,9 @@
 import { ref, onUnmounted } from 'vue'
 import { analyzeApi, analysesApi, authUrl } from '@/lib/api'
 import { getWebSocket } from '@/lib/websocket'
+import { MAX_LOGS } from '@/lib/constants'
 
 const MAX_PERSISTED_STEPS_LOAD = 200
-
-const MAX_LOGS = 500
 const MAX_LIVE_STEPS = 50
 const LS_KEY = 'wizards-qa-running-analysis'
 
@@ -109,6 +108,41 @@ export function useAnalysis() {
 
   let cleanups = []
   let elapsedTimer = null
+
+  // Reset all reactive state to initial values
+  function resetState() {
+    status.value = 'idle'
+    currentStep.value = ''
+    analysisId.value = null
+    pageMeta.value = null
+    analysis.value = null
+    flows.value = []
+    agentSteps.value = []
+    agentMode.value = false
+    error.value = null
+    failedStep.value = null
+    logs.value = []
+    elapsedSeconds.value = 0
+    startTime.value = null
+    stepTimings.value = {}
+    liveAgentSteps.value = []
+    latestScreenshot.value = null
+    agentReasoning.value = ''
+    userHints.value = []
+    hintCooldown.value = false
+    agentStepCurrent.value = 0
+    agentStepTotal.value = 0
+    latestStepMessage.value = ''
+    persistedAgentSteps.value = []
+    autoTestPlanId.value = null
+    devices.value = []
+    testRunId.value = null
+    testStepScreenshots.value = []
+    testFlowProgress.value = []
+    currentDeviceIndex.value = 0
+    currentDeviceTotal.value = 0
+    currentDeviceCategory.value = ''
+  }
 
   function startElapsedTimer() {
     stopElapsedTimer()
@@ -471,33 +505,10 @@ export function useAnalysis() {
   }
 
   async function start(gameUrl, projectId, useAgentMode = false, profileParams = {}, modules = {}) {
+    resetState()
     status.value = 'scouting'
     currentStep.value = 'scouting'
-    analysisId.value = null
-    pageMeta.value = null
-    analysis.value = null
-    flows.value = []
-    agentSteps.value = []
     agentMode.value = useAgentMode
-    error.value = null
-    failedStep.value = null
-    logs.value = []
-    stepTimings.value = {}
-    liveAgentSteps.value = []
-    latestScreenshot.value = null
-    agentReasoning.value = ''
-    userHints.value = []
-    hintCooldown.value = false
-    agentStepCurrent.value = 0
-    agentStepTotal.value = 0
-    latestStepMessage.value = ''
-    autoTestPlanId.value = null
-    testRunId.value = null
-    testStepScreenshots.value = []
-    testFlowProgress.value = []
-    currentDeviceIndex.value = 0
-    currentDeviceTotal.value = 0
-    currentDeviceCategory.value = ''
 
     startElapsedTimer()
     setupListeners()
@@ -566,34 +577,11 @@ export function useAnalysis() {
    * the analysis. We just set up WS listeners and status polling.
    */
   function startBatch(batchAnalysisId, gameUrl, useAgentMode = false) {
+    resetState()
     status.value = 'scouting'
     currentStep.value = 'scouting'
     analysisId.value = batchAnalysisId
-    pageMeta.value = null
-    analysis.value = null
-    flows.value = []
-    agentSteps.value = []
     agentMode.value = useAgentMode
-    error.value = null
-    failedStep.value = null
-    logs.value = []
-    stepTimings.value = {}
-    liveAgentSteps.value = []
-    latestScreenshot.value = null
-    agentReasoning.value = ''
-    userHints.value = []
-    hintCooldown.value = false
-    agentStepCurrent.value = 0
-    agentStepTotal.value = 0
-    latestStepMessage.value = ''
-    autoTestPlanId.value = null
-    devices.value = []
-    testRunId.value = null
-    testStepScreenshots.value = []
-    testFlowProgress.value = []
-    currentDeviceIndex.value = 0
-    currentDeviceTotal.value = 0
-    currentDeviceCategory.value = ''
 
     startElapsedTimer()
     setupListeners()
@@ -745,37 +733,7 @@ export function useAnalysis() {
     stopStatusPolling()
     stopElapsedTimer()
     clearLocalStorage()
-    status.value = 'idle'
-    currentStep.value = ''
-    analysisId.value = null
-    pageMeta.value = null
-    analysis.value = null
-    flows.value = []
-    agentSteps.value = []
-    agentMode.value = false
-    error.value = null
-    failedStep.value = null
-    logs.value = []
-    elapsedSeconds.value = 0
-    startTime.value = null
-    stepTimings.value = {}
-    liveAgentSteps.value = []
-    latestScreenshot.value = null
-    agentReasoning.value = ''
-    userHints.value = []
-    hintCooldown.value = false
-    agentStepCurrent.value = 0
-    agentStepTotal.value = 0
-    latestStepMessage.value = ''
-    persistedAgentSteps.value = []
-    autoTestPlanId.value = null
-    devices.value = []
-    testRunId.value = null
-    testStepScreenshots.value = []
-    testFlowProgress.value = []
-    currentDeviceIndex.value = 0
-    currentDeviceTotal.value = 0
-    currentDeviceCategory.value = ''
+    resetState()
     if (hintCooldownTimer) {
       clearTimeout(hintCooldownTimer)
       hintCooldownTimer = null

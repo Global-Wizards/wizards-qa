@@ -623,11 +623,15 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 						if filename == "." || filename == "/" || strings.ContainsAny(filename, `/\`) {
 							break
 						}
+						// Copy tmpDir under lock to avoid race with cleanup goroutine
 						s.activeAnalysesMu.Lock()
-						aa := s.activeAnalyses[analysisID]
+						var aaTmpDir string
+						if aa := s.activeAnalyses[analysisID]; aa != nil {
+							aaTmpDir = aa.tmpDir
+						}
 						s.activeAnalysesMu.Unlock()
-						if aa != nil {
-							screenshotPath := filepath.Join(aa.tmpDir, "agent-screenshots", filename)
+						if aaTmpDir != "" {
+							screenshotPath := filepath.Join(aaTmpDir, "agent-screenshots", filename)
 							if imgData, readErr := os.ReadFile(screenshotPath); readErr == nil {
 								dataDir := s.store.DataDir()
 								if dataDir != "" {
@@ -708,7 +712,9 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 
 		cmdErr := cmd.Wait()
 
-		// Clean up active analysis registration
+		// Clean up active analysis registration.
+		// Safe: cmd.Wait() above guarantees the subprocess has exited, so the stderr
+		// goroutine (which also reads activeAnalyses) has completed via <-stderrDone.
 		s.activeAnalysesMu.Lock()
 		delete(s.activeAnalyses, analysisID)
 		s.activeAnalysesMu.Unlock()

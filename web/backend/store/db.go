@@ -169,7 +169,9 @@ func runMigrations(db *sql.DB) error {
 	}
 	for _, stmt := range alters {
 		if _, err := db.Exec(stmt); err != nil {
-			// Ignore "duplicate column" errors
+			// SQLite does not expose a specific error code for "duplicate column" —
+			// the error is a generic SQLITE_ERROR (code 1) with message text.
+			// String matching is the standard approach used by SQLite migration tools.
 			if !strings.Contains(err.Error(), "duplicate column") {
 				log.Printf("Migration warning (non-fatal): %v", err)
 			}
@@ -186,6 +188,10 @@ func runMigrations(db *sql.DB) error {
 		`CREATE INDEX IF NOT EXISTS idx_project_members_user ON project_members(user_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_agent_steps_analysis ON agent_steps(analysis_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_test_plans_analysis ON test_plans(analysis_id)`,
+		// Composite indexes for common ORDER BY queries
+		`CREATE INDEX IF NOT EXISTS idx_analyses_project_created ON analyses(project_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_test_results_project_created ON test_results(project_id, created_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_test_plans_project_created ON test_plans(project_id, created_at DESC)`,
 	}
 	for _, stmt := range indexes {
 		if _, err := db.Exec(stmt); err != nil {
@@ -305,7 +311,11 @@ func (s *Store) migrateAnalyses(dataDir string) {
 
 	migrated := 0
 	for _, a := range file.Analyses {
-		resultJSON := marshalToPtr(a.Result)
+		resultJSON, marshalErr := marshalToPtr(a.Result)
+		if marshalErr != nil {
+			log.Printf("Migration: failed to marshal result for analysis %s: %v", a.ID, marshalErr)
+			continue
+		}
 		now := time.Now().Format(time.RFC3339)
 		createdAt := a.CreatedAt
 		if createdAt == "" {
@@ -352,7 +362,11 @@ func (s *Store) migrateTestResults(dataDir string) {
 
 	migrated := 0
 	for _, r := range file.Results {
-		flowsJSON := marshalToPtr(r.Flows)
+		flowsJSON, marshalErr := marshalToPtr(r.Flows)
+		if marshalErr != nil {
+			log.Printf("Migration: failed to marshal flows for test result %s: %v", r.ID, marshalErr)
+			continue
+		}
 		ts := r.Timestamp
 		if ts == "" {
 			ts = time.Now().Format(time.RFC3339)
@@ -389,8 +403,16 @@ func (s *Store) migrateTestPlans(dataDir string) {
 
 	migrated := 0
 	for _, p := range file.Plans {
-		flowNamesJSON := marshalToPtr(p.FlowNames)
-		variablesJSON := marshalToPtr(p.Variables)
+		flowNamesJSON, marshalErr := marshalToPtr(p.FlowNames)
+		if marshalErr != nil {
+			log.Printf("Migration: failed to marshal flow names for test plan %s: %v", p.ID, marshalErr)
+			continue
+		}
+		variablesJSON, marshalErr2 := marshalToPtr(p.Variables)
+		if marshalErr2 != nil {
+			log.Printf("Migration: failed to marshal variables for test plan %s: %v", p.ID, marshalErr2)
+			continue
+		}
 		createdAt := p.CreatedAt
 		if createdAt == "" {
 			createdAt = time.Now().Format(time.RFC3339)

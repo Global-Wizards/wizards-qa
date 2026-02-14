@@ -335,7 +335,7 @@
 </template>
 
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useClipboard } from '@vueuse/core'
 import { ArrowLeft, Save, Play, AlertCircle, CheckCircle, Trash2, Plus, ShieldCheck, ShieldAlert, ShieldX, Bug, Copy, Check, ChevronDown, ChevronRight, Wand2 } from 'lucide-vue-next'
@@ -369,6 +369,7 @@ const saveSuccess = ref(null)
 const saveError = ref(null)
 const activeTab = ref('details')
 const activeFlowTab = ref('')
+let saveSuccessTimer = null
 
 // Plan data
 const plan = ref({ name: '', description: '', gameUrl: '', status: '', createdAt: '', flowNames: [], variables: {}, mode: '' })
@@ -582,7 +583,7 @@ async function save() {
     } else {
       saveSuccess.value = 'Changes saved successfully'
     }
-    setTimeout(() => { saveSuccess.value = null }, 3000)
+    saveSuccessTimer = setTimeout(() => { saveSuccess.value = null }, 3000)
   } catch (err) {
     saveError.value = err.message || 'Failed to save'
   } finally {
@@ -644,5 +645,9 @@ onMounted(async () => {
   } finally {
     loading.value = false
   }
+})
+
+onUnmounted(() => {
+  if (saveSuccessTimer) clearTimeout(saveSuccessTimer)
 })
 </script>
