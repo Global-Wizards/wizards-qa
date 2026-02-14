@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.5] - 2026-02-14
+
+### Fixed
+- **Build break: undefined `normalizeFlowYAML`** — `server.go` still called the local `normalizeFlowYAML` wrapper removed in v0.40.0; replaced with `flows.NormalizeFlowYAML`. This broke CI deploy since v0.40.0.
+
 ## [0.40.4] - 2026-02-14
 
 ### Fixed

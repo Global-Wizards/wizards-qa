@@ -24,6 +24,7 @@ import (
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/cors"
 
+	"github.com/Global-Wizards/wizards-qa/pkg/flows"
 	"github.com/Global-Wizards/wizards-qa/web/backend/auth"
 	"github.com/Global-Wizards/wizards-qa/web/backend/store"
 	"github.com/Global-Wizards/wizards-qa/web/backend/ws"
@@ -443,7 +444,7 @@ func (s *Server) handleValidateFlow(w http.ResponseWriter, r *http.Request) {
 	// If validation failed, try normalizing and re-validating.
 	// If normalized version is better, offer it as a suggested fix.
 	if !result.Valid {
-		normalized := normalizeFlowYAML(req.Content)
+		normalized := flows.NormalizeFlowYAML(req.Content)
 		if normalized != req.Content {
 			fixResult := validateMaestroYAML(normalized)
 			if fixResult.Valid || len(fixResult.Errors) < len(result.Errors) {
