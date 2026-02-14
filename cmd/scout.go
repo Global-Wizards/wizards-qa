@@ -264,11 +264,16 @@ Example:
 				}
 			} else if agentMode {
 				// Agent mode: use ScoutURLHeadlessKeepAlive + agentic exploration
+				// Cap DPR to 1.0 — AI doesn't need retina; high DPR overwhelms SwiftShader
+				agentDPR := viewportDPR
+				if agentDPR > 1.0 {
+					agentDPR = 1.0
+				}
 				agentPageMeta, browserPage, cleanup, agentErr := scout.ScoutURLHeadlessKeepAlive(ctx, gameURL, scout.HeadlessConfig{
 					Enabled:          true,
 					Width:            cfg.Browser.Viewport.Width,
 					Height:           cfg.Browser.Viewport.Height,
-					DevicePixelRatio: viewportDPR,
+					DevicePixelRatio: agentDPR,
 					Timeout:          timeoutDur,
 				})
 				if agentErr != nil {

@@ -194,9 +194,11 @@ func AgentTools(cfg AgentConfig) []ToolDefinition {
 
 // Screenshot timeout limits — prevents slow WebGL games (SwiftShader) from
 // consuming the entire analysis timeout budget on screenshots.
+// Values are generous because SwiftShader (CPU-based GPU) is slow on complex
+// WebGL games (e.g. Phaser 4 with heavy canvas compositing).
 const (
-	screenshotTimeout     = 10 * time.Second // auto-screenshots after click/type/scroll/navigate
-	screenshotToolTimeout = 15 * time.Second // explicit screenshot tool
+	screenshotTimeout     = 20 * time.Second // auto-screenshots after click/type/scroll/navigate
+	screenshotToolTimeout = 30 * time.Second // explicit screenshot tool
 )
 
 type ssResult struct {
@@ -204,10 +206,8 @@ type ssResult struct {
 	err error
 }
 
-// captureScreenshotWithTimeout wraps CaptureScreenshot with a timeout.
-// Returns empty string (no error) if the timeout fires — the caller
-// can continue without the image.
-func captureScreenshotWithTimeout(page BrowserPage, timeout time.Duration) (string, error) {
+// captureScreenshotOnce wraps CaptureScreenshot with a single-attempt timeout.
+func captureScreenshotOnce(page BrowserPage, timeout time.Duration) (string, error) {
 	ch := make(chan ssResult, 1)
 	go func() {
 		b64, err := page.CaptureScreenshot()
@@ -217,8 +217,22 @@ func captureScreenshotWithTimeout(page BrowserPage, timeout time.Duration) (stri
 	case res := <-ch:
 		return res.b64, res.err
 	case <-time.After(timeout):
-		return "", nil // skip screenshot, don't error
+		return "", nil
 	}
+}
+
+// captureScreenshotWithTimeout wraps CaptureScreenshot with a timeout and
+// one automatic retry. Complex WebGL games rendered via SwiftShader sometimes
+// need two attempts — the first screenshot can stall while the compositor
+// finishes a heavy frame, but a second attempt often succeeds quickly once
+// the frame buffer is ready.
+func captureScreenshotWithTimeout(page BrowserPage, timeout time.Duration) (string, error) {
+	b64, err := captureScreenshotOnce(page, timeout)
+	if err != nil || b64 != "" {
+		return b64, err
+	}
+	// First attempt timed out — retry once with the same timeout.
+	return captureScreenshotOnce(page, timeout)
 }
 
 // BrowserToolExecutor executes browser tool calls against a BrowserPage.
@@ -251,7 +265,7 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 			return "", "", fmt.Errorf("click: %w", err)
 		}
 		// Brief pause for the page to react
-		time.Sleep(250 * time.Millisecond)
+		time.Sleep(150 * time.Millisecond)
 		// Auto-capture screenshot after click (with timeout to prevent slow WebGL from blocking)
 		b64, _ := captureScreenshotWithTimeout(e.Page, screenshotTimeout)
 		return fmt.Sprintf("Clicked at (%d, %d).", params.X, params.Y), b64, nil

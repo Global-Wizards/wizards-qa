@@ -5,6 +5,24 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.2] - 2026-02-14
+
+### Improved
+- **Screenshot performance overhaul for SwiftShader** — Comprehensive optimization of headless Chrome screenshot pipeline for CPU-based WebGL rendering:
+  - **Canvas fast path**: Screenshots now try `canvas.toDataURL()` first, reading directly from the GPU framebuffer and bypassing the Chrome compositor entirely. Falls back to CDP screenshot for non-canvas pages or tainted canvases.
+  - **Chrome performance flags**: Added `--in-process-gpu`, `--disable-hang-monitor`, `--disable-background-timer-throttling`, `--disable-renderer-backgrounding`, `--disable-ipc-flooding-protection`, and others to reduce overhead.
+  - **DPR cap for agent mode**: Device pixel ratio is now capped at 1.0 during agent exploration and test execution. High-DPR mobile presets (e.g. 3.5x) were rendering 12x more pixels than needed for AI vision.
+  - **Fixed media type**: Corrected `image/webp` → `image/jpeg` in API messages to match actual JPEG encoding.
+  - **Fixed initial screenshot**: `ScoutURLHeadlessKeepAlive` initial screenshot switched from WebP q60 to JPEG q20 for consistency.
+  - **Reduced waits**: WaitIdle 3s→1.5s, canvas polling 30→20 iterations, post-click sleep 250ms→150ms, scenario nav sleep 2s→1s.
+  - **Console log cap**: Added 2000-line cap in keep-alive mode to prevent unbounded memory growth.
+  - **Fixed file extensions**: Screenshot filenames now use `.jpg` instead of `.webp`.
+
+## [0.41.1] - 2026-02-14
+
+### Fixed
+- **Screenshot timeouts on complex WebGL games** — Switched agent screenshots from WebP to JPEG encoding (significantly faster on SwiftShader CPU renderer), increased timeouts from 10s/15s to 20s/30s, and added an automatic single retry on timeout. Reduces "Screenshot timed out" failures on heavy Phaser/PixiJS games.
+
 ## [0.41.0] - 2026-02-14
 
 ### Added

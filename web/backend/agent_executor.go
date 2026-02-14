@@ -107,11 +107,19 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 
 	s.broadcastTestLog(testID, planID, "Launching headless browser for agent test execution...")
 
+	// Cap DPR to 1.0 for agent mode — the AI doesn't need retina screenshots
+	// and high DPR (e.g. 3.5x on mobile presets) makes SwiftShader render 12x
+	// more pixels, causing screenshot timeouts on complex WebGL games.
+	agentDPR := vp.DevicePixelRatio
+	if agentDPR > 1.0 {
+		agentDPR = 1.0
+	}
+
 	_, browserPage, cleanup, err := scout.ScoutURLHeadlessKeepAlive(ctx, "about:blank", scout.HeadlessConfig{
 		Enabled:          true,
 		Width:            vp.Width,
 		Height:           vp.Height,
-		DevicePixelRatio: vp.DevicePixelRatio,
+		DevicePixelRatio: agentDPR,
 		Timeout:          30 * time.Second,
 	})
 	if err != nil {
@@ -168,7 +176,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 			})
 			continue
 		}
-		time.Sleep(2 * time.Second) // Wait for page to settle
+		time.Sleep(1 * time.Second) // Wait for page to settle
 
 		// Take initial screenshot
 		initialSS, _ := browserPage.CaptureScreenshot()
@@ -188,7 +196,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 				"type": "image",
 				"source": map[string]interface{}{
 					"type":       "base64",
-					"media_type": "image/webp",
+					"media_type": "image/jpeg",
 					"data":       initialSS,
 				},
 			})
@@ -311,7 +319,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 						dstDir := filepath.Join(dataDir, "test-screenshots", testID)
 						if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
 							safeName := strings.ReplaceAll(scenario.Name, " ", "_")
-							fname := fmt.Sprintf("flow-%s-step-%d.webp", safeName, stepIndex)
+							fname := fmt.Sprintf("flow-%s-step-%d.jpg", safeName, stepIndex)
 							dstPath := filepath.Join(dstDir, fname)
 							if imgData, decErr := base64.StdEncoding.DecodeString(screenshotB64); decErr == nil {
 								if writeErr := os.WriteFile(dstPath, imgData, 0644); writeErr == nil {
@@ -355,7 +363,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 								"type": "image",
 								"source": map[string]interface{}{
 									"type":       "base64",
-									"media_type": "image/webp",
+									"media_type": "image/jpeg",
 									"data":       screenshotB64,
 								},
 							},

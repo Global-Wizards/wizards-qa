@@ -26,11 +26,34 @@ func NewRodBrowserPage(page *rod.Page) *RodBrowserPage {
 	return &RodBrowserPage{page: page}
 }
 
-// CaptureScreenshot takes a WebP screenshot and returns it as base64.
+// CaptureScreenshot takes a JPEG screenshot and returns it as base64.
+// It first attempts a fast path using canvas.toDataURL() which reads directly
+// from the GPU framebuffer, bypassing the Chrome compositor. This is
+// significantly faster on SwiftShader. Falls back to CDP Page.captureScreenshot
+// if the fast path fails (e.g. no canvas, tainted canvas, HTML overlays).
 func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
-	quality := 25
+	// Fast path: extract directly from the game canvas (avoids compositor overhead)
+	result, err := r.page.Eval(`() => {
+		const c = document.querySelector('canvas');
+		if (c && c.width > 0 && c.height > 0) {
+			try { return c.toDataURL('image/jpeg', 0.2); } catch(e) {}
+		}
+		return '';
+	}`)
+	if err == nil {
+		dataURL := result.Value.Str()
+		if strings.HasPrefix(dataURL, "data:image/") {
+			parts := strings.SplitN(dataURL, ",", 2)
+			if len(parts) == 2 && len(parts[1]) > 100 {
+				return parts[1], nil
+			}
+		}
+	}
+
+	// Fallback: CDP screenshot (handles HTML overlays, no-canvas pages, tainted canvases)
+	quality := 20
 	data, err := r.page.Screenshot(false, &proto.PageCaptureScreenshot{
-		Format:           proto.PageCaptureScreenshotFormatWebp,
+		Format:           proto.PageCaptureScreenshotFormatJpeg,
 		Quality:          &quality,
 		OptimizeForSpeed: true,
 	})
@@ -165,7 +188,17 @@ func newHeadlessLauncher() *launcher.Launcher {
 		Set("use-angle", "swiftshader").
 		Set("enable-unsafe-swiftshader").
 		Set("autoplay-policy", "no-user-gesture-required").
-		Set("font-render-hinting", "none")
+		Set("font-render-hinting", "none").
+		// Performance flags for SwiftShader (CPU-based GPU rendering):
+		Set("in-process-gpu").                       // reduce IPC overhead between browser and GPU process
+		Set("disable-hang-monitor").                 // SwiftShader is slow; prevent Chrome killing "hung" renderers
+		Set("disable-background-timer-throttling").  // keep game loop timers running at full speed
+		Set("disable-renderer-backgrounding").       // don't deprioritize the renderer in headless mode
+		Set("disable-backgrounding-occluded-windows").
+		Set("disable-ipc-flooding-protection").      // remove CDP message rate limiting
+		Set("disable-extensions").                   // no extension overhead
+		Set("disable-component-update").             // no background component update checks
+		Set("disable-background-networking")         // no safe-browsing or other background network
 
 	if bin := lookupChromeBin(); bin != "" {
 		l = l.Bin(bin)
@@ -230,7 +263,9 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 
 	browserPage := &RodBrowserPage{page: page}
 
-	// Collect console logs for agent visibility (mirrors ScoutURLHeadless pattern)
+	// Collect console logs for agent visibility (mirrors ScoutURLHeadless pattern).
+	// Cap at 2000 lines to prevent unbounded memory growth in long-running agent sessions.
+	const maxConsoleLines = 2000
 	go page.EachEvent(func(e *proto.RuntimeConsoleAPICalled) {
 		var parts []string
 		for _, arg := range e.Args {
@@ -242,7 +277,9 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		if len(parts) > 0 {
 			line := fmt.Sprintf("[%s] %s", e.Type, strings.Join(parts, " "))
 			browserPage.mu.Lock()
-			browserPage.consoleLogs = append(browserPage.consoleLogs, line)
+			if len(browserPage.consoleLogs) < maxConsoleLines {
+				browserPage.consoleLogs = append(browserPage.consoleLogs, line)
+			}
 			browserPage.mu.Unlock()
 		}
 	})()
@@ -258,12 +295,12 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		return nil, nil, nil, fmt.Errorf("waiting for page load: %w", err)
 	}
 
-	page.Context(ctx).WaitIdle(3 * time.Second)
+	page.Context(ctx).WaitIdle(1500 * time.Millisecond)
 
 	// Wait for canvas + game framework readiness with exponential backoff polling
 	canvasFound := false
 	pollInterval := 100 * time.Millisecond
-	for i := 0; i < 30; i++ {
+	for i := 0; i < 20; i++ {
 		ready, evalErr := page.Eval(`() => {
 			const canvas = document.querySelector('canvas');
 			if (!canvas) return 'no_canvas';
@@ -326,10 +363,10 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		detectFrameworkFromGlobals(meta)
 	}
 
-	// Take initial screenshot
-	quality := 60
+	// Take initial screenshot (JPEG for speed on SwiftShader)
+	quality := 20
 	data, ssErr := page.Screenshot(false, &proto.PageCaptureScreenshot{
-		Format:           proto.PageCaptureScreenshotFormatWebp,
+		Format:           proto.PageCaptureScreenshotFormatJpeg,
 		Quality:          &quality,
 		OptimizeForSpeed: true,
 	})

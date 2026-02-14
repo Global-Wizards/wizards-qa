@@ -90,7 +90,7 @@ func (a *Analyzer) AgentExplore(
 			"type": "image",
 			"source": map[string]interface{}{
 				"type":       "base64",
-				"media_type": "image/webp",
+				"media_type": "image/jpeg",
 				"data":       initialScreenshot,
 			},
 		},
@@ -405,7 +405,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 								"type": "image",
 								"source": map[string]interface{}{
 									"type":       "base64",
-									"media_type": "image/webp",
+									"media_type": "image/jpeg",
 									"data":       screenshotB64,
 								},
 							},
@@ -425,7 +425,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 			// Write screenshot to tmpDir for live streaming
 			if cfg.ScreenshotDir != "" && screenshotB64 != "" {
-				filename := fmt.Sprintf("step-%d-%s.webp", step, block.Name)
+				filename := fmt.Sprintf("step-%d-%s.jpg", step, block.Name)
 				if raw, decErr := base64.StdEncoding.DecodeString(screenshotB64); decErr == nil {
 					if err := os.WriteFile(filepath.Join(cfg.ScreenshotDir, filename), raw, 0644); err != nil {
 						progress("agent_step", fmt.Sprintf("Warning: failed to write screenshot %s: %v", filename, err))
