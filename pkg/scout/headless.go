@@ -426,7 +426,10 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	// Collect console logs for framework clues (capped at 512KB)
 	const maxConsoleLogBytes = 512 * 1024
 	var consoleLogs strings.Builder
+	var consoleLogsMu sync.Mutex
 	go page.EachEvent(func(e *proto.RuntimeConsoleAPICalled) {
+		consoleLogsMu.Lock()
+		defer consoleLogsMu.Unlock()
 		for _, arg := range e.Args {
 			str := arg.Value.Str()
 			if str != "" {
@@ -504,7 +507,9 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	}
 
 	// Check for WebGL context via console logs
+	consoleLogsMu.Lock()
 	consoleStr := consoleLogs.String()
+	consoleLogsMu.Unlock()
 	if meta.Framework == "unknown" && consoleStr != "" {
 		detected := DetectFramework(nil, consoleStr)
 		if detected != "unknown" {

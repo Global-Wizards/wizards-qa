@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.4] - 2026-02-14
+
+### Fixed
+- **Race condition in `ScoutURLHeadless` console log collection** — Protected `consoleLogs` `strings.Builder` with a `sync.Mutex`; it was written by an `EachEvent` goroutine and read by the main goroutine without synchronization.
+
+### Removed
+- **Dead code: `URLAnalysisPrompt`** — Unused legacy prompt template in `pkg/ai/types.go` (commented "kept for backward compatibility" but never referenced).
+- **Dead code: `pkg/plugins/` package** — Entire unused plugin system (`SlackNotifierPlugin`) never imported by any package.
+- **Dead code: `pkg/performance/` package** — Entire unused performance metrics package never imported by any package.
+
 ## [0.40.3] - 2026-02-14
 
 ### Fixed
