@@ -173,6 +173,7 @@ export const analysesApi = {
   steps: (id) => api.get(`/analyses/${id}/steps`).then((r) => r.data),
   flows: (id) => api.get(`/analyses/${id}/flows`).then((r) => r.data),
   stepScreenshotUrl: (id, stepNumber) => authUrl(`/api/analyses/${id}/steps/${stepNumber}/screenshot`),
+  screenshotUrl: (id, filename) => authUrl(`/api/analyses/${id}/screenshots/${encodeURIComponent(filename)}`),
   exportUrl: (id, format = 'json') => `/api/analyses/${id}/export?format=${format}`,
   export: (id, format = 'json') =>
     api.get(`/analyses/${id}/export?format=${format}`, { responseType: 'blob' }).then((r) => {

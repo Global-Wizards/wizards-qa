@@ -678,7 +678,7 @@ export function useAnalysis() {
               reasoning: s.reasoning || '',
               hasScreenshot: !!s.screenshotPath,
               screenshotUrl: s.screenshotPath
-                ? analysesApi.stepScreenshotUrl(parsed.analysisId, s.stepNumber)
+                ? analysesApi.screenshotUrl(parsed.analysisId, s.screenshotPath)
                 : '',
             }))
             agentStepCurrent.value = steps.length

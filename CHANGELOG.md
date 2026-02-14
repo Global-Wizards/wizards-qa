@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.36.1] - 2026-02-13
+
+### Fixed
+- **Agent exploration screenshots not showing during live analysis** — Added direct filename-based screenshot route (`/api/analyses/{id}/screenshots/{filename}`) that serves files from disk without requiring a DB lookup. Previously, the WebSocket broadcast could fire before the DB was updated, causing the step-number-based handler to return 404. Also fixed the broadcast to only fire after the file is successfully persisted to disk.
+- **Race condition in `executeAnalysis` screenshot handler** — Copied `tmpDir` under lock before accessing, matching the fix already applied to `executeBatchAnalysis`.
+
 ## [0.36.0] - 2026-02-13
 
 ### Added

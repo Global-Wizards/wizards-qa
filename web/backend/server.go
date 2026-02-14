@@ -202,6 +202,7 @@ func (s *Server) setupRoutes() {
 		r.Get("/api/analyses/{id}/flows", s.handleListAnalysisFlows)
 		r.Get("/api/analyses/{id}/steps", s.handleListAgentSteps)
 		r.Get("/api/analyses/{id}/steps/{stepNumber}/screenshot", s.handleAgentStepScreenshot)
+		r.Get("/api/analyses/{id}/screenshots/{filename}", s.handleAnalysisScreenshot)
 		r.Post("/api/analyses/{id}/message", s.handleSendAgentMessage)
 		r.Post("/api/analyses/{id}/continue", s.handleContinueAnalysis)
 		r.Get("/api/tests/{testId}/steps/{flowName}/{stepIndex}/screenshot", s.handleTestStepScreenshot)
@@ -1028,6 +1029,41 @@ func (s *Server) handleAgentStepScreenshot(w http.ResponseWriter, r *http.Reques
 
 	// Detect content type from file extension (backward compat with existing .jpg screenshots)
 	if strings.HasSuffix(screenshotPath, ".webp") {
+		w.Header().Set("Content-Type", "image/webp")
+	} else {
+		w.Header().Set("Content-Type", "image/jpeg")
+	}
+	w.Header().Set("Cache-Control", "public, max-age=86400")
+	w.Write(imgData)
+}
+
+// handleAnalysisScreenshot serves a screenshot by filename directly from disk,
+// without requiring a DB lookup. Used for live screenshots during analysis.
+func (s *Server) handleAnalysisScreenshot(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	filename := chi.URLParam(r, "filename")
+
+	// Sanitize to prevent directory traversal
+	filename = filepath.Base(filename)
+	if filename == "." || filename == "/" || filename == "" {
+		respondError(w, http.StatusBadRequest, "Invalid filename")
+		return
+	}
+
+	dataDir := s.store.DataDir()
+	if dataDir == "" {
+		respondError(w, http.StatusNotFound, "Screenshot storage not configured")
+		return
+	}
+
+	fullPath := filepath.Join(dataDir, "screenshots", id, filename)
+	imgData, err := os.ReadFile(fullPath)
+	if err != nil {
+		respondError(w, http.StatusNotFound, "Screenshot file not found")
+		return
+	}
+
+	if strings.HasSuffix(filename, ".webp") {
 		w.Header().Set("Content-Type", "image/webp")
 	} else {
 		w.Header().Set("Content-Type", "image/jpeg")

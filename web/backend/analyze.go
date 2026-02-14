@@ -559,7 +559,6 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 
 			var latestReasoning string
 			var lastStepDBID int64
-			var lastStepNumber int
 
 			for stderrScanner.Scan() {
 				line := stderrScanner.Text()
@@ -601,7 +600,6 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 								Error:      strFromMap(detailData, "error"),
 								Reasoning:  latestReasoning,
 							}
-							lastStepNumber = stepRecord.StepNumber
 							if dbID, saveErr := s.store.SaveAgentStep(stepRecord); saveErr != nil {
 								log.Printf("Warning: failed to save agent step %d for %s: %v", stepRecord.StepNumber, analysisID, saveErr)
 							} else {
@@ -633,26 +631,31 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 						if aaTmpDir != "" {
 							screenshotPath := filepath.Join(aaTmpDir, "agent-screenshots", filename)
 							if imgData, readErr := os.ReadFile(screenshotPath); readErr == nil {
+								persisted := false
 								dataDir := s.store.DataDir()
 								if dataDir != "" {
 									dstDir := filepath.Join(dataDir, "screenshots", analysisID)
 									if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
 										dstPath := filepath.Join(dstDir, filename)
 										if cpErr := os.WriteFile(dstPath, imgData, 0644); cpErr == nil {
+											persisted = true
 											if lastStepDBID > 0 {
 												s.store.UpdateAgentStepScreenshot(lastStepDBID, filename)
 											}
 										}
 									}
 								}
-								s.wsHub.Broadcast(ws.Message{
-									Type: "agent_screenshot",
-									Data: map[string]string{
-										"analysisId":    analysisID,
-										"screenshotUrl": fmt.Sprintf("/api/analyses/%s/steps/%d/screenshot", analysisID, lastStepNumber),
-										"filename":      filename,
-									},
-								})
+								if persisted {
+									// Use direct filename-based URL to avoid DB lookup race
+									s.wsHub.Broadcast(ws.Message{
+										Type: "agent_screenshot",
+										Data: map[string]string{
+											"analysisId":    analysisID,
+											"screenshotUrl": fmt.Sprintf("/api/analyses/%s/screenshots/%s", analysisID, filename),
+											"filename":      filename,
+										},
+									})
+								}
 							}
 						}
 					case "user_hint":
@@ -1233,7 +1236,6 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 		// Track latest reasoning text and last inserted step ID for screenshot association
 		var latestReasoning string
 		var lastStepDBID int64
-		var lastStepNumber int
 
 		for stderrScanner.Scan() {
 			line := stderrScanner.Text()
@@ -1270,7 +1272,6 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 							Error:      strFromMap(detailData, "error"),
 							Reasoning:  latestReasoning,
 						}
-						lastStepNumber = stepRecord.StepNumber
 						if dbID, saveErr := s.store.SaveAgentStep(stepRecord); saveErr != nil {
 							log.Printf("Warning: failed to save agent step %d for %s: %v", stepRecord.StepNumber, analysisID, saveErr)
 						} else {
@@ -1294,35 +1295,41 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 					if filename == "." || filename == "/" || strings.ContainsAny(filename, `/\`) {
 						break
 					}
+					// Copy tmpDir under lock to avoid race with cleanup goroutine
 					s.activeAnalysesMu.Lock()
-					aa := s.activeAnalyses[analysisID]
+					var aaTmpDir string
+					if aa := s.activeAnalyses[analysisID]; aa != nil {
+						aaTmpDir = aa.tmpDir
+					}
 					s.activeAnalysesMu.Unlock()
-					if aa != nil {
-						screenshotPath := filepath.Join(aa.tmpDir, "agent-screenshots", filename)
+					if aaTmpDir != "" {
+						screenshotPath := filepath.Join(aaTmpDir, "agent-screenshots", filename)
 						if imgData, readErr := os.ReadFile(screenshotPath); readErr == nil {
-							// Persist screenshot to data dir
+							persisted := false
 							dataDir := s.store.DataDir()
 							if dataDir != "" {
 								dstDir := filepath.Join(dataDir, "screenshots", analysisID)
 								if mkErr := os.MkdirAll(dstDir, 0755); mkErr == nil {
 									dstPath := filepath.Join(dstDir, filename)
 									if cpErr := os.WriteFile(dstPath, imgData, 0644); cpErr == nil {
+										persisted = true
 										if lastStepDBID > 0 {
 											s.store.UpdateAgentStepScreenshot(lastStepDBID, filename)
 										}
 									}
 								}
 							}
-
-							// Broadcast URL reference instead of base64 data to save memory
-							s.wsHub.Broadcast(ws.Message{
-								Type: "agent_screenshot",
-								Data: map[string]string{
-									"analysisId":    analysisID,
-									"screenshotUrl": fmt.Sprintf("/api/analyses/%s/steps/%d/screenshot", analysisID, lastStepNumber),
-									"filename":      filename,
-								},
-							})
+							if persisted {
+								// Use direct filename-based URL to avoid DB lookup race
+								s.wsHub.Broadcast(ws.Message{
+									Type: "agent_screenshot",
+									Data: map[string]string{
+										"analysisId":    analysisID,
+										"screenshotUrl": fmt.Sprintf("/api/analyses/%s/screenshots/%s", analysisID, filename),
+										"filename":      filename,
+									},
+								})
+							}
 						}
 					}
 				case "user_hint":
