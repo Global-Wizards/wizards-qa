@@ -457,7 +457,7 @@ onMounted(async () => {
       }
     })(),
     loadPlans(),
-  ]
+  ])
 
   // Auto-switch to plans tab when results are empty but plans exist (only when no explicit tab param)
   if (!route.query.tab && tests.value.length === 0 && plans.value.length > 0) {

@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.6] - 2026-02-14
+
+### Fixed
+- **Frontend build break: syntax error in `Tests.vue`** — Missing closing `)` on `Promise.allSettled` call (introduced in v0.40.1) caused Vite build to fail in CI.
+
 ## [0.40.5] - 2026-02-14
 
 ### Fixed
