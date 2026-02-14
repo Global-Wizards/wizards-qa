@@ -155,8 +155,8 @@ func parseURLHints(gameURL string) map[string]string {
 	// Add token expiry info
 	tokenStatuses := checkURLTokenExpiry(gameURL)
 	if len(tokenStatuses) > 0 {
-		var statusParts []string
-		var expiredNames []string
+		statusParts := make([]string, 0, len(tokenStatuses))
+		expiredNames := make([]string, 0, len(tokenStatuses))
 		for param, ts := range tokenStatuses {
 			if ts.Expired {
 				ago := time.Since(ts.ExpiresAt).Truncate(time.Minute)

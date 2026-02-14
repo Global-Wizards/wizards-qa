@@ -1081,7 +1081,7 @@ func (s *Store) GetUserByEmail(email string) (*User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.Role, &u.CreatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("user with email %q: %w", email, ErrNotFound)
 	}
 	return &u, nil
 }
@@ -1093,7 +1093,7 @@ func (s *Store) GetUserByID(id string) (*User, error) {
 	var u User
 	err := row.Scan(&u.ID, &u.Email, &u.DisplayName, &u.PasswordHash, &u.Role, &u.CreatedAt)
 	if err != nil {
-		return nil, fmt.Errorf("user not found")
+		return nil, fmt.Errorf("user %s: %w", id, ErrNotFound)
 	}
 	return &u, nil
 }

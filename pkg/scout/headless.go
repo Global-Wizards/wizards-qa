@@ -323,23 +323,7 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		for _, v := range globals.Value.Arr() {
 			meta.JSGlobals = append(meta.JSGlobals, v.Str())
 		}
-		for _, g := range meta.JSGlobals {
-			gl := strings.ToLower(g)
-			switch {
-			case strings.HasPrefix(gl, "phaser"):
-				meta.Framework = "phaser"
-			case strings.HasPrefix(gl, "pixi"):
-				meta.Framework = "pixi"
-			case strings.HasPrefix(gl, "cocos"):
-				meta.Framework = "cocos"
-			case strings.HasPrefix(gl, "three"):
-				meta.Framework = "threejs"
-			case strings.HasPrefix(gl, "babylon"):
-				meta.Framework = "babylon"
-			case strings.HasPrefix(gl, "playcanvas"):
-				meta.Framework = "playcanvas"
-			}
-		}
+		detectFrameworkFromGlobals(meta)
 	}
 
 	// Take initial screenshot
@@ -365,6 +349,27 @@ func lookupChromeBin() string {
 		return bin
 	}
 	return ""
+}
+
+// detectFrameworkFromGlobals sets meta.Framework based on detected JS globals.
+func detectFrameworkFromGlobals(meta *PageMeta) {
+	for _, g := range meta.JSGlobals {
+		gl := strings.ToLower(g)
+		switch {
+		case strings.HasPrefix(gl, "phaser"):
+			meta.Framework = "phaser"
+		case strings.HasPrefix(gl, "pixi"):
+			meta.Framework = "pixi"
+		case strings.HasPrefix(gl, "cocos"):
+			meta.Framework = "cocos"
+		case strings.HasPrefix(gl, "three"):
+			meta.Framework = "threejs"
+		case strings.HasPrefix(gl, "babylon"):
+			meta.Framework = "babylon"
+		case strings.HasPrefix(gl, "playcanvas"):
+			meta.Framework = "playcanvas"
+		}
+	}
 }
 
 // ScoutURLHeadless uses headless Chrome to render a page and extract metadata.
@@ -406,14 +411,14 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	}
 	defer page.Close()
 
-	dpr2 := cfg.DevicePixelRatio
-	if dpr2 <= 0 {
-		dpr2 = 1
+	dpr := cfg.DevicePixelRatio
+	if dpr <= 0 {
+		dpr = 1
 	}
 	if err := page.SetViewport(&proto.EmulationSetDeviceMetricsOverride{
 		Width:             width,
 		Height:            height,
-		DeviceScaleFactor: dpr2,
+		DeviceScaleFactor: dpr,
 	}); err != nil {
 		return nil, fmt.Errorf("setting viewport: %w", err)
 	}
@@ -495,23 +500,7 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 			meta.JSGlobals = append(meta.JSGlobals, v.Str())
 		}
 		// Update framework from JS globals (authoritative)
-		for _, g := range meta.JSGlobals {
-			gl := strings.ToLower(g)
-			switch {
-			case strings.HasPrefix(gl, "phaser"):
-				meta.Framework = "phaser"
-			case strings.HasPrefix(gl, "pixi"):
-				meta.Framework = "pixi"
-			case strings.HasPrefix(gl, "cocos"):
-				meta.Framework = "cocos"
-			case strings.HasPrefix(gl, "three"):
-				meta.Framework = "threejs"
-			case strings.HasPrefix(gl, "babylon"):
-				meta.Framework = "babylon"
-			case strings.HasPrefix(gl, "playcanvas"):
-				meta.Framework = "playcanvas"
-			}
-		}
+		detectFrameworkFromGlobals(meta)
 	}
 
 	// Check for WebGL context via console logs

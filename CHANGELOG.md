@@ -5,6 +5,14 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.2] - 2026-02-14
+
+### Improved
+- **DRY: `detectFrameworkFromGlobals` helper** — Extracted identical framework detection blocks (switch on JS global prefix) from `ScoutURLHeadless` and `ScoutURLHeadlessKeepAlive` into a shared helper (`headless.go`).
+- **Naming consistency** — Renamed `dpr2` → `dpr` in `ScoutURLHeadless` to match the same variable name used in `ScoutURLHeadlessKeepAlive` (`headless.go`).
+- **Performance: Pre-allocated slices** — `statusParts` and `expiredNames` in `parseURLHints` now pre-allocate with `make([]string, 0, len(tokenStatuses))` (`analyzer.go`).
+- **Error context in user lookups** — `GetUserByEmail` and `GetUserByID` now include the lookup key and wrap `ErrNotFound` for debuggability (`store.go`).
+
 ## [0.40.1] - 2026-02-14
 
 ### Fixed
