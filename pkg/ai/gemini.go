@@ -3,10 +3,28 @@ package ai
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 )
+
+// apiStatusError wraps an HTTP status code for retry classification.
+type apiStatusError struct {
+	StatusCode int
+	Message    string
+}
+
+func (e *apiStatusError) Error() string { return e.Message }
+
+// IsRetryableAPIError returns true for 5xx/429 (transient) errors, false for 4xx (client) errors.
+func IsRetryableAPIError(err error) bool {
+	var se *apiStatusError
+	if errors.As(err, &se) {
+		return se.StatusCode >= 500 || se.StatusCode == 429
+	}
+	return true // unknown errors are retryable
+}
 
 // GeminiClient implements the Client interface for Google Gemini
 type GeminiClient struct {
@@ -16,7 +34,7 @@ type GeminiClient struct {
 // NewGeminiClient creates a new Gemini API client
 func NewGeminiClient(apiKey, model string, temperature float64, maxTokens int) *GeminiClient {
 	if model == "" {
-		model = "gemini-2.0-flash"
+		model = "gemini-3-flash-preview"
 	}
 
 	g := &GeminiClient{}
@@ -105,7 +123,14 @@ func (g *GeminiClient) callAPIOnce(prompt string) (string, error) {
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Gemini API returned status %d", resp.StatusCode)
+		errBody := string(body)
+		if len(errBody) > 500 {
+			errBody = errBody[:500] + "..."
+		}
+		return "", &apiStatusError{
+			StatusCode: resp.StatusCode,
+			Message:    fmt.Sprintf("Gemini API returned status %d: %s", resp.StatusCode, errBody),
+		}
 	}
 
 	var geminiResp geminiResponse

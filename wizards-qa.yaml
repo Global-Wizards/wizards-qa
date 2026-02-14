@@ -1,0 +1,38 @@
+# Wizards QA Configuration File
+# Switched to Gemini due to Anthropic billing issues
+
+# AI Configuration
+ai:
+  provider: google  # google | anthropic | openai
+  model: gemini-3-flash-preview
+  apiKey: ${GEMINI_API_KEY}
+  temperature: 0.3
+  maxTokens: 16000
+
+# Maestro CLI Configuration
+maestro:
+  browser: chrome
+  timeout: 5m
+  screenshotDir: ./screenshots
+  videoCapture: false
+
+# Flow Management
+flows:
+  directory: ./flows
+  templates: ./flows/templates
+  gitCommit: false
+
+# Test Reporting
+reporting:
+  format: markdown
+  outputDir: ./reports
+  includeScreenshots: true
+  includeVideos: false
+
+# Browser Automation (for game analysis)
+browser:
+  headless: true
+  viewport:
+    width: 1920
+    height: 1080
+  timeout: 30s

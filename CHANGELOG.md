@@ -5,6 +5,33 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.39.6] - 2026-02-14
+
+### Changed
+- **Default Gemini model → `gemini-3-flash-preview`** — `gemini-2.0-flash` is deprecated (shutdown March 31, 2026). Updated default fallback in `pkg/ai/gemini.go` and `wizards-qa.yaml` to `gemini-3-flash-preview`.
+
+## [0.39.5] - 2026-02-14
+
+### Improved
+- **DRY: Shared YAML normalization package** — Extracted ~400 lines of duplicated YAML normalization code (5 functions + 6 regex patterns) from `executor.go` and `analyzer.go` into `pkg/flows/normalize.go`. Both now import from the shared package.
+- **DRY: Remove duplicate `sanitizeFlowName`** — Deleted `sanitizeFlowName` from `executor.go`; uses `util.SanitizeFilename` (already used by `analyzer.go`).
+- **DRY: Remove dead `testPlansDeleteApi`** — Deleted redundant `testPlansDeleteApi` export from `api.js`; `Tests.vue` now uses `testPlansApi.delete` directly.
+- **DRY: Shared `statusVariant`** — Moved `statusVariant()` from `AnalysisList.vue` to `utils.js` alongside `severityVariant`.
+- **Performance: Pre-allocate slices** — `convertCommandList` and `FixCommandList` now use `make([]T, 0, len(items))`.
+
+### Fixed
+- **Safety: `defer tx.Rollback()` in loop** — `MigrateToProjects` wrapped loop body in helper function so `defer tx.Rollback()` fires per-iteration instead of stacking N deferred calls until function exit.
+- **Safety: `MustSetViewport` → `SetViewport`** — Replaced two `page.MustSetViewport()` calls (which panic on error) with `page.SetViewport()` that returns and propagates errors.
+- **Safety: Cap unbounded string builders** — `allScriptContent` (scout.go) and `consoleLogs` (headless.go) now stop writing after 512KB to prevent memory exhaustion from huge pages.
+- **Fix orphaned JSDoc** — Removed stale `/** Trigger a file download... */` comment separated from its function in `utils.js`.
+
+## [0.39.4] - 2026-02-14
+
+### Fixed
+- **Gemini 400 errors now logged with response body** — Gemini `callAPIOnce` includes the (truncated) error response body in the error message instead of discarding it, making 400/4xx failures debuggable.
+- **4xx errors no longer retried** — Introduced `apiStatusError` type and `IsRetryableAPIError` classifier; 4xx errors (except 429) fail immediately instead of being retried 6 times across inner `callAPI` and outer synthesis retry loops.
+- **Exploration history truncated for Gemini synthesis** — Caps flattened exploration text at 100K chars before sending to `Generate()`, preventing oversized payloads that trigger Gemini request-size limits.
+
 ## [0.39.3] - 2026-02-14
 
 ### Improved
