@@ -324,26 +324,28 @@ func collectScreenshots(pageMeta *scout.PageMeta) []string {
 // in text prompts, stripping out the large screenshot fields.
 func buildPageMetaJSON(pageMeta *scout.PageMeta) []byte {
 	type pageMetaForPrompt struct {
-		Title       string            `json:"title"`
-		Description string            `json:"description"`
-		Framework   string            `json:"framework"`
-		CanvasFound bool              `json:"canvasFound"`
-		ScriptSrcs  []string          `json:"scriptSrcs"`
-		MetaTags    map[string]string `json:"metaTags"`
-		BodySnippet string            `json:"bodySnippet"`
-		Links       []string          `json:"links"`
-		JSGlobals   []string          `json:"jsGlobals,omitempty"`
+		Title         string            `json:"title"`
+		Description   string            `json:"description"`
+		Framework     string            `json:"framework"`
+		CanvasFound   bool              `json:"canvasFound"`
+		ClickStrategy string            `json:"clickStrategy,omitempty"`
+		ScriptSrcs    []string          `json:"scriptSrcs"`
+		MetaTags      map[string]string `json:"metaTags"`
+		BodySnippet   string            `json:"bodySnippet"`
+		Links         []string          `json:"links"`
+		JSGlobals     []string          `json:"jsGlobals,omitempty"`
 	}
 	promptMeta := pageMetaForPrompt{
-		Title:       pageMeta.Title,
-		Description: pageMeta.Description,
-		Framework:   pageMeta.Framework,
-		CanvasFound: pageMeta.CanvasFound,
-		ScriptSrcs:  pageMeta.ScriptSrcs,
-		MetaTags:    pageMeta.MetaTags,
-		BodySnippet: pageMeta.BodySnippet,
-		Links:       pageMeta.Links,
-		JSGlobals:   pageMeta.JSGlobals,
+		Title:         pageMeta.Title,
+		Description:   pageMeta.Description,
+		Framework:     pageMeta.Framework,
+		CanvasFound:   pageMeta.CanvasFound,
+		ClickStrategy: pageMeta.ClickStrategy,
+		ScriptSrcs:    pageMeta.ScriptSrcs,
+		MetaTags:      pageMeta.MetaTags,
+		BodySnippet:   pageMeta.BodySnippet,
+		Links:         pageMeta.Links,
+		JSGlobals:     pageMeta.JSGlobals,
 	}
 	data, err := json.MarshalIndent(promptMeta, "", "  ")
 	if err != nil {

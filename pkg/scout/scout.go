@@ -24,6 +24,8 @@ type PageMeta struct {
 	Error         string            `json:"error,omitempty"`
 	ScreenshotB64 string            `json:"screenshotB64,omitempty"`
 	JSGlobals     []string          `json:"jsGlobals,omitempty"`
+	// ClickStrategy records which click dispatch method was selected for this page.
+	ClickStrategy string `json:"clickStrategy,omitempty"`
 	// Screenshots holds base64-encoded JPEG screenshots of multiple game states
 	// (initial load, after canvas click, after button click). The first entry
 	// is the same as ScreenshotB64 for backward compatibility.
@@ -38,6 +40,7 @@ type HeadlessConfig struct {
 	DevicePixelRatio float64
 	Timeout          time.Duration
 	ScreenshotPath   string // if non-empty, save screenshot PNG here
+	DeviceCategory   string // viewport device category (e.g. "iPhone", "iPad", "Desktop")
 }
 
 const (

@@ -141,6 +141,7 @@ func (s *Server) executeBrowserTestRun(planID, testID, flowDir, planName, create
 		Height:           vp.Height,
 		DevicePixelRatio: vp.DevicePixelRatio,
 		Timeout:          30 * time.Second,
+		DeviceCategory:   vp.Category,
 	})
 	if err != nil {
 		s.finishTestRun(planID, testID, planName, startTime, nil, fmt.Errorf("launching browser: %w", err), createdBy)

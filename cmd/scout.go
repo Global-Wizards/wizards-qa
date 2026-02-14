@@ -74,6 +74,7 @@ Example:
 
 			// Resolve viewport preset
 			var viewportDPR float64
+			var viewportCategory string
 			if viewport != "" {
 				vp := scout.GetViewportByName(viewport)
 				if vp == nil {
@@ -82,6 +83,7 @@ Example:
 				cfg.Browser.Viewport.Width = vp.Width
 				cfg.Browser.Viewport.Height = vp.Height
 				viewportDPR = vp.DevicePixelRatio
+				viewportCategory = vp.Category
 			}
 
 			if !jsonOutput {
@@ -275,6 +277,7 @@ Example:
 					Height:           cfg.Browser.Viewport.Height,
 					DevicePixelRatio: agentDPR,
 					Timeout:          timeoutDur,
+					DeviceCategory:   viewportCategory,
 				})
 				if agentErr != nil {
 					return fmt.Errorf("agent scout failed: %w", agentErr)

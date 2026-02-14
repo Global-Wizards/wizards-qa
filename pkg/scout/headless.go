@@ -16,14 +16,18 @@ import (
 
 // RodBrowserPage wraps a *rod.Page to implement the ai.BrowserPage interface.
 type RodBrowserPage struct {
-	page        *rod.Page
-	consoleLogs []string
-	mu          sync.Mutex
+	page           *rod.Page
+	clickStrategy  ClickStrategy
+	consoleLogs    []string
+	mu             sync.Mutex
+	viewportWidth  int    // stored for strategy re-detection
+	deviceCategory string // stored for strategy re-detection
 }
 
 // NewRodBrowserPage creates a new RodBrowserPage wrapping the given rod page.
+// Defaults to desktop viewport width (1920) for click strategy selection.
 func NewRodBrowserPage(page *rod.Page) *RodBrowserPage {
-	return &RodBrowserPage{page: page}
+	return &RodBrowserPage{page: page, viewportWidth: 1920}
 }
 
 // CaptureScreenshot takes a JPEG screenshot and returns it as base64.
@@ -63,36 +67,67 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
-// Click clicks at the given pixel coordinates using JavaScript event dispatch.
-// This dispatches pointer + mouse events directly on the element at (x, y),
-// which is more compatible with canvas-based games (Phaser, PixiJS, etc.)
-// than CDP Input.dispatchMouseEvent, since canvas frameworks listen for
-// DOM-level pointer/mouse events on the canvas element.
+// Click clicks at the given pixel coordinates using the configured click strategy.
+// Defaults to JSDispatchStrategy if no strategy has been set.
 func (r *RodBrowserPage) Click(x, y int) error {
-	result, err := r.page.Eval(`(x, y) => {
-		// Clamp coordinates to viewport bounds — AI occasionally clicks slightly outside
-		x = Math.max(0, Math.min(x, window.innerWidth - 1));
-		y = Math.max(0, Math.min(y, window.innerHeight - 1));
-		let el = document.elementFromPoint(x, y);
-		// Fallback: if still no element, target the canvas or body
-		if (!el) el = document.querySelector('canvas') || document.body;
-		if (!el) return 'no_element';
-		const shared = { clientX: x, clientY: y, bubbles: true, cancelable: true, view: window };
-		const ptrOpts = { ...shared, pointerId: 1, pointerType: 'mouse', isPrimary: true };
-		el.dispatchEvent(new PointerEvent('pointerdown', { ...ptrOpts, button: 0, buttons: 1 }));
-		el.dispatchEvent(new MouseEvent('mousedown', { ...shared, button: 0, buttons: 1 }));
-		el.dispatchEvent(new PointerEvent('pointerup', { ...ptrOpts, button: 0, buttons: 0 }));
-		el.dispatchEvent(new MouseEvent('mouseup', { ...shared, button: 0, buttons: 0 }));
-		el.dispatchEvent(new MouseEvent('click', { ...shared, button: 0 }));
-		return 'ok';
-	}`, x, y)
-	if err != nil {
-		return fmt.Errorf("click at (%d,%d): %w", x, y, err)
+	s := r.clickStrategy
+	if s == nil {
+		s = &JSDispatchStrategy{}
 	}
-	if result == nil || result.Value.Str() == "no_element" {
-		return fmt.Errorf("click at (%d,%d): no element at coordinates", x, y)
+	return s.Click(r.page, x, y)
+}
+
+// SetClickStrategy overrides the click strategy for this browser page.
+func (r *RodBrowserPage) SetClickStrategy(s ClickStrategy) {
+	r.clickStrategy = s
+}
+
+// RedetectClickStrategy re-runs canvas/framework detection on the current page
+// and updates the click strategy. Called after navigation so the strategy
+// matches the actual page content rather than the initial about:blank.
+// Polls briefly for canvas appearance since some frameworks create the canvas
+// element asynchronously after DOMContentLoaded.
+func (r *RodBrowserPage) RedetectClickStrategy() {
+	meta := &PageMeta{}
+
+	// Brief poll for canvas — some frameworks create it after load.
+	// Only retries on eval failure (page still loading); a successful eval
+	// returning false is trusted since WaitIdle already ran.
+	pollInterval := 150 * time.Millisecond
+	for i := 0; i < 5; i++ {
+		hasCanvas, err := r.page.Eval(`() => document.querySelector('canvas') !== null`)
+		if err == nil && hasCanvas != nil {
+			if hasCanvas.Value.Bool() {
+				meta.CanvasFound = true
+			}
+			break // eval succeeded — trust the result
+		}
+		// Eval failed (page navigating/detached), retry after a brief wait
+		if i < 4 {
+			time.Sleep(pollInterval)
+		}
 	}
-	return nil
+
+	globals, err := r.page.Eval(`() => {
+		const found = [];
+		if (window.Phaser) found.push("Phaser " + (Phaser.VERSION || ""));
+		if (window.PIXI) found.push("PIXI " + (PIXI.VERSION || ""));
+		if (window.cc && window.cc.game) found.push("Cocos");
+		if (window.THREE) found.push("Three.js");
+		if (window.BABYLON) found.push("Babylon.js");
+		if (window.PlayCanvas) found.push("PlayCanvas");
+		return found;
+	}`)
+	if err == nil && globals != nil && globals.Value.Arr() != nil {
+		for _, v := range globals.Value.Arr() {
+			if v.Nil() {
+				continue
+			}
+			meta.JSGlobals = append(meta.JSGlobals, v.Str())
+		}
+		detectFrameworkFromGlobals(meta)
+	}
+	r.clickStrategy = SelectClickStrategy(meta, r.viewportWidth, r.deviceCategory)
 }
 
 // TypeText types the given text by inserting it into the page.
@@ -169,6 +204,7 @@ func (r *RodBrowserPage) GetConsoleLogs() ([]string, error) {
 }
 
 // Navigate navigates the page to the given URL and waits for load + idle.
+// After loading, re-detects the click strategy for the new page content.
 func (r *RodBrowserPage) Navigate(url string) error {
 	if err := r.page.Navigate(url); err != nil {
 		return fmt.Errorf("navigate to %s: %w", url, err)
@@ -177,6 +213,7 @@ func (r *RodBrowserPage) Navigate(url string) error {
 		return fmt.Errorf("wait load after navigate: %w", err)
 	}
 	_ = r.page.WaitIdle(3 * time.Second) // best-effort; timeout is not an error
+	r.RedetectClickStrategy()
 	return nil
 }
 
@@ -274,7 +311,11 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		return nil, nil, nil, fmt.Errorf("setting viewport: %w", err)
 	}
 
-	browserPage := &RodBrowserPage{page: page}
+	browserPage := &RodBrowserPage{
+		page:           page,
+		viewportWidth:  width,
+		deviceCategory: cfg.DeviceCategory,
+	}
 
 	// Block analytics/tracking network requests that waste CPU and bandwidth.
 	_ = proto.NetworkSetBlockedURLs{
@@ -404,6 +445,10 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 		}
 		detectFrameworkFromGlobals(meta)
 	}
+
+	// Select click strategy based on detected framework, viewport, and device category
+	browserPage.clickStrategy = SelectClickStrategy(meta, width, cfg.DeviceCategory)
+	meta.ClickStrategy = browserPage.clickStrategy.Name()
 
 	// Take initial screenshot (JPEG for speed on SwiftShader)
 	quality := 20
@@ -626,20 +671,30 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 		}
 	}
 
-	// Screenshot 2: Click center of canvas to start the game
+	// Screenshot 2: Click center of canvas to start the game (CDP for trusted events)
 	if canvasFound {
-		_, clickErr := page.Eval(fmt.Sprintf(`() => {
-			const c = document.querySelector('canvas');
-			if (c) {
-				const rect = c.getBoundingClientRect();
-				const evt = new MouseEvent('click', {
-					clientX: rect.left + rect.width / 2,
-					clientY: rect.top + rect.height / 2,
-					bubbles: true
-				});
-				c.dispatchEvent(evt);
-			}
-		}`))
+		cx := float64(width / 2)
+		cy := float64(height / 2)
+		// Move cursor first — matches CDPMouseStrategy for consistency
+		_ = (proto.InputDispatchMouseEvent{
+			Type: proto.InputDispatchMouseEventTypeMouseMoved,
+			X:    cx,
+			Y:    cy,
+		}).Call(page)
+		_ = (proto.InputDispatchMouseEvent{
+			Type:       proto.InputDispatchMouseEventTypeMousePressed,
+			X:         cx,
+			Y:         cy,
+			Button:     proto.InputMouseButtonLeft,
+			ClickCount: 1,
+		}).Call(page)
+		clickErr := (proto.InputDispatchMouseEvent{
+			Type:       proto.InputDispatchMouseEventTypeMouseReleased,
+			X:         cx,
+			Y:         cy,
+			Button:     proto.InputMouseButtonLeft,
+			ClickCount: 1,
+		}).Call(page)
 		if clickErr == nil {
 			time.Sleep(2 * time.Second)
 			if shot := captureScreenshot(); shot != "" {

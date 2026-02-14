@@ -125,6 +125,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 		Height:           vp.Height,
 		DevicePixelRatio: agentDPR,
 		Timeout:          30 * time.Second,
+		DeviceCategory:   vp.Category,
 	})
 	if err != nil {
 		s.finishTestRun(planID, testID, planName, startTime, nil, fmt.Errorf("launching browser: %w", err), createdBy)

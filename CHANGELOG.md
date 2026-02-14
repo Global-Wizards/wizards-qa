@@ -5,6 +5,23 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.0] - 2026-02-14
+
+### Added
+- **Multi-strategy click handling for canvas/WebGL games** — Clicks now use the best dispatch method based on detected game type:
+  - **CDP mouse events** (`cdp_mouse`) for canvas/WebGL games (Phaser, PixiJS, Three.js, Babylon, etc.) — produces `isTrusted=true` events with correct `offsetX/offsetY`, fixing click failures in frameworks that ignore synthetic events.
+  - **CDP touch events** (`cdp_touch`) for mobile-viewport games (width ≤ 480px) — dispatches native touch events for games that only listen for touch input.
+  - **JS dispatch** (`js_dispatch`) for pure HTML games — retains precise `elementFromPoint` targeting for standard DOM interactions.
+- Click strategy is auto-selected after framework detection and exposed in page metadata (`clickStrategy` field) for diagnostic visibility.
+- Non-agent scout canvas click now uses CDP dispatch for consistency with agent mode.
+
+### Fixed
+- **Web backend always gets `js_dispatch` strategy** — When launched via the web backend, the browser opens `about:blank` first, so click strategy was always `js_dispatch` (no canvas, unknown framework). Strategy now re-detects after every `Navigate()` call so it matches the actual page content.
+- **iPad/tablet viewports miss touch strategy** — The 480px width threshold only caught phones. iPads (744–1024px) and Android tablets (800px) now correctly get `cdp_touch` via device category detection (`HeadlessConfig.DeviceCategory`).
+- **Scout click missing `mouseMoved`** — The non-agent canvas click in `ScoutURLHeadless` now dispatches a `mouseMoved` event before press/release, consistent with `CDPMouseStrategy`.
+- **`clampToViewport` JS eval on every click** — Viewport dimensions are now cached after the first click in `CDPMouseStrategy` and `CDPTouchStrategy`, eliminating a ~50-100ms JS round-trip per click. Cache resets on strategy re-detection.
+- **`JSDispatchStrategy` missing `pointermove`/`mousemove`** — JS dispatch now fires `pointermove` and `mousemove` events before the click sequence, matching `CDPMouseStrategy` behavior for frameworks that track cursor position via move events.
+
 ## [0.41.6] - 2026-02-14
 
 ### Fixed
