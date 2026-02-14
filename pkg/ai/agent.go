@@ -171,6 +171,10 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		thinkStart := time.Now()
 		resp, err := agent.CallWithTools(systemPrompt, messages, tools)
 		thinkingMs := int(time.Since(thinkStart).Milliseconds())
+		if err != nil {
+			progress("agent_error", fmt.Sprintf("Step %d API call failed: %s", step, err))
+			return nil, steps, fmt.Errorf("agent step %d API call failed: %w", step, err)
+		}
 		stepUsage := TokenUsage{
 			InputTokens:              resp.Usage.InputTokens,
 			OutputTokens:             resp.Usage.OutputTokens,
@@ -180,10 +184,6 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		stepCostUSD := stepUsage.EstimatedCost(model)
 		stepCredits := int(math.Ceil(stepCostUSD * 100))
 		tokensEmittedThisIteration := false
-		if err != nil {
-			progress("agent_error", fmt.Sprintf("Step %d API call failed: %s", step, err))
-			return nil, steps, fmt.Errorf("agent step %d API call failed: %w", step, err)
-		}
 
 		// Append assistant response to messages
 		messages = append(messages, AgentMessage{Role: "assistant", Content: resp.Content})

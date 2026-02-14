@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.40.9] - 2026-02-14
+
+### Fixed
+- **Critical: Nil pointer panic in agent exploration** — `AgentExplore` accessed `resp.Usage` before checking if the API call returned an error, causing a panic when `CallWithTools` failed (timeout, rate limit, malformed response). Moved error check before usage access (`agent.go`).
+
 ## [0.40.8] - 2026-02-14
 
 ### Removed
