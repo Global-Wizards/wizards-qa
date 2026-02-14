@@ -70,7 +70,12 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 // DOM-level pointer/mouse events on the canvas element.
 func (r *RodBrowserPage) Click(x, y int) error {
 	result, err := r.page.Eval(`(x, y) => {
-		const el = document.elementFromPoint(x, y);
+		// Clamp coordinates to viewport bounds — AI occasionally clicks slightly outside
+		x = Math.max(0, Math.min(x, window.innerWidth - 1));
+		y = Math.max(0, Math.min(y, window.innerHeight - 1));
+		let el = document.elementFromPoint(x, y);
+		// Fallback: if still no element, target the canvas or body
+		if (!el) el = document.querySelector('canvas') || document.body;
 		if (!el) return 'no_element';
 		const shared = { clientX: x, clientY: y, bubbles: true, cancelable: true, view: window };
 		const ptrOpts = { ...shared, pointerId: 1, pointerType: 'mouse', isPrimary: true };

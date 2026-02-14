@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.4] - 2026-02-14
+
+### Fixed
+- **Agent click fails on coordinates at viewport edge** — `document.elementFromPoint()` returns null for coordinates outside the viewport bounds (e.g. x=1287 on a 1280-wide viewport). Click handler now clamps coordinates to viewport bounds and falls back to the canvas or body element if `elementFromPoint` still returns null.
+
 ## [0.41.3] - 2026-02-14
 
 ### Improved
