@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.41.3] - 2026-02-14
+
+### Improved
+- **Screenshot performance: deeper SwiftShader optimizations** — Second round of headless Chrome performance tuning:
+  - **Network request blocking**: Analytics/tracking scripts (Google Analytics, Hotjar, Sentry, etc.) are now blocked during headless browsing, freeing CPU for rendering.
+  - **WebGL context injection**: `antialias: false` and `preserveDrawingBuffer: true` are injected via `EvalOnNewDocument` before game scripts run. Disabling MSAA significantly reduces SwiftShader workload; `preserveDrawingBuffer` ensures the canvas `toDataURL` fast path works reliably.
+  - **Audio muted**: `--mute-audio` Chrome flag skips Web Audio API processing entirely in headless mode.
+  - **Additional Chrome flags**: `--disable-smooth-scrolling`, `--no-first-run`, `--disable-sync`, `--disable-default-apps` to reduce overhead.
+  - **Non-agent screenshots**: Switched from WebP q60 to JPEG q30 for consistency and speed in `ScoutURLHeadless` multi-screenshot capture.
+
 ## [0.41.2] - 2026-02-14
 
 ### Improved

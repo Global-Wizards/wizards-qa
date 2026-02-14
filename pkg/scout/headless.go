@@ -198,7 +198,12 @@ func newHeadlessLauncher() *launcher.Launcher {
 		Set("disable-ipc-flooding-protection").      // remove CDP message rate limiting
 		Set("disable-extensions").                   // no extension overhead
 		Set("disable-component-update").             // no background component update checks
-		Set("disable-background-networking")         // no safe-browsing or other background network
+		Set("disable-background-networking").         // no safe-browsing or other background network
+		Set("mute-audio").                           // skip audio processing (Web Audio API) entirely
+		Set("disable-smooth-scrolling").             // no scroll animations
+		Set("no-first-run").                         // skip first-run dialog
+		Set("disable-sync").                         // no Chrome sync overhead
+		Set("disable-default-apps")                  // no default app installs
 
 	if bin := lookupChromeBin(); bin != "" {
 		l = l.Bin(bin)
@@ -262,6 +267,32 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	}
 
 	browserPage := &RodBrowserPage{page: page}
+
+	// Block analytics/tracking network requests that waste CPU and bandwidth.
+	_ = proto.NetworkSetBlockedURLs{
+		Urls: []string{
+			"*google-analytics*", "*googletagmanager*", "*facebook.net*",
+			"*doubleclick*", "*hotjar*", "*segment*", "*mixpanel*",
+			"*sentry.io*", "*newrelic*", "*datadoghq*",
+		},
+	}.Call(page)
+
+	// Inject WebGL context overrides before any game script runs:
+	// - antialias:false — avoids expensive MSAA in SwiftShader
+	// - preserveDrawingBuffer:true — required for canvas.toDataURL fast path
+	_, _ = page.EvalOnNewDocument(`
+		const _origGetContext = HTMLCanvasElement.prototype.getContext;
+		HTMLCanvasElement.prototype.getContext = function(type, attrs) {
+			if (type === 'webgl' || type === 'webgl2' || type === 'experimental-webgl') {
+				attrs = Object.assign({}, attrs, {
+					antialias: false,
+					preserveDrawingBuffer: true,
+					powerPreference: 'low-power'
+				});
+			}
+			return _origGetContext.call(this, type, attrs);
+		};
+	`)
 
 	// Collect console logs for agent visibility (mirrors ScoutURLHeadless pattern).
 	// Cap at 2000 lines to prevent unbounded memory growth in long-running agent sessions.
@@ -556,12 +587,11 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 
 	// --- Multi-screenshot capture ---
 	// Capture screenshots of multiple game states to give the AI visibility
-	// beyond just the loading screen. Use WebP at quality 60 to keep base64
-	// size manageable for the multimodal AI API (~30-100 KB per shot).
-	imgQuality := 60
+	// beyond just the loading screen. JPEG for faster encoding on SwiftShader.
+	imgQuality := 30
 	captureScreenshot := func() string {
 		data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
-			Format:           proto.PageCaptureScreenshotFormatWebp,
+			Format:           proto.PageCaptureScreenshotFormatJpeg,
 			Quality:          &imgQuality,
 			OptimizeForSpeed: true,
 		})
