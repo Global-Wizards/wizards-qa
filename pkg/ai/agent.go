@@ -166,6 +166,15 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 			messages = append(messages, AgentMessage{Role: "user", Content: budgetMsg})
 		}
 
+		// Inject exploration summary every 3 steps to help AI avoid repeating actions
+		if step > 1 && step%3 == 0 {
+			summary := buildExplorationSummary(steps)
+			messages = append(messages, AgentMessage{
+				Role:    "user",
+				Content: fmt.Sprintf("[EXPLORATION SUMMARY]\n%s\nUse this to avoid repeating actions and plan what to explore next.", summary),
+			})
+		}
+
 		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
 
 		thinkStart := time.Now()
@@ -473,7 +482,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		// Prune old screenshots from conversation to prevent unbounded context growth.
 		// Each base64 screenshot is ~100-200KB; without pruning, API calls escalate from
 		// ~10s to 70s+ as screenshots accumulate, consuming the entire timeout budget.
-		PruneOldScreenshots(messages, 1)
+		PruneOldScreenshots(messages, 3)
 	}
 
 	progress("agent_done", fmt.Sprintf("Agent exploration complete: %d steps, %d screenshots", len(steps), len(allScreenshots)))
@@ -853,6 +862,60 @@ func flattenMessagesForSynthesis(messages []AgentMessage) string {
 			}
 		}
 	}
+	return sb.String()
+}
+
+// buildExplorationSummary produces a compact text summary of the exploration so far,
+// helping the AI avoid repeating actions and plan what to explore next.
+func buildExplorationSummary(steps []AgentStep) string {
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("Steps completed: %d\n", len(steps)))
+
+	// Count tool usage
+	toolCounts := make(map[string]int)
+	for _, s := range steps {
+		toolCounts[s.ToolName]++
+	}
+	sb.WriteString("Tool usage: ")
+	first := true
+	for tool, count := range toolCounts {
+		if !first {
+			sb.WriteString(", ")
+		}
+		sb.WriteString(fmt.Sprintf("%s=%d", tool, count))
+		first = false
+	}
+	sb.WriteString("\n")
+
+	// Count unique click regions (bucketed to 50px grid)
+	clickRegions := make(map[string]bool)
+	for _, s := range steps {
+		if s.ToolName == "click" {
+			var p struct{ X, Y int }
+			if json.Unmarshal([]byte(s.Input), &p) == nil {
+				region := fmt.Sprintf("%d,%d", p.X/50*50, p.Y/50*50)
+				clickRegions[region] = true
+			}
+		}
+	}
+	sb.WriteString(fmt.Sprintf("Unique click regions (50px grid): %d\n", len(clickRegions)))
+
+	// Last 5 non-trivial action results
+	sb.WriteString("Recent actions:\n")
+	count := 0
+	for i := len(steps) - 1; i >= 0 && count < 5; i-- {
+		s := steps[i]
+		if s.ToolName == "screenshot" || s.ToolName == "wait" {
+			continue
+		}
+		result := s.Result
+		if s.Error != "" {
+			result = "ERROR: " + s.Error
+		}
+		sb.WriteString(fmt.Sprintf("  Step %d: %s → %s\n", s.StepNumber, s.ToolName, Truncate(result, 100)))
+		count++
+	}
+
 	return sb.String()
 }
 

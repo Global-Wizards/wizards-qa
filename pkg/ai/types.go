@@ -80,6 +80,7 @@ type AnalysisResult struct {
 	WordingCheck  []WordingFinding    `json:"wordingCheck,omitempty"`
 	GameDesign    []GameDesignFinding `json:"gameDesign,omitempty"`
 	GLICompliance []GLIFinding        `json:"gliCompliance,omitempty"`
+	NavigationMap *NavigationMap      `json:"navigationMap,omitempty"`
 	RawResponse   string              `json:"rawResponse,omitempty"`
 }
 
@@ -97,6 +98,7 @@ type ComprehensiveAnalysisResult struct {
 	WordingCheck  []WordingFinding    `json:"wordingCheck,omitempty"`
 	GameDesign    []GameDesignFinding `json:"gameDesign,omitempty"`
 	GLICompliance []GLIFinding        `json:"gliCompliance,omitempty"`
+	NavigationMap *NavigationMap      `json:"navigationMap,omitempty"`
 }
 
 // ToAnalysisResult converts a ComprehensiveAnalysisResult to the legacy AnalysisResult
@@ -112,6 +114,7 @@ func (c *ComprehensiveAnalysisResult) ToAnalysisResult() *AnalysisResult {
 		WordingCheck:  c.WordingCheck,
 		GameDesign:    c.GameDesign,
 		GLICompliance: c.GLICompliance,
+		NavigationMap: c.NavigationMap,
 	}
 }
 
@@ -195,6 +198,30 @@ type GLIFinding struct {
 	GLIReference       string   `json:"gliReference"`       // e.g. "GLI-19 Section 3.4.1"
 	Severity           string   `json:"severity"`           // critical|major|minor|informational
 	Suggestion         string   `json:"suggestion"`
+}
+
+// GameScreen represents a distinct screen or state observed during exploration.
+type GameScreen struct {
+	ID          string   `json:"id"`          // e.g., "loading", "main-game", "info-popup"
+	Name        string   `json:"name"`        // Human-readable name
+	Description string   `json:"description"` // What the screen shows
+	ScreenType  string   `json:"screenType"`  // menu|gameplay|popup|overlay|loading|settings|bonus|error
+	UIElements  []string `json:"uiElements"`  // Interactive elements visible
+	StepNumbers []int    `json:"stepNumbers"` // Agent steps where observed
+}
+
+// ScreenTransition records how the agent moved between screens.
+type ScreenTransition struct {
+	From   string `json:"from"`   // GameScreen.ID
+	To     string `json:"to"`     // GameScreen.ID
+	Action string `json:"action"` // e.g., "click PLAY button at (1244,730)"
+}
+
+// NavigationMap captures the graph of screens and transitions observed during exploration.
+type NavigationMap struct {
+	Screens     []GameScreen       `json:"screens"`
+	Transitions []ScreenTransition `json:"transitions"`
+	EntryScreen string             `json:"entryScreen"` // ID of first screen
 }
 
 // TestScenario represents a test scenario generated from analysis
@@ -291,6 +318,12 @@ func buildCompactSchema(modules AnalysisModules) string {
 		b.WriteString(`,
   "gliCompliance": [{ complianceCategory: "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation", description, status: "compliant|non_compliant|needs_review|not_applicable", jurisdictions: [string], gliReference, severity: "critical|major|minor|informational", suggestion }]`)
 	}
+	b.WriteString(`,
+  "navigationMap": {
+    "screens": [{ id, name, description, screenType: "menu|gameplay|popup|overlay|loading|settings|bonus|error", uiElements: [string], stepNumbers: [int] }],
+    "transitions": [{ from: "screen-id", to: "screen-id", action }],
+    "entryScreen": "screen-id"
+  }`)
 	b.WriteString(`
 }`)
 	return b.String()
@@ -360,6 +393,14 @@ For each finding, specify which jurisdictions it applies to, the relevant GLI st
 	}
 
 	b.WriteString(`
+NAVIGATION MAP:
+Construct a navigation map of every distinct screen/state you observed.
+- Each screen needs a unique short ID (e.g., "loading", "main-game", "info-popup").
+- List the interactive UI elements visible on each screen.
+- Record transitions: what action moves from one screen to another.
+- Reference the step numbers where you observed each screen.
+- entryScreen is the first screen seen after the game loads.
+
 SCENARIO GENERATION INSTRUCTIONS:
 9. Generate 3-6 test scenarios covering: happy path (main user flow), edge cases (boundary conditions), and failure scenarios (timeouts, disconnects).
 10. Each scenario must have concrete, actionable steps with specific coordinates or selectors from the screenshots.
@@ -398,6 +439,14 @@ You interacted with the game and observed its behavior through screenshots. Now 
 	}
 
 	b.WriteString(`
+NAVIGATION MAP:
+Construct a navigation map of every distinct screen/state you observed during exploration.
+- Each screen needs a unique short ID (e.g., "loading", "main-game", "info-popup").
+- List the interactive UI elements visible on each screen.
+- Record transitions: what action moves from one screen to another.
+- Reference the step numbers where you observed each screen.
+- entryScreen is the first screen seen after the game loads.
+
 Respond with a single JSON object matching this schema (all string fields are required unless noted):
 `)
 	b.WriteString(buildCompactSchema(modules))

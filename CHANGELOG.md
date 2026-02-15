@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.0] - 2026-02-14
+
+### Added
+- **Navigation map in analysis output** — New `navigationMap` field in analysis results captures every distinct screen/state observed during exploration, including screen IDs, types, interactive UI elements, step numbers, and transitions between screens. Included in both synthesis and static analysis prompts.
+- **Exploration state summary injection** — Every 3 agent steps, a compact `[EXPLORATION SUMMARY]` is injected into the conversation with tool usage counts, unique click regions (bucketed to 50px grid), and the last 5 non-trivial action results. Helps the AI avoid repeating actions and plan exploration.
+
+### Improved
+- **Screenshot retention increased from 1 to 3** — `PruneOldScreenshots` now keeps the 3 most recent screenshots in the conversation instead of 1. Gives the AI visual memory of recent screens, reducing repeated clicks and hallucinated progress. Cost: ~30-40K extra input tokens per run.
+
 ## [0.43.0] - 2026-02-15
 
 ### Added
