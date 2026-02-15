@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.3] - 2026-02-15
+
+### Fixed
+- **Synthesis JSON repair now handles mid-string truncation** — `repairTruncatedJSON` now closes open strings before closing brackets. Previously, Gemini Flash truncating mid-string (e.g., `"name": "Buy Ticket`) left an unclosed quote, so the repaired JSON was still invalid and parsing failed with exit code 1.
+- **Synthesis always gets at least 16384 output tokens** — When using a secondary model (e.g. Gemini Flash) for synthesis, the output token budget is now enforced to a minimum of 16384 regardless of client defaults. Prevents truncation on models with lower default output limits.
+
 ## [0.42.2] - 2026-02-14
 
 ### Fixed

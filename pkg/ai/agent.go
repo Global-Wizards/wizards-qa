@@ -489,11 +489,18 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	synthesisPrompt := BuildSynthesisPrompt(modules)
 	synthClient := a.synthesisClient()
 
-	// Ensure synthesis has enough token budget for full JSON output
-	if cfg.SynthesisMaxTokens > 0 {
-		if bc := baseClientOf(synthClient); bc != nil {
+	// Ensure synthesis has enough token budget for full JSON output.
+	// The comprehensive JSON response typically needs ~10-16K tokens.
+	// When using a secondary model (e.g. Gemini Flash) that may default to 8K,
+	// enforce a minimum of 16384 to prevent truncation.
+	if bc := baseClientOf(synthClient); bc != nil {
+		minTokens := 16384
+		if cfg.SynthesisMaxTokens > minTokens {
+			minTokens = cfg.SynthesisMaxTokens
+		}
+		if bc.MaxTokens < minTokens {
 			origMaxTokens := bc.MaxTokens
-			bc.MaxTokens = cfg.SynthesisMaxTokens
+			bc.MaxTokens = minTokens
 			defer func() { bc.MaxTokens = origMaxTokens }()
 		}
 	}
@@ -908,7 +915,7 @@ func stripImagesFromContent(content interface{}) interface{} {
 }
 
 // repairTruncatedJSON attempts to fix JSON truncated by max_tokens by
-// closing any open brackets/braces. Returns repaired string or error.
+// closing any open strings and brackets/braces. Returns repaired string or error.
 func repairTruncatedJSON(s string) (string, error) {
 	start := strings.Index(s, "{")
 	if start < 0 {
@@ -947,12 +954,21 @@ func repairTruncatedJSON(s string) (string, error) {
 		}
 	}
 
-	if len(stack) == 0 {
+	if len(stack) == 0 && !inString {
 		return s, nil // Already balanced
 	}
 
-	// Trim trailing comma/whitespace, then close brackets
-	trimmed := strings.TrimRight(s, " \t\n\r,")
+	trimmed := s
+	// If truncated mid-string, close the open string
+	if inString {
+		// Remove any trailing incomplete escape sequence
+		trimmed = strings.TrimRight(trimmed, "\\")
+		trimmed += `"`
+	}
+
+	// Trim trailing partial tokens (colon after key, comma, whitespace)
+	trimmed = strings.TrimRight(trimmed, " \t\n\r,:}")
+	// Re-add closing brackets
 	for i := len(stack) - 1; i >= 0; i-- {
 		trimmed += string(stack[i])
 	}
