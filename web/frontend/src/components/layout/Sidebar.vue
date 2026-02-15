@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue'
 import { useStorage } from '@vueuse/core'
 import { useRoute, useRouter } from 'vue-router'
-import { LayoutDashboard, Sparkles, FlaskConical, FileText, GitBranch, PanelLeftClose, PanelLeft, LogOut, FolderKanban, Settings, Users, ChevronsUpDown, Plus, Globe, Gamepad2 } from 'lucide-vue-next'
+import { LayoutDashboard, Sparkles, FlaskConical, FileText, PanelLeftClose, PanelLeft, LogOut, FolderKanban, Settings, Users, ChevronsUpDown, Plus, Globe, Gamepad2 } from 'lucide-vue-next'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem } from '@/components/ui/dropdown-menu'
@@ -70,7 +70,6 @@ const navItems = [
   { path: '/analyses', label: 'Analyses', icon: Sparkles },
   { path: '/tests', label: 'Tests', icon: FlaskConical },
   { path: '/reports', label: 'Reports', icon: FileText },
-  { path: '/flows', label: 'Flows', icon: GitBranch },
 ]
 
 const projectNavItems = computed(() => {
@@ -81,7 +80,6 @@ const projectNavItems = computed(() => {
     { path: `${base}/analyses`, label: 'Analyses', icon: Sparkles },
     { path: `${base}/tests`, label: 'Tests', icon: FlaskConical },
     { path: `${base}/reports`, label: 'Reports', icon: FileText },
-    { path: `${base}/flows`, label: 'Flows', icon: GitBranch },
   ]
 })
 

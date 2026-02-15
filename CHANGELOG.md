@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.3] - 2026-02-15
+
+### Removed
+- **Flows page and navigation** — Removed the `/flows` route (global and project-scoped) and sidebar nav items. Test Flows tab in analysis details and backend APIs remain unchanged.
+
 ## [0.45.2] - 2026-02-15
 
 ### Fixed
