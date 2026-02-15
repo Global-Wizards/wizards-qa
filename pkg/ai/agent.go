@@ -166,13 +166,12 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 			messages = append(messages, AgentMessage{Role: "user", Content: budgetMsg})
 		}
 
-		// Inject exploration summary every 3 steps to help AI avoid repeating actions
+		// Inject exploration summary every 3 steps to help AI avoid repeating actions.
+		// Merge into last user message to avoid consecutive user messages (API requires role alternation).
 		if step > 1 && step%3 == 0 {
 			summary := buildExplorationSummary(steps)
-			messages = append(messages, AgentMessage{
-				Role:    "user",
-				Content: fmt.Sprintf("[EXPLORATION SUMMARY]\n%s\nUse this to avoid repeating actions and plan what to explore next.", summary),
-			})
+			summaryText := fmt.Sprintf("[EXPLORATION SUMMARY]\n%s\nUse this to avoid repeating actions and plan what to explore next.", summary)
+			appendTextToLastUserMessage(&messages, summaryText)
 		}
 
 		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
@@ -863,6 +862,25 @@ func flattenMessagesForSynthesis(messages []AgentMessage) string {
 		}
 	}
 	return sb.String()
+}
+
+// appendTextToLastUserMessage appends a text block to the last user message's content
+// array, or creates a new user message if the last message isn't from the user.
+// This avoids consecutive user messages which violate the Claude API's role alternation.
+func appendTextToLastUserMessage(messages *[]AgentMessage, text string) {
+	if len(*messages) > 0 && (*messages)[len(*messages)-1].Role == "user" {
+		lastMsg := &(*messages)[len(*messages)-1]
+		switch content := lastMsg.Content.(type) {
+		case []interface{}:
+			lastMsg.Content = append(content, map[string]interface{}{
+				"type": "text",
+				"text": text,
+			})
+			return
+		}
+	}
+	// Fallback: add as new user message (shouldn't happen in normal flow)
+	*messages = append(*messages, AgentMessage{Role: "user", Content: text})
 }
 
 // buildExplorationSummary produces a compact text summary of the exploration so far,
