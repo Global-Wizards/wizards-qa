@@ -175,7 +175,7 @@ func AgentTools(cfg AgentConfig) []ToolDefinition {
 	if cfg.AdaptiveExploration {
 		tools = append(tools, ToolDefinition{
 			Name:        "request_more_steps",
-			Description: "Request additional exploration steps when you determine there are significant unexplored areas of the game. Call this before you run out of steps. Provide a reason explaining what remains to explore and how many additional steps you need.",
+			Description: "Request additional exploration steps when you determine there are significant unexplored areas of the game. Call this before you run out of steps. Steps are granted in increments of 5, up to 2x the initial step budget. Provide a reason explaining what remains to explore and how many additional steps you need.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{
@@ -195,7 +195,7 @@ func AgentTools(cfg AgentConfig) []ToolDefinition {
 	if cfg.AdaptiveTimeout {
 		tools = append(tools, ToolDefinition{
 			Name:        "request_more_time",
-			Description: "Request additional exploration time when significant game areas remain unexplored and you're running low on time. Call this proactively before you're cut off.",
+			Description: "Request additional exploration time when significant game areas remain unexplored and you're running low on time. Time is granted in increments of 25% of the initial timeout, up to 2x the initial timeout. Call this proactively before you're cut off.",
 			InputSchema: map[string]interface{}{
 				"type": "object",
 				"properties": map[string]interface{}{

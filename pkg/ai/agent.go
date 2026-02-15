@@ -126,6 +126,14 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		effectiveExplorationTimeout = 2 * time.Minute
 	}
 
+	// Auto-default adaptive caps to 2x initial values
+	if cfg.AdaptiveExploration && cfg.MaxTotalSteps == 0 {
+		cfg.MaxTotalSteps = 2 * cfg.MaxSteps
+	}
+	if cfg.AdaptiveTimeout && cfg.MaxTotalTimeout == 0 {
+		cfg.MaxTotalTimeout = 2 * cfg.TotalTimeout
+	}
+
 	for step := 1; step <= cfg.MaxSteps; step++ {
 		// Check exploration timeout (reserves time for synthesis)
 		if cfg.TotalTimeout > 0 && time.Since(totalStart) > effectiveExplorationTimeout {
@@ -258,6 +266,9 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				}
 
 				granted := params.AdditionalSteps
+				// Round up to nearest increment of 5
+				const stepIncrement = 5
+				granted = ((granted + stepIncrement - 1) / stepIncrement) * stepIncrement
 				if cfg.MaxTotalSteps > 0 {
 					headroom := cfg.MaxTotalSteps - cfg.MaxSteps
 					if granted > headroom {
@@ -324,6 +335,12 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				}
 
 				granted := time.Duration(params.AdditionalMinutes) * time.Minute
+				// Round up to nearest increment of 25% of initial timeout (floor 1 min)
+				timeIncrement := cfg.TotalTimeout / 4
+				if timeIncrement < time.Minute {
+					timeIncrement = time.Minute
+				}
+				granted = ((granted + timeIncrement - 1) / timeIncrement) * timeIncrement
 				if cfg.MaxTotalTimeout > 0 {
 					maxEffective := cfg.MaxTotalTimeout - synthesisReserve
 					headroom := maxEffective - effectiveExplorationTimeout

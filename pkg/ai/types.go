@@ -635,7 +635,7 @@ Assessment checklist — run through this every 3 steps:
 - Have I tested edge cases (rapid clicks, boundary values, unusual inputs)?
 - If ANY answer is "no" and I'm past 70%% of my steps, call request_more_steps immediately.
 
-When calling request_more_steps, request at least 5-10 additional steps. Your exploration can extend up to %d total steps.
+When calling request_more_steps, request at least 5-10 additional steps. Steps are granted in increments of 5. Your exploration can extend up to %d total steps (2x the initial budget if no explicit cap was set).
 
 IMPORTANT: Do NOT output EXPLORATION_COMPLETE until you have explored at least 80%% of the game's interactive surface. If in doubt, request more steps rather than stopping early.`, maxTotalSteps)
 }
@@ -647,7 +647,7 @@ func DynamicTimeoutPromptSuffix(maxMinutes int) string {
 DYNAMIC TIMEOUT:
 You MUST call request_more_time if you are less than 50%% through your exploration goals and more than 50%% through your time budget. The system will periodically inject [SYSTEM STATUS] messages showing your elapsed and remaining time.
 
-When you see remaining time is under 3 minutes and you still have significant areas to explore, call request_more_time immediately with at least 5 additional minutes. Your exploration can extend up to %d minutes total.
+When you see remaining time is under 3 minutes and you still have significant areas to explore, call request_more_time immediately with at least 5 additional minutes. Time is granted in increments of 25%% of the initial timeout. Your exploration can extend up to %d minutes total (2x the initial timeout if no explicit cap was set).
 
 Do NOT wait until you're about to be cut off — request proactively.`, maxMinutes)
 }
