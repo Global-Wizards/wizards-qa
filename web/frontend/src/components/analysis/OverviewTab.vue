@@ -87,25 +87,43 @@
       </CardContent>
     </Card>
 
-    <!-- Screenshot -->
-    <Card v-if="pageMeta?.screenshotB64">
+    <!-- Screenshots -->
+    <Card v-if="screenshots.length">
       <CardHeader>
-        <CardTitle class="text-base">Screenshot</CardTitle>
+        <CardTitle class="text-base">Screenshots ({{ screenshots.length }})</CardTitle>
       </CardHeader>
       <CardContent>
-        <img
-          :src="'data:image/jpeg;base64,' + pageMeta.screenshotB64"
-          class="rounded-md border max-w-lg"
-          alt="Game screenshot"
-        />
+        <div class="grid gap-4" :class="screenshots.length > 1 ? 'sm:grid-cols-2 lg:grid-cols-3' : ''">
+          <img
+            v-for="(ss, i) in screenshots"
+            :key="i"
+            :src="'data:image/jpeg;base64,' + ss"
+            class="rounded-md border w-full cursor-pointer hover:opacity-90 transition-opacity"
+            :alt="'Game screenshot ' + (i + 1)"
+            @click="expandedScreenshot = ss"
+          />
+        </div>
       </CardContent>
     </Card>
+
+    <!-- Expanded screenshot dialog -->
+    <Dialog :open="!!expandedScreenshot" @update:open="expandedScreenshot = null">
+      <DialogContent class="max-w-4xl p-2">
+        <img
+          v-if="expandedScreenshot"
+          :src="'data:image/jpeg;base64,' + expandedScreenshot"
+          class="w-full rounded-md"
+          alt="Game screenshot (expanded)"
+        />
+      </DialogContent>
+    </Dialog>
   </div>
 </template>
 
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Dialog, DialogContent } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
 import StatCard from '@/components/StatCard.vue'
 import { Cog, Layout, GitBranch, AlertTriangle, Eye, Type, Gamepad2, PlayCircle } from 'lucide-vue-next'
@@ -115,6 +133,14 @@ const props = defineProps({
   pageMeta: { type: Object, default: null },
   flows: { type: Array, default: () => [] },
   devices: { type: Array, default: () => [] },
+})
+
+const expandedScreenshot = ref(null)
+
+const screenshots = computed(() => {
+  if (props.pageMeta?.screenshots?.length) return props.pageMeta.screenshots
+  if (props.pageMeta?.screenshotB64) return [props.pageMeta.screenshotB64]
+  return []
 })
 
 const visibleStats = computed(() => {
