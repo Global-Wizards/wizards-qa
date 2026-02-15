@@ -88,8 +88,8 @@ func (s *Server) handleAnalyzeGame(w http.ResponseWriter, r *http.Request) {
 		respondError(w, http.StatusBadRequest, "temperature must be between 0.0 and 1.0")
 		return
 	}
-	if req.MaxTotalSteps != 0 && (req.MaxTotalSteps < 1 || req.MaxTotalSteps > 100) {
-		respondError(w, http.StatusBadRequest, "maxTotalSteps must be between 1 and 100")
+	if req.MaxTotalSteps != 0 && (req.MaxTotalSteps < 1 || req.MaxTotalSteps > 200) {
+		respondError(w, http.StatusBadRequest, "maxTotalSteps must be between 1 and 200")
 		return
 	}
 	if req.MaxTotalSteps > 0 && req.AgentSteps > 0 && req.MaxTotalSteps < req.AgentSteps {
@@ -343,7 +343,7 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 	if agentMode {
 		steps := req.AgentSteps
 		if steps <= 0 {
-			steps = 20
+			steps = 40
 		}
 		if req.Adaptive && req.MaxTotalSteps > steps {
 			steps = req.MaxTotalSteps
@@ -1137,7 +1137,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	if agentMode {
 		steps := req.AgentSteps
 		if steps <= 0 {
-			steps = 20 // default
+			steps = 40 // default
 		}
 		if req.Adaptive && req.MaxTotalSteps > steps {
 			steps = req.MaxTotalSteps

@@ -548,7 +548,7 @@ func ReadResumeData(path string) (*CheckpointData, error) {
 
 // DefaultAgentConfig returns sensible defaults for agent exploration.
 func DefaultAgentConfig() AgentConfig {
-	steps := 20
+	steps := 40
 	return AgentConfig{
 		MaxSteps:     steps,
 		StepTimeout:  30 * time.Second,
@@ -557,14 +557,14 @@ func DefaultAgentConfig() AgentConfig {
 }
 
 // agentTotalTimeout scales exploration timeout with step count:
-// steps × 60s avg + 7min buffer, clamped to [5min, 30min].
+// steps × 60s avg + 7min buffer, clamped to [5min, 60min].
 func agentTotalTimeout(steps int) time.Duration {
 	t := time.Duration(steps)*60*time.Second + 7*time.Minute
 	if t < 5*time.Minute {
 		t = 5 * time.Minute
 	}
-	if t > 30*time.Minute {
-		t = 30 * time.Minute
+	if t > 60*time.Minute {
+		t = 60 * time.Minute
 	}
 	return t
 }

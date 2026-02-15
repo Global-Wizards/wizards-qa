@@ -462,7 +462,7 @@ Example:
 	cmd.Flags().BoolVar(&headless, "headless", false, "Use headless Chrome for JS-rendered pages")
 	cmd.Flags().IntVar(&timeout, "timeout", 10, "HTTP fetch timeout in seconds")
 	cmd.Flags().BoolVar(&agentMode, "agent", false, "Enable agent mode: AI actively explores the game via browser tools")
-	cmd.Flags().IntVar(&agentSteps, "agent-steps", 20, "Max exploration steps in agent mode")
+	cmd.Flags().IntVar(&agentSteps, "agent-steps", 40, "Max exploration steps in agent mode")
 	cmd.Flags().BoolVar(&adaptive, "adaptive", false, "Enable adaptive exploration: AI can dynamically request more steps")
 	cmd.Flags().IntVar(&maxTotalSteps, "max-total-steps", 0, "Hard cap on total exploration steps when adaptive mode is enabled")
 	cmd.Flags().BoolVar(&adaptiveTimeout, "adaptive-timeout", false, "Enable dynamic timeout: AI can request more exploration time")

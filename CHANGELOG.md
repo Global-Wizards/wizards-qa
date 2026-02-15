@@ -5,6 +5,14 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.4] - 2026-02-14
+
+### Changed
+- **Doubled default exploration steps** — Base steps increased from 20 to 40 across CLI, backend, and `DefaultAgentConfig`. Most games need more exploration to cover all interactive surfaces.
+- **Updated analysis profiles** — Quick: 8→15 steps, Balanced: 20→40 (max 60), Thorough: 25→50 (max 100), Maximum: 30→60 (max 150). Time estimates updated accordingly.
+- **Raised max total steps cap from 100 to 200** — Backend validation and frontend input now allow up to 200 adaptive steps for complex games.
+- **Raised timeout clamp from 30min to 60min** — `agentTotalTimeout` now supports longer exploration sessions needed with higher step counts.
+
 ## [0.44.3] - 2026-02-14
 
 ### Fixed

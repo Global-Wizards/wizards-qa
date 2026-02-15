@@ -248,7 +248,7 @@
             </div>
             <div v-if="moduleDynamicSteps" class="space-y-1">
               <label class="text-xs font-medium">Max Total Steps</label>
-              <Input v-model.number="customMaxTotalSteps" type="number" :min="customAgentSteps || 5" :max="100" class="text-sm" />
+              <Input v-model.number="customMaxTotalSteps" type="number" :min="customAgentSteps || 5" :max="200" class="text-sm" />
             </div>
             <div v-if="moduleDynamicTimeout" class="space-y-1">
               <label class="text-xs font-medium">Max Total Timeout (minutes)</label>
@@ -786,7 +786,7 @@ const customModel = ref(defaultProfile.model)
 const customMaxTokens = ref(defaultProfile.maxTokens)
 const customAgentSteps = ref(defaultProfile.agentSteps)
 const customTemperature = ref(defaultProfile.temperature)
-const customMaxTotalSteps = ref(35)
+const customMaxTotalSteps = ref(80)
 const customMaxTotalTimeout = ref(25)
 const moduleDynamicSteps = useStorage('analyze-dynamic-steps', true)
 const moduleDynamicTimeout = useStorage('analyze-dynamic-timeout', true)
@@ -997,7 +997,7 @@ function onProfileChange(val) {
       customMaxTokens.value = p.maxTokens
       customAgentSteps.value = p.agentSteps
       customTemperature.value = p.temperature
-      customMaxTotalSteps.value = p.maxTotalSteps || 35
+      customMaxTotalSteps.value = p.maxTotalSteps || 80
       customMaxTotalTimeout.value = p.maxTotalTimeout || 25
       // Sync agent module toggles from profile defaults
       moduleDynamicSteps.value = p.adaptive || false
