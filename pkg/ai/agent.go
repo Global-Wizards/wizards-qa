@@ -580,9 +580,17 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	parsed, parseErr := parseComprehensiveJSON(synthesisText)
 	if parseErr != nil {
 		// JSON may be truncated (Generate() doesn't expose stop_reason) — try to repair
+		log.Printf("Synthesis JSON parse failed, attempting repair (text length: %d chars)", len(synthesisText))
 		repaired, repairErr := repairTruncatedJSON(synthesisText)
 		if repairErr == nil {
 			parsed, parseErr = parseComprehensiveJSON(repaired)
+			if parseErr != nil {
+				log.Printf("Synthesis JSON repair failed: %v (repaired length: %d chars, tail: %s)", parseErr, len(repaired), Truncate(repaired[max(0, len(repaired)-200):], 200))
+			} else {
+				log.Printf("Synthesis JSON repair succeeded (%d mechanics recovered)", len(parsed.Mechanics))
+			}
+		} else {
+			log.Printf("repairTruncatedJSON error: %v", repairErr)
 		}
 	}
 	if parseErr != nil {
@@ -921,6 +929,19 @@ func stripImagesFromContent(content interface{}) interface{} {
 // repairTruncatedJSON attempts to fix JSON truncated by max_tokens by
 // closing any open strings and brackets/braces. Returns repaired string or error.
 func repairTruncatedJSON(s string) (string, error) {
+	// Strip opening code fence if present (truncated responses won't have closing fence)
+	if idx := strings.Index(s, "```"); idx >= 0 {
+		// Skip past ```json or ```yaml marker + optional newline
+		fenceEnd := idx + 3
+		for fenceEnd < len(s) && s[fenceEnd] != '\n' && s[fenceEnd] != '{' && s[fenceEnd] != '[' {
+			fenceEnd++
+		}
+		if fenceEnd < len(s) && s[fenceEnd] == '\n' {
+			fenceEnd++
+		}
+		s = s[fenceEnd:]
+	}
+
 	start := strings.Index(s, "{")
 	if start < 0 {
 		return "", fmt.Errorf("no JSON object found")
@@ -965,11 +986,15 @@ func repairTruncatedJSON(s string) (string, error) {
 	trimmed := s
 	// If truncated mid-string, close the open string
 	if inString {
-		// Remove any trailing incomplete escape sequence (e.g., \, \u, \u00, \u00a)
-		// Find the last backslash and check if the escape after it is complete
-		if lastBS := strings.LastIndex(trimmed, "\\"); lastBS >= 0 {
-			after := trimmed[lastBS:]
-			// Complete escapes: \", \\, \/, \b, \f, \n, \r, \t (2 chars) or \uXXXX (6 chars)
+		// Check only the last few characters for an incomplete escape sequence.
+		// A complete escape is 2 chars (\n, \t, etc.) or 6 chars (\uXXXX).
+		// We only need to check the tail — not the entire string.
+		tail := trimmed
+		if len(tail) > 6 {
+			tail = tail[len(tail)-6:]
+		}
+		if lastBS := strings.LastIndex(tail, "\\"); lastBS >= 0 {
+			after := tail[lastBS:]
 			isComplete := false
 			if len(after) == 2 {
 				isComplete = strings.ContainsRune("\"\\/bfnrt", rune(after[1]))
@@ -977,7 +1002,8 @@ func repairTruncatedJSON(s string) (string, error) {
 				isComplete = true
 			}
 			if !isComplete {
-				trimmed = trimmed[:lastBS]
+				// Trim the incomplete escape from the full string
+				trimmed = trimmed[:len(trimmed)-len(after)]
 			}
 		}
 		trimmed += `"`

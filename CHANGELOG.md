@@ -5,6 +5,13 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.6] - 2026-02-15
+
+### Fixed
+- **Critical bug in repairTruncatedJSON escape handling** — `strings.LastIndex(trimmed, "\\")` searched the ENTIRE JSON string for backslashes, not just the trailing few characters. Any `\n` or `\t` escape hundreds of characters earlier would cause the repair to truncate the string back to that position, destroying most of the valid JSON. Now only checks the last 6 characters for incomplete escapes.
+- **Strip code fences before JSON repair** — `repairTruncatedJSON` now strips opening markdown code fences (` ```json `) before processing. Truncated Gemini responses lack the closing ` ``` `, so `stripCodeFences` silently fails, but the fence prefix was harmless since `s[start:]` already skips to `{`. Added as defense-in-depth.
+- **Synthesis repair logging** — Added detailed logging for synthesis JSON repair attempts (text length, repair result, tail of repaired text on failure). Makes truncation debugging visible in production logs.
+
 ## [0.42.5] - 2026-02-15
 
 ### Fixed
