@@ -50,10 +50,19 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	// on SwiftShader during complex WebGL animations (60s+ stalls).
 	// VLMs normalize coordinates to the stated viewport range regardless of image resolution,
 	// so even when canvas internal resolution differs from viewport, click targeting works.
+	// For Phaser games: pauses the game loop before toDataURL to prevent SwiftShader
+	// contention (renders stop, so framebuffer read completes in ~1s instead of 30-40s).
 	result, err := r.page.Eval(`() => {
 		const c = document.querySelector('canvas');
 		if (c && c.width > 0 && c.height > 0) {
-			try { return c.toDataURL('image/jpeg', 0.15); } catch(e) {}
+			try {
+				const g = window.game;
+				const paused = g && g.loop && typeof g.loop.sleep === 'function';
+				if (paused) g.loop.sleep();
+				const data = c.toDataURL('image/jpeg', 0.15);
+				if (paused) g.loop.wake();
+				return data;
+			} catch(e) {}
 		}
 		return '';
 	}`)

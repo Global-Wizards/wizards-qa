@@ -5,6 +5,16 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.43.0] - 2026-02-15
+
+### Added
+- **Redundant JS pointer event dispatch on canvas clicks** — `CDPMouseStrategy` now dispatches pointer/mouse events directly on the canvas element via JavaScript after CDP mouse events. CDP events in headless SwiftShader mode sometimes don't reach Phaser's InputManager; the JS fallback ensures the game receives `pointerdown`/`pointerup` with correct `offsetX`/`offsetY` coordinates. Phaser doesn't check `isTrusted`, so synthetic events work.
+- **Click deduplication warning** — `BrowserToolExecutor` tracks recent click coordinates and warns the AI when the same spot has been clicked 3+ times with no visible change. Suggests waiting for animations, using `evaluate_js` to check game state, or trying different coordinates.
+- **Phaser game loop pause/resume around screenshots** — `CaptureScreenshot` now calls `game.loop.sleep()` before `canvas.toDataURL()` and `game.loop.wake()` after. This prevents SwiftShader contention during framebuffer reads, reducing screenshot times from 24-43s to ~1-2s during heavy game animations.
+
+### Improved
+- **Agent exploration system prompt** — Added explicit guidance for canvas game interaction: wait 3-5s after PLAY/SPIN for animations, use `evaluate_js` to inspect game state, never click the same spot more than twice, and try offset coordinates when clicks don't register.
+
 ## [0.42.8] - 2026-02-15
 
 ### Fixed

@@ -126,6 +126,33 @@ func (s *CDPMouseStrategy) Click(page *rod.Page, x, y int) error {
 		}
 	}
 
+	// Redundant JS pointer event dispatch directly on the canvas element.
+	// CDP mouse events SHOULD generate pointer events through Chrome's input
+	// pipeline, but in headless mode with SwiftShader, some Phaser/PixiJS
+	// configurations don't receive them. Dispatching directly on the canvas
+	// ensures the game's input handler sees the events even if CDP routing fails.
+	// isTrusted=false but Phaser's InputManager doesn't check this property.
+	_, _ = page.Eval(`(x, y) => {
+		const canvas = document.querySelector('canvas');
+		if (!canvas) return;
+		const rect = canvas.getBoundingClientRect();
+		const ox = x - rect.left, oy = y - rect.top;
+		// Skip if click is outside canvas bounds
+		if (ox < 0 || oy < 0 || ox > rect.width || oy > rect.height) return;
+		const shared = {
+			clientX: x, clientY: y, screenX: x, screenY: y,
+			offsetX: ox, offsetY: oy,
+			bubbles: true, cancelable: true, view: window
+		};
+		const ptrOpts = { ...shared, pointerId: 1, pointerType: 'mouse', isPrimary: true, width: 1, height: 1 };
+		canvas.dispatchEvent(new PointerEvent('pointermove', { ...ptrOpts, button: -1, buttons: 0 }));
+		canvas.dispatchEvent(new PointerEvent('pointerdown', { ...ptrOpts, button: 0, buttons: 1 }));
+		canvas.dispatchEvent(new MouseEvent('mousedown', { ...shared, button: 0, buttons: 1 }));
+		canvas.dispatchEvent(new PointerEvent('pointerup', { ...ptrOpts, button: 0, buttons: 0 }));
+		canvas.dispatchEvent(new MouseEvent('mouseup', { ...shared, button: 0, buttons: 0 }));
+		canvas.dispatchEvent(new MouseEvent('click', { ...shared, button: 0 }));
+	}`, cx, cy)
+
 	return nil
 }
 

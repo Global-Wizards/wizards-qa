@@ -244,7 +244,40 @@ func CaptureScreenshotWithTimeout(page BrowserPage, timeout time.Duration) (stri
 
 // BrowserToolExecutor executes browser tool calls against a BrowserPage.
 type BrowserToolExecutor struct {
-	Page BrowserPage
+	Page         BrowserPage
+	recentClicks []clickRecord // tracks recent click coordinates for dedup detection
+}
+
+type clickRecord struct {
+	x, y int
+}
+
+// checkClickRepetition tracks a click and returns a warning if the same
+// coordinates have been clicked 3+ times in a row (within 30px tolerance).
+func (e *BrowserToolExecutor) checkClickRepetition(x, y int) string {
+	e.recentClicks = append(e.recentClicks, clickRecord{x, y})
+	// Keep only last 5 clicks
+	if len(e.recentClicks) > 5 {
+		e.recentClicks = e.recentClicks[len(e.recentClicks)-5:]
+	}
+	if len(e.recentClicks) < 3 {
+		return ""
+	}
+	// Check if last 3 clicks are within 30px of each other
+	n := len(e.recentClicks)
+	a, b, c := e.recentClicks[n-3], e.recentClicks[n-2], e.recentClicks[n-1]
+	if intAbs(a.x-c.x) < 30 && intAbs(a.y-c.y) < 30 &&
+		intAbs(b.x-c.x) < 30 && intAbs(b.y-c.y) < 30 {
+		return " WARNING: You have clicked near these coordinates 3+ times with no visible change. The element may not be interactive, or the game may be in an animation/transition state. Try: (1) wait 3-5 seconds for animations to complete, (2) use evaluate_js to check game state (e.g., window.game.scene.scenes[0].sys.settings.status), (3) try clicking different coordinates, (4) move on to explore other areas."
+	}
+	return ""
+}
+
+func intAbs(n int) int {
+	if n < 0 {
+		return -n
+	}
+	return n
 }
 
 // Execute runs a tool by name with the given JSON input. Returns text result, optional screenshot, and error.
@@ -275,7 +308,11 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 		time.Sleep(150 * time.Millisecond)
 		// Auto-capture screenshot after click (with timeout to prevent slow WebGL from blocking)
 		b64, _ := captureScreenshotWithTimeout(e.Page, screenshotTimeout)
-		return fmt.Sprintf("Clicked at (%d, %d).", params.X, params.Y), b64, nil
+		msg := fmt.Sprintf("Clicked at (%d, %d).", params.X, params.Y)
+		if warn := e.checkClickRepetition(params.X, params.Y); warn != "" {
+			msg += warn
+		}
+		return msg, b64, nil
 
 	case "type_text":
 		var params struct {

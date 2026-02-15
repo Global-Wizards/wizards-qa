@@ -524,10 +524,16 @@ INITIAL LOAD CHECK (do this first):
 EXPLORATION STRATEGY:
 1. Once the game is loaded, identify clickable elements, buttons, and interactive regions.
 2. Actively interact with the game: click buttons, spin reels, place bets, type text — don't just observe.
-3. After each interaction, take a screenshot to observe the result.
+3. After each interaction, observe the screenshot returned with the click result to see what changed.
 4. Try to trigger different game states: loading, playing, paused, game over, bonus rounds, etc.
 5. For canvas games, try clicking different regions (center, corners, common button positions like bottom-center for spin).
 6. Note any animations, transitions, error states, or popups you encounter.
+7. CRITICAL: After clicking PLAY/SPIN/START/BUY, ALWAYS wait 3-5 seconds for the game animation to complete before your next action. Game rounds often have reveal animations that must finish before new input is accepted.
+8. If a click produces no visible change, do NOT click the same spot again. Instead:
+   a. Try slightly different coordinates (±50px) — the clickable area may be offset.
+   b. Use evaluate_js to inspect game state: try "window.game ? window.game.scene.scenes.map(s => s.sys.settings.key + ':' + s.sys.settings.status) : 'no game'" or "document.querySelector('canvas').getBoundingClientRect()" to understand the layout.
+   c. Move on to explore other interactive elements.
+9. Use evaluate_js proactively to understand the game: check available scenes, current game state, button visibility, and canvas dimensions. This is more reliable than guessing from screenshots alone.
 
 LOADING FAILURE RECOVERY:
 - Signs of loading failure: blank canvas, "loading" text stuck for multiple screenshots, error dialogs (even hidden ones), console errors about failed network requests.
