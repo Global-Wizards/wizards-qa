@@ -61,7 +61,7 @@ func (a *Analyzer) synthesisClient() Client {
 // synthesisGenerate calls Generate on the synthesis client with a guaranteed
 // minimum output token budget. This prevents truncation when using secondary
 // models (e.g. Gemini Flash) that may have low default maxOutputTokens.
-func (a *Analyzer) synthesisGenerate(prompt string, ctx map[string]interface{}) (string, error) {
+func (a *Analyzer) synthesisGenerate(ctx context.Context, prompt string, ctxMap map[string]interface{}) (string, error) {
 	client := a.synthesisClient()
 	const minTokens = 16384
 	if bc := baseClientOf(client); bc != nil && bc.MaxTokens < minTokens {
@@ -69,7 +69,7 @@ func (a *Analyzer) synthesisGenerate(prompt string, ctx map[string]interface{}) 
 		bc.MaxTokens = minTokens
 		defer func() { bc.MaxTokens = orig }()
 	}
-	return client.Generate(prompt, ctx)
+	return client.Generate(ctx, prompt, ctxMap)
 }
 
 // baseClientOf extracts the *BaseClient from a Client implementation.
@@ -272,7 +272,7 @@ func (a *Analyzer) AnalyzeGame(specPath, gameURL string) (*AnalysisResult, error
 	})
 
 	// Call AI
-	result, err := a.Client.Analyze(prompt, map[string]interface{}{
+	result, err := a.Client.Analyze(context.Background(), prompt, map[string]interface{}{
 		"spec": string(specContent),
 		"url":  gameURL,
 	})
@@ -445,7 +445,7 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 			}
 			progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows: %s", len(scenarios), strings.Join(scenarioNames, ", ")))
 			// Flow generation without screenshots (text-only fallback)
-			flows, err := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, nil, progress)
+			flows, err := a.generateFlowsStructured(ctx, gameURL, pageMeta.Framework, result, scenarios, nil, progress)
 			if err != nil {
 				return pageMeta, result, nil, fmt.Errorf("flow generation failed: %w", err)
 			}
@@ -510,7 +510,7 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 	// Try multimodal with AnalyzeWithImages (preferred path — uses system prompt + all screenshots)
 	if len(screenshots) > 0 {
 		if imgAnalyzer, ok := a.Client.(ImageAnalyzer); ok {
-			response, imgErr := imgAnalyzer.AnalyzeWithImages(AnalysisSystemPrompt, prompt, screenshots)
+			response, imgErr := imgAnalyzer.AnalyzeWithImages(ctx, AnalysisSystemPrompt, prompt, screenshots)
 			if imgErr != nil {
 				return pageMeta, nil, nil, fmt.Errorf("AI multimodal analysis failed: %w", imgErr)
 			}
@@ -539,7 +539,7 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 	if comprehensiveResult == nil && result == nil {
 		progress("analyzing", "Sending to AI (text-only fallback)...")
 		var err error
-		result, err = a.Client.Analyze(prompt, map[string]interface{}{
+		result, err = a.Client.Analyze(ctx, prompt, map[string]interface{}{
 			"url":      gameURL,
 			"pageMeta": string(pageMetaJSON),
 		})
@@ -571,7 +571,7 @@ Generate at least 3 mechanics, 3 UI elements, and 2 user flows.
 Respond with structured JSON matching the ComprehensiveAnalysisResult format (gameInfo, mechanics, uiElements, userFlows, edgeCases, scenarios).`,
 				gameURL, string(urlHintsJSON), urlHints["gameType"])
 
-			retryResp, retryErr := imgAnalyzer.AnalyzeWithImages(AnalysisSystemPrompt, retryPrompt, screenshots)
+			retryResp, retryErr := imgAnalyzer.AnalyzeWithImages(ctx, AnalysisSystemPrompt, retryPrompt, screenshots)
 			if retryErr == nil {
 				parsed, parseErr := parseComprehensiveJSON(retryResp)
 				if parseErr != nil {
@@ -671,7 +671,7 @@ Respond with structured JSON matching the ComprehensiveAnalysisResult format (ga
 	progress("flows", fmt.Sprintf("Converting %d scenarios to Maestro flows: %s", len(scenarios), strings.Join(scenarioNames, ", ")))
 
 	// --- AI Call #2: Flow generation (multimodal with screenshots + full structured JSON) ---
-	flows, err := a.generateFlowsStructured(gameURL, pageMeta.Framework, result, scenarios, screenshots, progress)
+	flows, err := a.generateFlowsStructured(ctx, gameURL, pageMeta.Framework, result, scenarios, screenshots, progress)
 	if err != nil {
 		return pageMeta, result, nil, fmt.Errorf("flow generation failed: %w", err)
 	}
@@ -693,7 +693,7 @@ Respond with structured JSON matching the ComprehensiveAnalysisResult format (ga
 
 // generateFlowsStructured generates Maestro flows using structured JSON input and multimodal screenshots.
 // This replaces the old GenerateFlows which used lossy text conversion and YAML output.
-func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *AnalysisResult, scenarios []TestScenario, screenshots []string, onProgress ProgressFunc) ([]*MaestroFlow, error) {
+func (a *Analyzer) generateFlowsStructured(ctx context.Context, gameURL, framework string, result *AnalysisResult, scenarios []TestScenario, screenshots []string, onProgress ProgressFunc) ([]*MaestroFlow, error) {
 	progress := func(step, message string) {
 		if onProgress != nil {
 			onProgress(step, message)
@@ -747,7 +747,7 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 		if imgAnalyzer, ok := a.Client.(ImageAnalyzer); ok {
 			progress("flows_calling", "Sending to AI for flow generation (this may take 30-60s)...")
 			var err error
-			response, err = imgAnalyzer.AnalyzeWithImages(AnalysisSystemPrompt, prompt, screenshots)
+			response, err = imgAnalyzer.AnalyzeWithImages(ctx, AnalysisSystemPrompt, prompt, screenshots)
 			if err != nil {
 				return nil, fmt.Errorf("AI multimodal flow generation failed: %w", err)
 			}
@@ -758,7 +758,7 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 	if response == "" {
 		progress("flows_calling", "Sending to AI for flow generation (this may take 30-60s)...")
 		var err error
-		response, err = a.synthesisGenerate(prompt, map[string]interface{}{
+		response, err = a.synthesisGenerate(ctx, prompt, map[string]interface{}{
 			"analysisJSON": string(analysisJSON),
 		})
 		if err != nil {
@@ -821,7 +821,7 @@ func (a *Analyzer) GenerateScenarios(analysis *AnalysisResult) ([]TestScenario, 
 	})
 
 	// Call AI (route through synthesis client if available)
-	response, err := a.synthesisGenerate(prompt, map[string]interface{}{
+	response, err := a.synthesisGenerate(context.Background(), prompt, map[string]interface{}{
 		"analysis": analysisStr,
 	})
 	if err != nil {
@@ -872,7 +872,7 @@ func (a *Analyzer) GenerateFlows(scenarios []TestScenario) ([]*MaestroFlow, erro
 	})
 
 	// Call AI (route through synthesis client if available)
-	response, err := a.synthesisGenerate(prompt, map[string]interface{}{
+	response, err := a.synthesisGenerate(context.Background(), prompt, map[string]interface{}{
 		"scenarios": scenariosStr,
 	})
 	if err != nil {

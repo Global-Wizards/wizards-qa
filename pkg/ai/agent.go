@@ -176,9 +176,12 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 
 		progress("agent_step", fmt.Sprintf("Step %d/%d: calling AI...", step, cfg.MaxSteps))
 
+		// Per-step timeout prevents a single slow API call from consuming the entire budget
+		stepCtx, stepCancel := context.WithTimeout(ctx, 90*time.Second)
 		thinkStart := time.Now()
-		resp, err := agent.CallWithTools(systemPrompt, messages, tools)
+		resp, err := agent.CallWithTools(stepCtx, systemPrompt, messages, tools)
 		thinkingMs := int(time.Since(thinkStart).Milliseconds())
+		stepCancel()
 		if err != nil {
 			progress("agent_error", fmt.Sprintf("Step %d API call failed: %s", step, err))
 			return nil, steps, fmt.Errorf("agent step %d API call failed: %w", step, err)
@@ -491,6 +494,9 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	// the API payload by ~1.6MB and avoids input-too-large errors.
 	PruneOldScreenshots(messages, 0)
 
+	// Emit synthesis progress BEFORE the call so UI updates immediately
+	progress("agent_synthesize", "Synthesizing analysis from exploration...")
+
 	// --- Synthesis call ---
 	parsed, synthErr := a.synthesizeFromExploration(ctx, pageMeta, gameURL, steps, messages, modules, cfg, onProgress)
 	if synthErr != nil {
@@ -519,7 +525,11 @@ func (a *Analyzer) synthesizeFromExploration(
 		}
 	}
 
-	progress("agent_synthesize", "Synthesizing analysis from exploration...")
+	progress("agent_synthesize_call", "Calling AI for synthesis...")
+
+	// Give synthesis up to 5 minutes (covers retries)
+	synthCtx, synthCancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer synthCancel()
 
 	synthesisPrompt := BuildSynthesisPrompt(modules)
 	synthClient := a.synthesisClient()
@@ -554,13 +564,13 @@ func (a *Analyzer) synthesizeFromExploration(
 
 		var synthResp *ToolUseResponse
 		synthAttempt := 0
-		synthErr := retry.DoWithRetryable(ctx, retryCfg, IsRetryableAPIError, func() error {
+		synthErr := retry.DoWithRetryable(synthCtx, retryCfg, IsRetryableAPIError, func() error {
 			synthAttempt++
 			if synthAttempt > 1 {
 				progress("synthesis_retry", fmt.Sprintf("Retrying synthesis (attempt %d/%d)...", synthAttempt, retryCfg.MaxAttempts))
 			}
 			var err error
-			synthResp, err = synthAgent.CallWithTools(AgentSystemPrompt, messages, nil)
+			synthResp, err = synthAgent.CallWithTools(synthCtx, AgentSystemPrompt, messages, nil)
 			return err
 		})
 		if synthErr != nil {
@@ -591,13 +601,13 @@ func (a *Analyzer) synthesizeFromExploration(
 		fullPrompt := explorationHistory + "\n\n" + synthesisPrompt
 
 		synthAttempt := 0
-		synthErr := retry.DoWithRetryable(ctx, retryCfg, IsRetryableAPIError, func() error {
+		synthErr := retry.DoWithRetryable(synthCtx, retryCfg, IsRetryableAPIError, func() error {
 			synthAttempt++
 			if synthAttempt > 1 {
 				progress("synthesis_retry", fmt.Sprintf("Retrying synthesis (attempt %d/%d)...", synthAttempt, retryCfg.MaxAttempts))
 			}
 			var err error
-			synthesisText, err = synthClient.Generate(fullPrompt, nil)
+			synthesisText, err = synthClient.Generate(synthCtx, fullPrompt, nil)
 			return err
 		})
 		if synthErr != nil {

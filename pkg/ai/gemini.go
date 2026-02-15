@@ -2,6 +2,7 @@ package ai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -82,7 +83,7 @@ type geminiResponse struct {
 // callAPIOnce makes a single API request to Gemini.
 // Note: The API key is passed as a query parameter as required by the Gemini API.
 // Ensure error messages from this method do not expose the full URL.
-func (g *GeminiClient) callAPIOnce(prompt string) (string, error) {
+func (g *GeminiClient) callAPIOnce(ctx context.Context, prompt string) (string, error) {
 	apiURL := fmt.Sprintf("https://generativelanguage.googleapis.com/v1beta/models/%s:generateContent?key=%s",
 		g.Model, g.APIKey)
 
@@ -105,7 +106,7 @@ func (g *GeminiClient) callAPIOnce(prompt string) (string, error) {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	httpReq, err := http.NewRequest("POST", apiURL, bytes.NewBuffer(reqBody))
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewBuffer(reqBody))
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}

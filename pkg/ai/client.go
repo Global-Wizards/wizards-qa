@@ -2,6 +2,7 @@ package ai
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,8 +13,8 @@ import (
 
 // Client is an interface for AI providers
 type Client interface {
-	Analyze(prompt string, context map[string]interface{}) (*AnalysisResult, error)
-	Generate(prompt string, context map[string]interface{}) (string, error)
+	Analyze(ctx context.Context, prompt string, context map[string]interface{}) (*AnalysisResult, error)
+	Generate(ctx context.Context, prompt string, context map[string]interface{}) (string, error)
 }
 
 // ClaudeClient implements the Client interface for Anthropic Claude
@@ -91,8 +92,8 @@ type claudeResponse struct {
 }
 
 // doRequest sends a pre-marshalled request body to the Claude API and returns the raw response bytes.
-func (c *ClaudeClient) doRequest(reqBody []byte) ([]byte, error) {
-	httpReq, err := http.NewRequest("POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
+func (c *ClaudeClient) doRequest(ctx context.Context, reqBody []byte) ([]byte, error) {
+	httpReq, err := http.NewRequestWithContext(ctx, "POST", "https://api.anthropic.com/v1/messages", bytes.NewBuffer(reqBody))
 	if err != nil {
 		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
@@ -140,7 +141,7 @@ func unmarshalTextResponseWithUsage(body []byte) (string, claudeResponse, error)
 }
 
 // callAPIOnce makes a single API request to Claude
-func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
+func (c *ClaudeClient) callAPIOnce(ctx context.Context, prompt string) (string, error) {
 	reqBody, err := json.Marshal(claudeRequest{
 		Model:       c.Model,
 		MaxTokens:   c.MaxTokens,
@@ -151,7 +152,7 @@ func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
 		return "", fmt.Errorf("failed to marshal request: %w", err)
 	}
 
-	body, err := c.doRequest(reqBody)
+	body, err := c.doRequest(ctx, reqBody)
 	if err != nil {
 		return "", err
 	}
@@ -166,7 +167,7 @@ func (c *ClaudeClient) callAPIOnce(prompt string) (string, error) {
 }
 
 // AnalyzeWithImages sends a multimodal request with multiple images and an optional system prompt.
-func (c *ClaudeClient) AnalyzeWithImages(systemPrompt string, prompt string, imagesB64 []string) (string, error) {
+func (c *ClaudeClient) AnalyzeWithImages(ctx context.Context, systemPrompt string, prompt string, imagesB64 []string) (string, error) {
 	var content []contentBlock
 	for _, imgB64 := range imagesB64 {
 		content = append(content, contentBlock{
@@ -187,7 +188,7 @@ func (c *ClaudeClient) AnalyzeWithImages(systemPrompt string, prompt string, ima
 		return "", fmt.Errorf("failed to marshal multimodal request: %w", err)
 	}
 
-	body, err := c.doRequest(reqBody)
+	body, err := c.doRequest(ctx, reqBody)
 	if err != nil {
 		return "", err
 	}
@@ -263,7 +264,7 @@ type claudeToolUseRequest struct {
 }
 
 // CallWithTools sends a tool-use request to the Claude API.
-func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessage, tools []ToolDefinition) (*ToolUseResponse, error) {
+func (c *ClaudeClient) CallWithTools(ctx context.Context, systemPrompt string, messages []AgentMessage, tools []ToolDefinition) (*ToolUseResponse, error) {
 	// Wrap system prompt as cacheable content block for Anthropic prompt caching.
 	// This caches the system prompt prefix across turns, saving ~80% on cached input tokens.
 	var systemContent interface{}
@@ -303,7 +304,7 @@ func (c *ClaudeClient) CallWithTools(systemPrompt string, messages []AgentMessag
 
 	log.Printf("CallWithTools: sending %d bytes (%d messages, %d tools)", len(reqBody), len(messages), len(tools))
 	start := time.Now()
-	body, err := c.doRequest(reqBody)
+	body, err := c.doRequest(ctx, reqBody)
 	elapsed := time.Since(start)
 	if err != nil {
 		log.Printf("CallWithTools: failed after %s: %v", elapsed, err)
@@ -387,7 +388,7 @@ func addConversationCacheBreakpoint(messages []AgentMessage) {
 }
 
 // AnalyzeWithImage sends a multimodal request with an image and text prompt to the Claude API.
-func (c *ClaudeClient) AnalyzeWithImage(prompt string, imageB64 string) (string, error) {
+func (c *ClaudeClient) AnalyzeWithImage(ctx context.Context, prompt string, imageB64 string) (string, error) {
 	reqBody, err := json.Marshal(claudeMultimodalRequest{
 		Model:       c.Model,
 		MaxTokens:   c.MaxTokens,
@@ -404,7 +405,7 @@ func (c *ClaudeClient) AnalyzeWithImage(prompt string, imageB64 string) (string,
 		return "", fmt.Errorf("failed to marshal multimodal request: %w", err)
 	}
 
-	body, err := c.doRequest(reqBody)
+	body, err := c.doRequest(ctx, reqBody)
 	if err != nil {
 		return "", err
 	}

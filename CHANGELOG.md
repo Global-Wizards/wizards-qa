@@ -5,6 +5,18 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.0] - 2026-02-14
+
+### Fixed
+- **Agent exploration appears stuck** — Three root causes combined to make the UI appear frozen during long analyses:
+  1. No per-step timeout on API calls: a single slow step could block for 3 minutes with no feedback. Now each exploration step has a 90-second timeout.
+  2. Synthesis progress gap: the "Synthesizing..." status was emitted too late, leaving the UI on the last exploration step. Now emitted immediately after exploration completes.
+  3. Synthesis ignores context cancellation: `callAPI()` used `context.Background()` instead of the parent context, so cancellation and timeouts didn't propagate to API calls. All AI client methods now accept and respect `context.Context`.
+
+### Changed
+- **Context threading through AI client interfaces** — `Client.Analyze()`, `Client.Generate()`, `ToolUseAgent.CallWithTools()`, `ImageAnalyzer.AnalyzeWithImage()`, `ImageAnalyzer.AnalyzeWithImages()`, and `APICallerOnce.callAPIOnce()` all now accept `context.Context` as their first parameter. HTTP requests use `http.NewRequestWithContext` so cancellation propagates to in-flight API calls.
+- **Synthesis timeout** — Synthesis phase now has a dedicated 5-minute timeout context, preventing unbounded hangs during retries.
+
 ## [0.44.7] - 2026-02-14
 
 ### Changed

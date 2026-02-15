@@ -226,7 +226,7 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 				break
 			}
 
-			resp, err := aiClient.CallWithTools(systemPrompt, messages, tools)
+			resp, err := aiClient.CallWithTools(ctx, systemPrompt, messages, tools)
 			if err != nil {
 				failReason = fmt.Sprintf("AI call failed: %v", err)
 				flowFailed = true

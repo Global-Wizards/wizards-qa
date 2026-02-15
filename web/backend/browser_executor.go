@@ -645,7 +645,7 @@ func tapOnText(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, text strin
 		vpWidth, vpHeight, text,
 	)
 
-	response, err := aiClient.AnalyzeWithImage(prompt, ss)
+	response, err := aiClient.AnalyzeWithImage(context.Background(), prompt, ss)
 	if err != nil {
 		return "", "", "", fmt.Errorf("tapOn text %q: AI vision failed: %w", text, err)
 	}
@@ -801,7 +801,7 @@ func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.Claud
 			vpWidth, vpHeight, checkText,
 		)
 
-		response, err := aiClient.AnalyzeWithImage(prompt, ss)
+		response, err := aiClient.AnalyzeWithImage(context.Background(), prompt, ss)
 		if err != nil {
 			time.Sleep(pollInterval)
 			continue
@@ -861,7 +861,7 @@ func executeAssertVisible(page ai.BrowserPage, value interface{}, aiClient *ai.C
 		text,
 	)
 
-	response, err := aiClient.AnalyzeWithImage(prompt, ss)
+	response, err := aiClient.AnalyzeWithImage(context.Background(), prompt, ss)
 	if err != nil {
 		return "", ss, "", fmt.Errorf("assert: AI vision failed: %w", err)
 	}
