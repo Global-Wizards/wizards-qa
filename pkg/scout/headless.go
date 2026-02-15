@@ -59,7 +59,22 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 				const g = window.game;
 				const paused = g && g.loop && typeof g.loop.sleep === 'function';
 				if (paused) g.loop.sleep();
-				const data = c.toDataURL('image/jpeg', 0.15);
+
+				// If canvas internal resolution differs from CSS display size,
+				// resize to CSS size so the AI's pixel coordinates match viewport space.
+				const rect = c.getBoundingClientRect();
+				const needsResize = Math.abs(c.width - rect.width) > 2 || Math.abs(c.height - rect.height) > 2;
+				let data;
+				if (needsResize) {
+					const oc = document.createElement('canvas');
+					oc.width = Math.round(rect.width);
+					oc.height = Math.round(rect.height);
+					oc.getContext('2d').drawImage(c, 0, 0, oc.width, oc.height);
+					data = oc.toDataURL('image/jpeg', 0.15);
+				} else {
+					data = c.toDataURL('image/jpeg', 0.15);
+				}
+
 				if (paused) g.loop.wake();
 				return data;
 			} catch(e) {}
@@ -179,6 +194,69 @@ func (r *RodBrowserPage) RedetectClickStrategy() {
 // TypeText types the given text by inserting it into the page.
 func (r *RodBrowserPage) TypeText(text string) error {
 	return r.page.InsertText(text)
+}
+
+// keyDef holds CDP key event properties for a named key.
+type keyDef struct {
+	Key     string
+	Code    string
+	KeyCode int
+	Text    string // non-empty for printable keys
+}
+
+// keyDefinitions maps key names to CDP key event properties.
+var keyDefinitions = map[string]keyDef{
+	"Enter":      {Key: "Enter", Code: "Enter", KeyCode: 13, Text: "\r"},
+	"Space":      {Key: " ", Code: "Space", KeyCode: 32, Text: " "},
+	"Escape":     {Key: "Escape", Code: "Escape", KeyCode: 27},
+	"Tab":        {Key: "Tab", Code: "Tab", KeyCode: 9},
+	"ArrowUp":    {Key: "ArrowUp", Code: "ArrowUp", KeyCode: 38},
+	"ArrowDown":  {Key: "ArrowDown", Code: "ArrowDown", KeyCode: 40},
+	"ArrowLeft":  {Key: "ArrowLeft", Code: "ArrowLeft", KeyCode: 37},
+	"ArrowRight": {Key: "ArrowRight", Code: "ArrowRight", KeyCode: 39},
+	"Backspace":  {Key: "Backspace", Code: "Backspace", KeyCode: 8},
+	"Delete":     {Key: "Delete", Code: "Delete", KeyCode: 46},
+}
+
+func init() {
+	// Register a-z
+	for c := 'a'; c <= 'z'; c++ {
+		s := string(c)
+		keyDefinitions[s] = keyDef{Key: s, Code: "Key" + strings.ToUpper(s), KeyCode: int(c - 32), Text: s}
+	}
+	// Register 0-9
+	for c := '0'; c <= '9'; c++ {
+		s := string(c)
+		keyDefinitions[s] = keyDef{Key: s, Code: "Digit" + s, KeyCode: int(c), Text: s}
+	}
+}
+
+// PressKey dispatches a keyDown + keyUp event via CDP for the named key.
+func (r *RodBrowserPage) PressKey(key string) error {
+	kd, ok := keyDefinitions[key]
+	if !ok {
+		return fmt.Errorf("unknown key: %q", key)
+	}
+	// keyDown
+	if err := (proto.InputDispatchKeyEvent{
+		Type:                  proto.InputDispatchKeyEventTypeKeyDown,
+		Key:                   kd.Key,
+		Code:                  kd.Code,
+		WindowsVirtualKeyCode: kd.KeyCode,
+		Text:                  kd.Text,
+	}).Call(r.page); err != nil {
+		return fmt.Errorf("key down %q: %w", key, err)
+	}
+	// keyUp
+	if err := (proto.InputDispatchKeyEvent{
+		Type:                  proto.InputDispatchKeyEventTypeKeyUp,
+		Key:                   kd.Key,
+		Code:                  kd.Code,
+		WindowsVirtualKeyCode: kd.KeyCode,
+	}).Call(r.page); err != nil {
+		return fmt.Errorf("key up %q: %w", key, err)
+	}
+	return nil
 }
 
 // Scroll scrolls the page by the given delta in pixels.

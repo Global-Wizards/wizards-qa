@@ -492,15 +492,39 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	PruneOldScreenshots(messages, 0)
 
 	// --- Synthesis call ---
+	parsed, synthErr := a.synthesizeFromExploration(ctx, pageMeta, gameURL, steps, messages, modules, cfg, onProgress)
+	if synthErr != nil {
+		return nil, steps, synthErr
+	}
+
+	return parsed, steps, nil
+}
+
+// synthesizeFromExploration runs the synthesis LLM call on exploration results and parses the JSON output.
+// It accepts either the full message history (messages) or reconstructs context from steps alone.
+// When messages is nil (e.g. resume path), it builds plaintext from steps via flattenStepsForSynthesis.
+func (a *Analyzer) synthesizeFromExploration(
+	ctx context.Context,
+	pageMeta *scout.PageMeta,
+	gameURL string,
+	steps []AgentStep,
+	messages []AgentMessage,
+	modules AnalysisModules,
+	cfg AgentConfig,
+	onProgress ProgressFunc,
+) (*ComprehensiveAnalysisResult, error) {
+	progress := func(step, message string) {
+		if onProgress != nil {
+			onProgress(step, message)
+		}
+	}
+
 	progress("agent_synthesize", "Synthesizing analysis from exploration...")
 
 	synthesisPrompt := BuildSynthesisPrompt(modules)
 	synthClient := a.synthesisClient()
 
 	// Ensure synthesis has enough token budget for full JSON output.
-	// The comprehensive JSON response typically needs ~10-16K tokens.
-	// When using a secondary model (e.g. Gemini Flash) that may default to 8K,
-	// enforce a minimum of 16384 to prevent truncation.
 	if bc := baseClientOf(synthClient); bc != nil {
 		minTokens := 16384
 		if cfg.SynthesisMaxTokens > minTokens {
@@ -523,10 +547,9 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 	var synthesisText string
 	var stopReason string
 
-	// Branch: if synthesis client supports tool use AND is the primary client, use CallWithTools (backwards compat)
+	// Branch: if synthesis client supports tool use AND is the primary client AND we have messages, use CallWithTools
 	synthAgent, isToolUse := synthClient.(ToolUseAgent)
-	if isToolUse && synthClient == a.Client {
-		// Add synthesis request as a user message (no tools for this call)
+	if isToolUse && synthClient == a.Client && messages != nil {
 		messages = append(messages, AgentMessage{Role: "user", Content: synthesisPrompt})
 
 		var synthResp *ToolUseResponse
@@ -541,7 +564,7 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 			return err
 		})
 		if synthErr != nil {
-			return nil, steps, fmt.Errorf("synthesis call failed: %w", synthErr)
+			return nil, fmt.Errorf("synthesis call failed: %w", synthErr)
 		}
 
 		stopReason = synthResp.StopReason
@@ -554,8 +577,13 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 			}
 		}
 	} else {
-		// Flatten messages to plaintext and use Generate() — works with any client
-		explorationHistory := flattenMessagesForSynthesis(messages)
+		// Flatten to plaintext — either from messages or from saved steps
+		var explorationHistory string
+		if messages != nil {
+			explorationHistory = flattenMessagesForSynthesis(messages)
+		} else {
+			explorationHistory = flattenStepsForSynthesis(steps)
+		}
 		// Cap exploration text to ~100K chars (~25K tokens) to stay within Gemini limits
 		if len(explorationHistory) > 100000 {
 			explorationHistory = explorationHistory[:100000] + "\n[... exploration truncated for synthesis ...]"
@@ -573,21 +601,18 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 			return err
 		})
 		if synthErr != nil {
-			return nil, steps, fmt.Errorf("synthesis call failed: %w", synthErr)
+			return nil, fmt.Errorf("synthesis call failed: %w", synthErr)
 		}
-		// Generate() doesn't expose stop_reason, so we can't detect truncation.
-		// If JSON is truncated, repairTruncatedJSON will still attempt a fix.
 		stopReason = "end_turn"
 	}
 
 	if strings.TrimSpace(synthesisText) == "" {
-		return nil, steps, fmt.Errorf("synthesis returned empty response (stop_reason=%s)", stopReason)
+		return nil, fmt.Errorf("synthesis returned empty response (stop_reason=%s)", stopReason)
 	}
 
 	// Parse as ComprehensiveAnalysisResult
 	parsed, parseErr := parseComprehensiveJSON(synthesisText)
 	if parseErr != nil {
-		// JSON may be truncated (Generate() doesn't expose stop_reason) — try to repair
 		log.Printf("Synthesis JSON parse failed, attempting repair (text length: %d chars)", len(synthesisText))
 		repaired, repairErr := repairTruncatedJSON(synthesisText)
 		if repairErr == nil {
@@ -602,9 +627,6 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		}
 	}
 	if parseErr != nil {
-		// Fallback: instead of crashing the entire pipeline, construct a minimal result
-		// from the raw synthesis text. This ensures the agent still produces output
-		// even when Gemini Flash truncates the JSON beyond repair.
 		log.Printf("WARNING: Synthesis JSON parsing failed after repair, constructing fallback result (stop_reason=%s, raw_tail: %s)",
 			stopReason, Truncate(synthesisText[max(0, len(synthesisText)-200):], 200))
 		fallback := &ComprehensiveAnalysisResult{
@@ -621,10 +643,28 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 				},
 			},
 		}
-		return fallback, steps, nil
+		return fallback, nil
 	}
 
-	return parsed, steps, nil
+	return parsed, nil
+}
+
+// flattenStepsForSynthesis converts saved AgentStep data to plaintext for synthesis.
+// This is the resume-path equivalent of flattenMessagesForSynthesis.
+func flattenStepsForSynthesis(steps []AgentStep) string {
+	var sb strings.Builder
+	for _, s := range steps {
+		sb.WriteString(fmt.Sprintf("[step %d] Tool: %s\n", s.StepNumber, s.ToolName))
+		if s.Input != "" {
+			sb.WriteString(fmt.Sprintf("  Input: %s\n", Truncate(s.Input, 500)))
+		}
+		if s.Error != "" {
+			sb.WriteString(fmt.Sprintf("  Error: %s\n", s.Error))
+		} else if s.Result != "" {
+			sb.WriteString(fmt.Sprintf("  Result: %s\n", Truncate(s.Result, 500)))
+		}
+	}
+	return sb.String()
 }
 
 // AnalyzeFromURLWithAgent runs the full agent pipeline:
@@ -666,9 +706,53 @@ func (a *Analyzer) AnalyzeFromURLWithAgent(
 		}
 	}
 
+	// --- Resume path: re-run synthesis from saved exploration steps ---
+	if opts.resumeData != nil && opts.resumeData.Step == "explored" && len(opts.resumeData.AgentSteps) > 0 {
+		var savedSteps []AgentStep
+		if err := json.Unmarshal(opts.resumeData.AgentSteps, &savedSteps); err == nil {
+			progress("agent_done", fmt.Sprintf("Resumed from exploration checkpoint — %d steps, re-running synthesis", len(savedSteps)))
+
+			comprehensiveResult, synthErr := a.synthesizeFromExploration(ctx, pageMeta, gameURL, savedSteps, nil, modules, agentCfg, onProgress)
+			if synthErr != nil {
+				return pageMeta, nil, nil, savedSteps, fmt.Errorf("synthesis failed on resume: %w", synthErr)
+			}
+
+			result := comprehensiveResult.ToAnalysisResult()
+			// Write synthesized checkpoint
+			if opts.checkpointDir != "" {
+				pageMetaJSON, _ := json.Marshal(pageMeta)
+				analysisJSON, _ := json.Marshal(comprehensiveResult)
+				if cpErr := WriteCheckpoint(opts.checkpointDir, CheckpointData{
+					Step:      "synthesized",
+					AgentMode: true,
+					PageMeta:  pageMetaJSON,
+					Analysis:  analysisJSON,
+					Modules:   modules,
+				}); cpErr != nil {
+					progress("checkpoint", fmt.Sprintf("Warning: failed to write checkpoint: %v", cpErr))
+				}
+			}
+			return pageMeta, result, nil, savedSteps, nil
+		}
+	}
+
 	// Step 1: Agent exploration
 	comprehensiveResult, agentSteps, err := a.AgentExplore(ctx, browserPage, pageMeta, gameURL, agentCfg, modules, onProgress)
 	if err != nil {
+		// Write exploration checkpoint so Continue can resume with re-synthesis
+		if opts.checkpointDir != "" && len(agentSteps) > 0 {
+			pageMetaJSON, _ := json.Marshal(pageMeta)
+			stepsJSON, _ := json.Marshal(agentSteps)
+			if cpErr := WriteCheckpoint(opts.checkpointDir, CheckpointData{
+				Step:       "explored",
+				AgentMode:  true,
+				PageMeta:   pageMetaJSON,
+				AgentSteps: stepsJSON,
+				Modules:    modules,
+			}); cpErr != nil {
+				progress("checkpoint", fmt.Sprintf("Warning: failed to write exploration checkpoint: %v", cpErr))
+			}
+		}
 		return pageMeta, nil, nil, agentSteps, fmt.Errorf("agent exploration failed: %w", err)
 	}
 

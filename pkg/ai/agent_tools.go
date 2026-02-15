@@ -142,6 +142,29 @@ func BrowserTools(viewportWidth, viewportHeight int) []ToolDefinition {
 				"required": []string{"url"},
 			},
 		},
+		{
+			Name:        "press_key",
+			Description: "Press a keyboard key. Useful for game controls (Space=spin, Enter=confirm, Escape=close, arrow keys=navigate). Returns a screenshot.",
+			InputSchema: map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"key": map[string]interface{}{
+						"type":        "string",
+						"description": "Key to press: Enter, Space, Escape, Tab, ArrowUp, ArrowDown, ArrowLeft, ArrowRight, Backspace, Delete, or a single character (a-z, 0-9)",
+					},
+				},
+				"required": []string{"key"},
+			},
+		},
+		{
+			Name:        "inspect_game_objects",
+			Description: "List interactive game objects from the Phaser/PixiJS scene graph with their screen coordinates. Use this to find clickable buttons, their exact positions, and their current state. Only works with Phaser 3 and PixiJS games.",
+			InputSchema: map[string]interface{}{
+				"type":       "object",
+				"properties": map[string]interface{}{},
+				"required":   []string{},
+			},
+		},
 	}
 }
 
@@ -454,6 +477,75 @@ func (e *BrowserToolExecutor) Execute(toolName string, inputJSON json.RawMessage
 		// Take a screenshot after navigation (with timeout to prevent slow WebGL from blocking)
 		b64, _ := captureScreenshotWithTimeout(e.Page, screenshotTimeout)
 		return fmt.Sprintf("Navigated to %s.", params.URL), b64, nil
+
+	case "press_key":
+		var params struct {
+			Key string `json:"key"`
+		}
+		if err := json.Unmarshal(inputJSON, &params); err != nil {
+			return "", "", fmt.Errorf("press_key: invalid params: %w", err)
+		}
+		if err := e.Page.PressKey(params.Key); err != nil {
+			return "", "", fmt.Errorf("press_key: %w", err)
+		}
+		time.Sleep(150 * time.Millisecond)
+		b64, _ := captureScreenshotWithTimeout(e.Page, screenshotTimeout)
+		return fmt.Sprintf("Pressed key %q.", params.Key), b64, nil
+
+	case "inspect_game_objects":
+		result, err := e.Page.EvalJS(`(() => {
+			// Phaser 3
+			if (window.game && window.game.scene) {
+				const scenes = window.game.scene.scenes.filter(s => s.sys.settings.status >= 5);
+				const canvas = document.querySelector('canvas');
+				const rect = canvas ? canvas.getBoundingClientRect() : {left:0, top:0, width:1920, height:1080};
+				const scaleX = rect.width / (window.game.scale ? window.game.scale.width : canvas.width);
+				const scaleY = rect.height / (window.game.scale ? window.game.scale.height : canvas.height);
+				const objects = [];
+				for (const scene of scenes) {
+					scene.children.list.forEach(obj => {
+						if (!obj.active || !obj.visible) return;
+						const hasInput = obj.input && obj.input.enabled;
+						const name = obj.name || obj.type || obj.constructor.name;
+						const sx = Math.round(obj.x * scaleX + rect.left);
+						const sy = Math.round(obj.y * scaleY + rect.top);
+						const w = obj.displayWidth ? Math.round(obj.displayWidth * scaleX) : 0;
+						const h = obj.displayHeight ? Math.round(obj.displayHeight * scaleY) : 0;
+						if (hasInput || obj.type === 'Text' || obj.type === 'Sprite' || obj.type === 'Image') {
+							objects.push({
+								scene: scene.sys.settings.key,
+								name: name,
+								type: obj.type,
+								interactive: hasInput,
+								x: sx, y: sy, w: w, h: h,
+								text: obj.text ? obj.text.substring(0, 50) : undefined
+							});
+						}
+					});
+				}
+				return JSON.stringify({engine: 'phaser3', scenes: scenes.map(s => s.sys.settings.key), objects: objects}, null, 2);
+			}
+			// PixiJS
+			if (window.__PIXI_APP__ || window.app) {
+				const app = window.__PIXI_APP__ || window.app;
+				const objects = [];
+				function walk(node, depth) {
+					if (depth > 5) return;
+					if (node.interactive || node.buttonMode) {
+						const b = node.getBounds();
+						objects.push({name: node.name || node.constructor.name, interactive: true, x: Math.round(b.x), y: Math.round(b.y), w: Math.round(b.width), h: Math.round(b.height)});
+					}
+					if (node.children) node.children.forEach(c => walk(c, depth+1));
+				}
+				walk(app.stage, 0);
+				return JSON.stringify({engine: 'pixi', objects: objects}, null, 2);
+			}
+			return JSON.stringify({error: 'No supported game engine detected (need Phaser 3 or PixiJS)'});
+		})()`)
+		if err != nil {
+			return "", "", fmt.Errorf("inspect_game_objects: %w", err)
+		}
+		return result, "", nil
 
 	default:
 		return "", "", fmt.Errorf("unknown tool: %s", toolName)

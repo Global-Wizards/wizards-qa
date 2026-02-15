@@ -5,6 +5,21 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.3] - 2026-02-14
+
+### Fixed
+- **Canvas screenshot coordinate mismatch** — Canvas `toDataURL()` fast-path screenshots were captured at the canvas's internal resolution (e.g. 2560x1440) but the AI was told the viewport is 1920x1080, causing click coordinates to land on the wrong spot. Now resizes canvas screenshots to CSS display size via an offscreen canvas, ensuring the AI's pixel coordinates match viewport space.
+
+### Added
+- **`press_key` tool** — Dispatches CDP keyboard events (keyDown + keyUp) for game controls. Supports Enter, Space, Escape, Tab, arrow keys, Backspace, Delete, and single characters (a-z, 0-9). Returns a screenshot after the key press.
+- **`inspect_game_objects` tool** — Queries the Phaser 3 or PixiJS scene graph to enumerate interactive game objects with their screen coordinates, types, and interactive state. Lets the AI click precise coordinates instead of guessing from screenshots.
+
+## [0.44.2] - 2026-02-14
+
+### Fixed
+- **Continue button not working after agent mode failures** — When agent exploration succeeds but synthesis fails, the pipeline now writes a `checkpoint_explored.json` with saved exploration steps. The Continue button appears and re-runs only the synthesis step, avoiding a full re-exploration. Previously no checkpoint was written on synthesis failure, so Continue never appeared.
+- **`--no-nav-map` flag not reconstructed on Continue** — The `executeContinuedAnalysis` backend now passes `--no-nav-map` when the checkpoint's modules indicate navigation map was disabled.
+
 ## [0.44.1] - 2026-02-14
 
 ### Changed

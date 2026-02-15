@@ -1796,7 +1796,7 @@ func (s *Server) broadcastAnalysisError(analysisID, errMsg string, extra ...map[
 // readBestCheckpoint reads the most advanced checkpoint file from a directory.
 // Returns the JSON string or "" if no checkpoint found.
 func readBestCheckpoint(dir string) string {
-	for _, step := range []string{"synthesized", "analyzed", "scouted"} {
+	for _, step := range []string{"synthesized", "analyzed", "explored", "scouted"} {
 		path := filepath.Join(dir, fmt.Sprintf("checkpoint_%s.json", step))
 		data, err := os.ReadFile(path)
 		if err != nil {
@@ -2133,6 +2133,9 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 			}
 			if v, ok := mods["testFlows"].(bool); ok && !v {
 				args = append(args, "--no-test-flows")
+			}
+			if v, ok := mods["navigationMap"].(bool); ok && !v {
+				args = append(args, "--no-nav-map")
 			}
 			if v, ok := mods["gli"].(bool); ok && !v {
 				args = append(args, "--no-gli")

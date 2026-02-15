@@ -273,6 +273,7 @@ type BrowserPage interface {
 	GetPageInfo() (title, url, visibleText string, err error)
 	GetConsoleLogs() ([]string, error)
 	Navigate(url string) error
+	PressKey(key string) error
 }
 
 // AnalysisModules controls which optional analysis sections are enabled.
@@ -498,12 +499,13 @@ type AgentConfig struct {
 
 // CheckpointData wraps the state written to checkpoint files after each pipeline step.
 type CheckpointData struct {
-	Step      string          `json:"step"`
-	AgentMode bool            `json:"agentMode"`
-	PageMeta  json.RawMessage `json:"pageMeta,omitempty"`
-	Analysis  json.RawMessage `json:"analysis,omitempty"` // ComprehensiveAnalysisResult
-	Modules   AnalysisModules `json:"modules"`
-	Timestamp string          `json:"timestamp"`
+	Step       string          `json:"step"`
+	AgentMode  bool            `json:"agentMode"`
+	PageMeta   json.RawMessage `json:"pageMeta,omitempty"`
+	Analysis   json.RawMessage `json:"analysis,omitempty"`  // ComprehensiveAnalysisResult
+	AgentSteps json.RawMessage `json:"agentSteps,omitempty"` // Saved exploration steps for resume
+	Modules    AnalysisModules `json:"modules"`
+	Timestamp  string          `json:"timestamp"`
 }
 
 // WriteCheckpoint serialises checkpoint data to a file in dir.
@@ -614,7 +616,9 @@ RULES:
 4. Be systematic: don't click the same thing twice unless testing repeated interactions.
 5. When you have thoroughly explored the game (usually 10-20 steps), output EXPLORATION_COMPLETE on its own line to signal you are done.
 6. Focus on discovering testable behaviors through active interaction, not passive observation.
-7. IMPORTANT: To save time, always combine wait and screenshot into a single response. Call both tools together — they will execute sequentially. Never call wait alone without also calling screenshot in the same response.`
+7. IMPORTANT: To save time, always combine wait and screenshot into a single response. Call both tools together — they will execute sequentially. Never call wait alone without also calling screenshot in the same response.
+10. Use press_key for keyboard shortcuts: Space (spin/confirm), Enter (confirm/start), Escape (close dialogs), arrow keys (menu navigation).
+11. Use inspect_game_objects to discover clickable buttons with their exact coordinates instead of guessing from screenshots. This is especially useful when clicks aren't registering.`
 
 // AdaptiveExplorationPromptSuffix returns the system prompt addition for adaptive exploration mode.
 func AdaptiveExplorationPromptSuffix(maxTotalSteps int) string {

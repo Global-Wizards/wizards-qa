@@ -541,7 +541,15 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 
 		case "pressKey":
 			key, _ := value.(string)
-			return fmt.Sprintf("pressKey %q (no-op in browser)", key), "", "", nil
+			if key == "" {
+				return "", "", "", fmt.Errorf("pressKey: missing key")
+			}
+			if err := page.PressKey(key); err != nil {
+				return "", "", "", fmt.Errorf("pressKey: %w", err)
+			}
+			time.Sleep(150 * time.Millisecond)
+			ss, _ := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
+			return fmt.Sprintf("Pressed key %q.", key), ss, "", nil
 
 		case "eraseText":
 			count := 10
