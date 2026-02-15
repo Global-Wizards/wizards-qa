@@ -44,6 +44,7 @@ func newScoutCmd() *cobra.Command {
 		maxTotalTimeout  int // minutes
 		viewport         string
 		synthesisModel   string
+		noNavMap         bool
 	)
 
 	cmd := &cobra.Command{
@@ -183,6 +184,7 @@ Example:
 				TestFlows:        !noTestFlows,
 				GLI:              !noGLI,
 				GLIJurisdictions: parsedGLIJurisdictions,
+				NavigationMap:    !noNavMap,
 			}
 
 			// Emit scouting progress for --json mode
@@ -478,6 +480,7 @@ Example:
 	cmd.Flags().StringVar(&resumeDataPath, "resume-data", "", "Path to checkpoint data file (internal)")
 	cmd.Flags().StringVar(&viewport, "viewport", "", "Device viewport preset (e.g. desktop-std, iphone-16-pro, samsung-s24)")
 	cmd.Flags().StringVar(&synthesisModel, "synthesis-model", "", "Secondary model for synthesis/flow generation (e.g. gemini-3-flash-preview)")
+	cmd.Flags().BoolVar(&noNavMap, "no-nav-map", false, "Disable navigation map generation")
 
 	cmd.MarkFlagRequired("game")
 

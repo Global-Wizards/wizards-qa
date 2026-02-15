@@ -31,6 +31,7 @@ type AnalysisModules struct {
 	RunTests         *bool    `json:"runTests,omitempty"`
 	GLI              *bool    `json:"gli,omitempty"`
 	GLIJurisdictions []string `json:"gliJurisdictions,omitempty"`
+	NavigationMap    *bool    `json:"navigationMap,omitempty"`
 }
 
 type AnalysisRequest struct {
@@ -237,7 +238,8 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 			"gameDesign": req.Modules.GameDesign == nil || *req.Modules.GameDesign,
 			"testFlows":  req.Modules.TestFlows == nil || *req.Modules.TestFlows,
 			"runTests":   req.Modules.RunTests != nil && *req.Modules.RunTests,
-			"gli":        req.Modules.GLI != nil && *req.Modules.GLI,
+			"gli":           req.Modules.GLI != nil && *req.Modules.GLI,
+			"navigationMap": req.Modules.NavigationMap == nil || *req.Modules.NavigationMap,
 		}
 		if len(req.Modules.GLIJurisdictions) > 0 {
 			m["gliJurisdictions"] = req.Modules.GLIJurisdictions
@@ -1002,7 +1004,8 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 			"gameDesign": req.Modules.GameDesign == nil || *req.Modules.GameDesign,
 			"testFlows":  req.Modules.TestFlows == nil || *req.Modules.TestFlows,
 			"runTests":   req.Modules.RunTests != nil && *req.Modules.RunTests,
-			"gli":        req.Modules.GLI != nil && *req.Modules.GLI,
+			"gli":           req.Modules.GLI != nil && *req.Modules.GLI,
+			"navigationMap": req.Modules.NavigationMap == nil || *req.Modules.NavigationMap,
 		}
 		if len(req.Modules.GLIJurisdictions) > 0 {
 			m["gliJurisdictions"] = req.Modules.GLIJurisdictions
@@ -1215,6 +1218,9 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	}
 	if req.Modules.GLI != nil && !*req.Modules.GLI {
 		args = append(args, "--no-gli")
+	}
+	if req.Modules.NavigationMap != nil && !*req.Modules.NavigationMap {
+		args = append(args, "--no-nav-map")
 	}
 	if len(req.Modules.GLIJurisdictions) > 0 {
 		args = append(args, "--gli-jurisdictions", strings.Join(req.Modules.GLIJurisdictions, ","))

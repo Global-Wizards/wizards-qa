@@ -148,6 +148,11 @@
               <Gamepad2 class="h-3.5 w-3.5 text-muted-foreground" />
               <span>Game Design</span>
             </label>
+            <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="Build a navigation map of screens, transitions, and interactive elements">
+              <input type="checkbox" v-model="moduleNavMap" class="rounded border-gray-300" />
+              <Map class="h-3.5 w-3.5 text-muted-foreground" />
+              <span>Navigation Map</span>
+            </label>
             <label class="flex items-center gap-2 text-sm cursor-pointer select-none" title="Generate runnable Maestro YAML test flows from the analysis">
               <input type="checkbox" v-model="moduleTestFlows" class="rounded border-gray-300" />
               <PlayCircle class="h-3.5 w-3.5 text-muted-foreground" />
@@ -507,6 +512,30 @@
             </div>
           </details>
 
+          <!-- Navigation Map -->
+          <details v-if="analysis?.navigationMap?.screens?.length" class="group">
+            <summary class="cursor-pointer text-sm font-medium">Navigation Map ({{ analysis.navigationMap.screens.length }} screens)</summary>
+            <div class="mt-2 space-y-2">
+              <p v-if="analysis.navigationMap.entryScreen" class="text-xs text-muted-foreground">Entry: {{ analysis.navigationMap.entryScreen }}</p>
+              <div v-for="(screen, i) in analysis.navigationMap.screens" :key="i" class="rounded-md border p-3 text-sm space-y-1">
+                <div class="flex items-center gap-2">
+                  <Badge variant="outline">{{ screen.screenType }}</Badge>
+                  <span class="font-medium">{{ screen.name }}</span>
+                  <span class="text-xs text-muted-foreground font-mono">{{ screen.id }}</span>
+                </div>
+                <p>{{ screen.description }}</p>
+                <p v-if="screen.uiElements?.length" class="text-xs text-muted-foreground">Elements: {{ screen.uiElements.join(', ') }}</p>
+                <p v-if="screen.stepNumbers?.length" class="text-xs text-muted-foreground">Observed at steps: {{ screen.stepNumbers.join(', ') }}</p>
+              </div>
+              <div v-if="analysis.navigationMap.transitions?.length" class="mt-2">
+                <p class="text-xs font-medium text-muted-foreground mb-1">Transitions</p>
+                <div v-for="(t, i) in analysis.navigationMap.transitions" :key="'t'+i" class="text-xs text-muted-foreground">
+                  {{ t.from }} → {{ t.to }}: {{ t.action }}
+                </div>
+              </div>
+            </div>
+          </details>
+
           <!-- Agent Exploration (agent mode only) -->
           <details v-if="navigatorSteps.length" class="group" open>
             <summary class="cursor-pointer text-sm font-medium">Agent Exploration ({{ navigatorSteps.length }} steps)</summary>
@@ -726,7 +755,7 @@ import { analysesApi, analyzeApi, projectsApi } from '@/lib/api'
 import { formatDate } from '@/lib/dateUtils'
 import { useClipboard } from '@vueuse/core'
 import { useProject } from '@/composables/useProject'
-import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor, FlaskConical, Scale, Coins } from 'lucide-vue-next'
+import { RefreshCw, Trash2, Download, Bug, Copy, AlertCircle, Settings2, ExternalLink, Sparkles, Eye, Type, Gamepad2, PlayCircle, Zap, TrendingUp, Timer, Monitor, FlaskConical, Scale, Coins, Map } from 'lucide-vue-next'
 import { estimateCredits } from '@/lib/creditEstimate'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -767,6 +796,7 @@ const moduleGameDesign = useStorage('analyze-module-game-design', true)
 const moduleTestFlows = useStorage('analyze-module-test-flows', true)
 const moduleRunTests = useStorage('analyze-module-run-tests', false)
 const moduleGli = useStorage('analyze-module-gli', false)
+const moduleNavMap = useStorage('analyze-module-nav-map', true)
 const gliJurisdictions = useStorage('analyze-gli-jurisdictions', [])
 watch(moduleTestFlows, (val) => { if (!val) moduleRunTests.value = false })
 const selectedViewport = useStorage('analyze-viewport', DEFAULT_VIEWPORT)
@@ -893,6 +923,7 @@ const creditEstimate = computed(() => {
   if (moduleGameDesign.value) moduleCount++
   if (moduleTestFlows.value) moduleCount++
   if (moduleGli.value) moduleCount++
+  if (moduleNavMap.value) moduleCount++
   if (moduleRunTests.value) moduleCount++
   let deviceCount = 1
   if (multiDeviceMode.value) {
@@ -1399,6 +1430,7 @@ async function handleAnalyze() {
     runTests: moduleRunTests.value,
     gli: moduleGli.value,
     gliJurisdictions: moduleGli.value ? gliJurisdictions.value : undefined,
+    navigationMap: moduleNavMap.value,
   }
   const params = { ...profileParams.value }
 

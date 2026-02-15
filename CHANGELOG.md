@@ -5,6 +5,11 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.1] - 2026-02-14
+
+### Changed
+- **Navigation map is now an optional module** — Added `--no-nav-map` CLI flag, backend toggle, and frontend checkbox to control navigation map generation. Enabled by default. Reduces token usage by ~4% when disabled.
+
 ## [0.44.0] - 2026-02-14
 
 ### Added

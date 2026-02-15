@@ -283,11 +283,12 @@ type AnalysisModules struct {
 	TestFlows        bool
 	GLI              bool
 	GLIJurisdictions []string // e.g. ["gb", "mt", "us-nj"]
+	NavigationMap    bool
 }
 
 // DefaultAnalysisModules returns modules with everything enabled.
 func DefaultAnalysisModules() AnalysisModules {
-	return AnalysisModules{UIUX: true, Wording: true, GameDesign: true, TestFlows: true}
+	return AnalysisModules{UIUX: true, Wording: true, GameDesign: true, TestFlows: true, NavigationMap: true}
 }
 
 // buildCompactSchema generates a compact JSON schema example for AI prompts,
@@ -318,12 +319,14 @@ func buildCompactSchema(modules AnalysisModules) string {
 		b.WriteString(`,
   "gliCompliance": [{ complianceCategory: "rng_fairness|rtp_accuracy|game_rules|responsible_gaming|age_verification|data_protection|aml|advertising|bonus_fairness|technical_security|ui_compliance|geolocation", description, status: "compliant|non_compliant|needs_review|not_applicable", jurisdictions: [string], gliReference, severity: "critical|major|minor|informational", suggestion }]`)
 	}
-	b.WriteString(`,
+	if modules.NavigationMap {
+		b.WriteString(`,
   "navigationMap": {
     "screens": [{ id, name, description, screenType: "menu|gameplay|popup|overlay|loading|settings|bonus|error", uiElements: [string], stepNumbers: [int] }],
     "transitions": [{ from: "screen-id", to: "screen-id", action }],
     "entryScreen": "screen-id"
   }`)
+	}
 	b.WriteString(`
 }`)
 	return b.String()
@@ -392,7 +395,8 @@ For each finding, specify which jurisdictions it applies to, the relevant GLI st
 `, strings.Join(modules.GLIJurisdictions, ", "))
 	}
 
-	b.WriteString(`
+	if modules.NavigationMap {
+		b.WriteString(`
 NAVIGATION MAP:
 Construct a navigation map of every distinct screen/state you observed.
 - Each screen needs a unique short ID (e.g., "loading", "main-game", "info-popup").
@@ -400,7 +404,10 @@ Construct a navigation map of every distinct screen/state you observed.
 - Record transitions: what action moves from one screen to another.
 - Reference the step numbers where you observed each screen.
 - entryScreen is the first screen seen after the game loads.
+`)
+	}
 
+	b.WriteString(`
 SCENARIO GENERATION INSTRUCTIONS:
 9. Generate 3-6 test scenarios covering: happy path (main user flow), edge cases (boundary conditions), and failure scenarios (timeouts, disconnects).
 10. Each scenario must have concrete, actionable steps with specific coordinates or selectors from the screenshots.
@@ -438,7 +445,8 @@ You interacted with the game and observed its behavior through screenshots. Now 
 		}
 	}
 
-	b.WriteString(`
+	if modules.NavigationMap {
+		b.WriteString(`
 NAVIGATION MAP:
 Construct a navigation map of every distinct screen/state you observed during exploration.
 - Each screen needs a unique short ID (e.g., "loading", "main-game", "info-popup").
@@ -446,7 +454,10 @@ Construct a navigation map of every distinct screen/state you observed during ex
 - Record transitions: what action moves from one screen to another.
 - Reference the step numbers where you observed each screen.
 - entryScreen is the first screen seen after the game loads.
+`)
+	}
 
+	b.WriteString(`
 Respond with a single JSON object matching this schema (all string fields are required unless noted):
 `)
 	b.WriteString(buildCompactSchema(modules))
