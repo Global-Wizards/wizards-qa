@@ -443,7 +443,14 @@ Example:
 				}
 				if agentMode {
 					out["mode"] = "agent"
-					out["agentSteps"] = agentStepsResult
+					// Strip base64 screenshots — already persisted to disk and DB individually.
+					// Including them in stdout creates 5-10MB output that exceeds the pipe/scanner buffer.
+					stripped := make([]ai.AgentStep, len(agentStepsResult))
+					copy(stripped, agentStepsResult)
+					for i := range stripped {
+						stripped[i].ScreenshotB64 = ""
+					}
+					out["agentSteps"] = stripped
 				}
 				data, err := json.Marshal(out)
 				if err != nil {
@@ -468,9 +475,9 @@ Example:
 	cmd.Flags().BoolVar(&agentMode, "agent", false, "Enable agent mode: AI actively explores the game via browser tools")
 	cmd.Flags().IntVar(&agentSteps, "agent-steps", 40, "Max exploration steps in agent mode")
 	cmd.Flags().BoolVar(&adaptive, "adaptive", false, "Enable adaptive exploration: AI can dynamically request more steps")
-	cmd.Flags().IntVar(&maxTotalSteps, "max-total-steps", 0, "Hard cap on total exploration steps when adaptive mode is enabled")
+	cmd.Flags().IntVar(&maxTotalSteps, "max-total-steps", 0, "Hard cap on total exploration steps when adaptive mode is enabled (defaults to 2x --agent-steps)")
 	cmd.Flags().BoolVar(&adaptiveTimeout, "adaptive-timeout", false, "Enable dynamic timeout: AI can request more exploration time")
-	cmd.Flags().IntVar(&maxTotalTimeout, "max-total-timeout", 0, "Hard cap on total exploration time in minutes when adaptive timeout is enabled")
+	cmd.Flags().IntVar(&maxTotalTimeout, "max-total-timeout", 0, "Hard cap on total exploration time in minutes when adaptive timeout is enabled (defaults to 2x exploration timeout)")
 	cmd.Flags().StringVar(&modelFlag, "model", "", "Override AI model (e.g. claude-sonnet-4-5-20250929)")
 	cmd.Flags().IntVar(&maxTokens, "max-tokens", 0, "Override max tokens for AI responses")
 	cmd.Flags().Float64Var(&temperature, "temperature", -1, "Override AI temperature (0.0-1.0, unset by default)")

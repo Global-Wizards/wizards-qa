@@ -5,6 +5,17 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.45.2] - 2026-02-15
+
+### Fixed
+- **Agent analysis stuck at "analyzing"** — When agent mode produces 50+ screenshots, the stdout JSON (with base64 `screenshotB64` fields) exceeded the 1MB `bufio.Scanner` buffer, causing a pipe deadlock between the CLI and backend. Fixed by stripping `ScreenshotB64` from stdout JSON (already persisted to disk/DB individually) and increasing the scanner buffer to 10MB as a safety net.
+
+## [0.45.1] - 2026-02-15
+
+### Added
+- **Auto-default adaptive exploration caps** — When `--adaptive` or `--adaptive-timeout` is enabled without explicit caps, `--max-total-steps` defaults to 2x `--agent-steps` and `--max-total-timeout` defaults to 2x the exploration timeout. Prevents unbounded extensions.
+- **Fixed-increment adaptive extensions** — Step extensions are granted in increments of 5; time extensions in increments of 25% of the initial timeout (floor 1 minute). Gives the AI predictable budget chunks instead of arbitrary amounts.
+
 ## [0.45.0] - 2026-02-14
 
 ### Fixed

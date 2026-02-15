@@ -740,7 +740,7 @@ func (s *Server) executeBatchAnalysis(analysisID, createdBy string, req BatchAna
 		const maxOutputSize = 10 * 1024 * 1024
 		var outputBuf bytes.Buffer
 		scanner := bufio.NewScanner(stdout)
-		scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+		scanner.Buffer(make([]byte, 1024*1024), maxOutputSize)
 		for scanner.Scan() {
 			if outputBuf.Len() < maxOutputSize {
 				outputBuf.WriteString(scanner.Text())
@@ -1434,7 +1434,7 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	const maxOutputSize = 10 * 1024 * 1024
 	var outputBuf bytes.Buffer
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 1024*1024), maxOutputSize)
 	for scanner.Scan() {
 		if outputBuf.Len() < maxOutputSize {
 			outputBuf.WriteString(scanner.Text())
@@ -2230,7 +2230,7 @@ func (s *Server) executeContinuedAnalysis(analysisID, createdBy string, analysis
 	const maxOutputSize = 10 * 1024 * 1024
 	var outputBuf bytes.Buffer
 	scanner := bufio.NewScanner(stdout)
-	scanner.Buffer(make([]byte, 1024*1024), 1024*1024)
+	scanner.Buffer(make([]byte, 1024*1024), maxOutputSize)
 	for scanner.Scan() {
 		if outputBuf.Len() < maxOutputSize {
 			outputBuf.WriteString(scanner.Text())
