@@ -2,6 +2,7 @@ package scout
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/go-rod/rod"
 	"github.com/go-rod/rod/lib/proto"
@@ -36,6 +37,57 @@ func (s *CDPMouseStrategy) Click(page *rod.Page, x, y int) error {
 	cx, cy := clampCoords(x, y, vpW, vpH)
 	fx, fy := float64(cx), float64(cy)
 
+	// Diagnostic: check what element is at click coordinates and if an overlay blocks the canvas
+	overlayCleared := false
+	hitInfo, evalErr := page.Eval(`(x, y) => {
+		const el = document.elementFromPoint(x, y);
+		if (!el) return JSON.stringify({tag: 'none', hit: 'none'});
+		const tag = el.tagName.toLowerCase();
+		const id = el.id || '';
+		const cls = (el.className && typeof el.className === 'string') ? el.className.substring(0, 60) : '';
+		const canvas = document.querySelector('canvas');
+		const isCanvas = el === canvas;
+		// Check canvas bounding rect for diagnostics
+		let canvasRect = null;
+		if (canvas) {
+			const r = canvas.getBoundingClientRect();
+			canvasRect = {l: Math.round(r.left), t: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height),
+				iw: canvas.width, ih: canvas.height};
+		}
+		return JSON.stringify({tag, id, cls, isCanvas, canvasRect});
+	}`, cx, cy)
+	if evalErr == nil && hitInfo != nil {
+		log.Printf("CDP click (%d,%d): hit=%s", cx, cy, hitInfo.Value.Str())
+	}
+
+	// If the click target is not the canvas, try to clear overlays blocking it
+	if evalErr == nil && hitInfo != nil {
+		hitStr := hitInfo.Value.Str()
+		if len(hitStr) > 0 && hitStr[0] == '{' {
+			// Check if we hit the canvas
+			if !containsIsCanvas(hitStr) {
+				// Try to disable pointer-events on overlaying elements
+				cleared, clearErr := page.Eval(`(x, y) => {
+					let cleared = 0;
+					for (let i = 0; i < 5; i++) {
+						const el = document.elementFromPoint(x, y);
+						if (!el) break;
+						if (el.tagName.toLowerCase() === 'canvas') break;
+						// Don't remove body or html
+						if (el === document.body || el === document.documentElement) break;
+						el.style.pointerEvents = 'none';
+						cleared++;
+					}
+					return cleared;
+				}`, cx, cy)
+				if clearErr == nil && cleared != nil && cleared.Value.Int() > 0 {
+					log.Printf("CDP click (%d,%d): cleared %d overlay(s) blocking canvas", cx, cy, cleared.Value.Int())
+					overlayCleared = true
+				}
+			}
+		}
+	}
+
 	// Move cursor first — some engines (Three.js, Babylon) track position via
 	// mousemove and only register clicks at the last-known cursor location.
 	_ = (proto.InputDispatchMouseEvent{
@@ -62,7 +114,38 @@ func (s *CDPMouseStrategy) Click(page *rod.Page, x, y int) error {
 	}).Call(page); err != nil {
 		return fmt.Errorf("cdp mouse release at (%d,%d): %w", x, y, err)
 	}
+
+	// If we cleared overlays, re-verify and log whether the canvas now receives the click
+	if overlayCleared {
+		recheck, _ := page.Eval(`(x, y) => {
+			const el = document.elementFromPoint(x, y);
+			return el ? el.tagName.toLowerCase() : 'none';
+		}`, cx, cy)
+		if recheck != nil {
+			log.Printf("CDP click (%d,%d): after overlay clear, element at point: %s", cx, cy, recheck.Value.Str())
+		}
+	}
+
 	return nil
+}
+
+// containsIsCanvas is a quick check for "isCanvas":true in the hit info JSON.
+func containsIsCanvas(s string) bool {
+	// Look for "isCanvas":true (with or without spaces)
+	for i := 0; i < len(s)-14; i++ {
+		if s[i] == 'i' && i+14 <= len(s) && s[i:i+10] == "isCanvas\":" {
+			rest := s[i+10:]
+			for j := 0; j < len(rest) && j < 5; j++ {
+				if rest[j] == 't' {
+					return true
+				}
+				if rest[j] != ' ' {
+					break
+				}
+			}
+		}
+	}
+	return false
 }
 
 // CDPTouchStrategy dispatches trusted touch events via Chrome DevTools Protocol.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os"
 	"strings"
 	"sync"
@@ -36,13 +37,34 @@ func NewRodBrowserPage(page *rod.Page) *RodBrowserPage {
 // from the GPU framebuffer, bypassing the Chrome compositor. This is
 // significantly faster on SwiftShader. Falls back to CDP Page.captureScreenshot
 // if the fast path fails (e.g. no canvas, tainted canvas, HTML overlays).
+//
+// IMPORTANT: The fast path is only used when the canvas fills the viewport AND
+// its internal resolution matches the CSS size. This ensures the resulting image
+// coordinates match the viewport coordinate space that the AI uses for click
+// targeting. When the canvas has a different internal resolution (common in
+// Phaser games that render at half-res for performance), the CDP fallback is
+// used instead, which always captures at viewport resolution.
 func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	// Fast path: extract directly from the game canvas (avoids compositor overhead)
 	// Uses toDataURL at low quality directly — no offscreen canvas copy, which stalls on SwiftShader.
+	// Only activated when canvas coordinates match viewport coordinates, so the AI's
+	// click coordinate estimation from the image is accurate.
 	result, err := r.page.Eval(`() => {
 		const c = document.querySelector('canvas');
 		if (c && c.width > 0 && c.height > 0) {
-			try { return c.toDataURL('image/jpeg', 0.15); } catch(e) {}
+			const rect = c.getBoundingClientRect();
+			const vw = window.innerWidth, vh = window.innerHeight;
+			// Canvas must fill the viewport (within 5% tolerance)
+			const fillsVP = rect.width >= vw * 0.95 && rect.height >= vh * 0.95 &&
+				rect.left <= vw * 0.05 && rect.top <= vh * 0.05;
+			// Canvas internal resolution must roughly match its CSS display size
+			// (otherwise toDataURL returns a differently-sized image, making AI
+			// coordinate estimation unreliable vs the viewport coordinate space)
+			const resMatch = Math.abs(c.width - rect.width) / rect.width < 0.15 &&
+				Math.abs(c.height - rect.height) / rect.height < 0.15;
+			if (fillsVP && resMatch) {
+				try { return c.toDataURL('image/jpeg', 0.15); } catch(e) {}
+			}
 		}
 		return '';
 	}`)
@@ -51,12 +73,14 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 		if strings.HasPrefix(dataURL, "data:image/") {
 			parts := strings.SplitN(dataURL, ",", 2)
 			if len(parts) == 2 && len(parts[1]) > 100 {
+				log.Printf("Screenshot: canvas fast path (%d bytes)", len(parts[1]))
 				return parts[1], nil
 			}
 		}
 	}
 
-	// Fallback: CDP screenshot (handles HTML overlays, no-canvas pages, tainted canvases)
+	// Fallback: CDP screenshot (handles HTML overlays, no-canvas pages, tainted canvases,
+	// and canvas games where internal resolution differs from viewport — ensures viewport-aligned coordinates)
 	quality := 15
 	data, err := r.page.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format:           proto.PageCaptureScreenshotFormatJpeg,
@@ -66,7 +90,9 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("screenshot failed: %w", err)
 	}
-	return base64.StdEncoding.EncodeToString(data), nil
+	encoded := base64.StdEncoding.EncodeToString(data)
+	log.Printf("Screenshot: CDP viewport fallback (%d bytes)", len(encoded))
+	return encoded, nil
 }
 
 // captureWithTimeout wraps CaptureScreenshot with a timeout to prevent

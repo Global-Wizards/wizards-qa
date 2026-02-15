@@ -5,6 +5,13 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.7] - 2026-02-14
+
+### Fixed
+- **Canvas screenshot coordinate mismatch causing click failures** — `CaptureScreenshot()` canvas fast path (toDataURL) now validates that the canvas fills the viewport AND has matching internal resolution before use. Previously, Phaser games rendering at half-resolution (e.g., 960x540 canvas on 1920x1080 viewport) produced screenshots at the wrong coordinate space, causing the AI to estimate click positions incorrectly. Now falls back to CDP viewport screenshot (always viewport-aligned) when coordinates don't match.
+- **Overlay detection on canvas click dispatch** — `CDPMouseStrategy` now checks what DOM element is at the click coordinates before dispatching. If a non-canvas overlay (cookie banner, loading screen, modal) blocks the canvas, it sets `pointer-events: none` on up to 5 overlaying elements and logs the clearance. This prevents transparent overlays from silently intercepting clicks meant for the game canvas.
+- **Click and screenshot diagnostic logging** — Added structured logging to both screenshot capture (which path was used, byte count) and CDP click dispatch (element hit info, canvas bounding rect, overlay clearance). Makes click-miss debugging visible in production logs.
+
 ## [0.42.6] - 2026-02-15
 
 ### Fixed
