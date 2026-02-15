@@ -572,6 +572,10 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		stopReason = "end_turn"
 	}
 
+	if strings.TrimSpace(synthesisText) == "" {
+		return nil, steps, fmt.Errorf("synthesis returned empty response (stop_reason=%s)", stopReason)
+	}
+
 	// Parse as ComprehensiveAnalysisResult
 	parsed, parseErr := parseComprehensiveJSON(synthesisText)
 	if parseErr != nil {
@@ -961,8 +965,21 @@ func repairTruncatedJSON(s string) (string, error) {
 	trimmed := s
 	// If truncated mid-string, close the open string
 	if inString {
-		// Remove any trailing incomplete escape sequence
-		trimmed = strings.TrimRight(trimmed, "\\")
+		// Remove any trailing incomplete escape sequence (e.g., \, \u, \u00, \u00a)
+		// Find the last backslash and check if the escape after it is complete
+		if lastBS := strings.LastIndex(trimmed, "\\"); lastBS >= 0 {
+			after := trimmed[lastBS:]
+			// Complete escapes: \", \\, \/, \b, \f, \n, \r, \t (2 chars) or \uXXXX (6 chars)
+			isComplete := false
+			if len(after) == 2 {
+				isComplete = strings.ContainsRune("\"\\/bfnrt", rune(after[1]))
+			} else if len(after) == 6 && after[1] == 'u' {
+				isComplete = true
+			}
+			if !isComplete {
+				trimmed = trimmed[:lastBS]
+			}
+		}
 		trimmed += `"`
 	}
 

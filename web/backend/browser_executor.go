@@ -24,6 +24,10 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
+// screenshotTimeout limits how long CaptureScreenshot can block.
+// Prevents WebGL/SwiftShader games from stalling flow execution indefinitely.
+const screenshotTimeout = 20 * time.Second
+
 // browserFlowMeta holds parsed metadata from a flow YAML file.
 type browserFlowMeta struct {
 	AppID string
@@ -459,14 +463,11 @@ func executeStringCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor,
 			return "", "", "", fmt.Errorf("back: %w", err)
 		}
 		time.Sleep(500 * time.Millisecond)
-		ss, _ := page.CaptureScreenshot()
+		ss, _ := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 		return "Navigated back.", ss, "", nil
 
 	case "takeScreenshot":
-		ss, err := page.CaptureScreenshot()
-		if err != nil {
-			return "", "", "", fmt.Errorf("screenshot: %w", err)
-		}
+		ss, _ := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 		return "Screenshot captured.", ss, "", nil
 
 	case "hideKeyboard":
@@ -526,10 +527,7 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 			return executeAssertVisible(page, value, aiClient, false)
 
 		case "takeScreenshot":
-			ss, err := page.CaptureScreenshot()
-			if err != nil {
-				return "", "", "", fmt.Errorf("screenshot: %w", err)
-			}
+			ss, _ := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 			return "Screenshot captured.", ss, "", nil
 
 		case "back":
@@ -538,7 +536,7 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 				return "", "", "", fmt.Errorf("back: %w", err)
 			}
 			time.Sleep(500 * time.Millisecond)
-			ss, _ := page.CaptureScreenshot()
+			ss, _ := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 			return "Navigated back.", ss, "", nil
 
 		case "pressKey":
@@ -558,7 +556,7 @@ func executeMapCommand(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, cm
 			for i := 0; i < count; i++ {
 				page.EvalJS(`document.execCommand('delete', false)`)
 			}
-			ss, _ := page.CaptureScreenshot()
+			ss, _ := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 			return fmt.Sprintf("Erased %d characters.", count), ss, "", nil
 
 		case "evalScript":
@@ -611,7 +609,7 @@ func executeTapOn(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, value i
 			})()`, id))
 			if err == nil && jsResult == "clicked" {
 				time.Sleep(250 * time.Millisecond)
-				ss, _ := page.CaptureScreenshot()
+				ss, _ := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 				return fmt.Sprintf("Tapped element #%s", id), ss, "", nil
 			}
 			return tapOnText(page, toolExec, id, aiClient, vpWidth, vpHeight)
@@ -629,7 +627,7 @@ func tapOnText(page ai.BrowserPage, toolExec *ai.BrowserToolExecutor, text strin
 		return "", "", "", fmt.Errorf("tapOn text %q: AI client not configured (set ANTHROPIC_API_KEY)", text)
 	}
 
-	ss, err := page.CaptureScreenshot()
+	ss, err := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 	if err != nil {
 		return "", "", "", fmt.Errorf("tapOn text: screenshot failed: %w", err)
 	}
@@ -773,7 +771,7 @@ func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.Claud
 
 	if aiClient == nil {
 		time.Sleep(time.Duration(timeoutMs) * time.Millisecond)
-		ss, _ := page.CaptureScreenshot()
+		ss, _ := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 		return fmt.Sprintf("Waited %dms (no AI for vision check)", timeoutMs), ss, "", nil
 	}
 
@@ -783,7 +781,7 @@ func executeWaitUntil(page ai.BrowserPage, value interface{}, aiClient *ai.Claud
 	var lastResponse string
 
 	for time.Now().Before(deadline) {
-		ss, err := page.CaptureScreenshot()
+		ss, err := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 		if err != nil {
 			time.Sleep(pollInterval)
 			continue
@@ -837,7 +835,7 @@ func executeAssertVisible(page ai.BrowserPage, value interface{}, aiClient *ai.C
 		return "", "", "", fmt.Errorf("assert: empty text")
 	}
 
-	ss, err := page.CaptureScreenshot()
+	ss, err := ai.CaptureScreenshotWithTimeout(page, screenshotTimeout)
 	if err != nil {
 		return "", "", "", fmt.Errorf("assert: screenshot failed: %w", err)
 	}

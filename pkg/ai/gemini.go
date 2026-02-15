@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 )
 
@@ -140,6 +141,11 @@ func (g *GeminiClient) callAPIOnce(prompt string) (string, error) {
 
 	if len(geminiResp.Candidates) == 0 || len(geminiResp.Candidates[0].Content.Parts) == 0 {
 		return "", fmt.Errorf("empty response from API")
+	}
+
+	if finishReason := geminiResp.Candidates[0].FinishReason; finishReason == "MAX_TOKENS" {
+		log.Printf("WARNING: Gemini response truncated (finishReason=MAX_TOKENS, %d output tokens, maxOutputTokens=%d)",
+			geminiResp.UsageMetadata.CandidatesTokenCount, g.MaxTokens)
 	}
 
 	if g.OnUsage != nil {

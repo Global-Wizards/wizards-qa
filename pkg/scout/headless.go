@@ -69,6 +69,26 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	return base64.StdEncoding.EncodeToString(data), nil
 }
 
+// captureWithTimeout wraps CaptureScreenshot with a timeout to prevent
+// SwiftShader stalls from blocking indefinitely. Returns empty string on timeout.
+func captureWithTimeout(bp *RodBrowserPage, timeout time.Duration) string {
+	ch := make(chan string, 1)
+	go func() {
+		b64, err := bp.CaptureScreenshot()
+		if err != nil {
+			ch <- ""
+			return
+		}
+		ch <- b64
+	}()
+	select {
+	case s := <-ch:
+		return s
+	case <-time.After(timeout):
+		return ""
+	}
+}
+
 // Click clicks at the given pixel coordinates using the configured click strategy.
 // Defaults to JSDispatchStrategy if no strategy has been set.
 func (r *RodBrowserPage) Click(x, y int) error {
@@ -453,15 +473,9 @@ func ScoutURLHeadlessKeepAlive(ctx context.Context, gameURL string, cfg Headless
 	browserPage.clickStrategy = SelectClickStrategy(meta, width, cfg.DeviceCategory)
 	meta.ClickStrategy = browserPage.clickStrategy.Name()
 
-	// Take initial screenshot (JPEG for speed on SwiftShader)
-	quality := 15
-	data, ssErr := page.Screenshot(false, &proto.PageCaptureScreenshot{
-		Format:           proto.PageCaptureScreenshotFormatJpeg,
-		Quality:          &quality,
-		OptimizeForSpeed: true,
-	})
-	if ssErr == nil && len(data) > 0 {
-		shot := base64.StdEncoding.EncodeToString(data)
+	// Take initial screenshot via CaptureScreenshot (uses fast path + CDP fallback)
+	// Timeout prevents SwiftShader stalls from blocking the entire scout.
+	if shot := captureWithTimeout(browserPage, 20*time.Second); shot != "" {
 		meta.ScreenshotB64 = shot
 		meta.Screenshots = append(meta.Screenshots, shot)
 	}
@@ -652,15 +666,25 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	// beyond just the loading screen. JPEG for faster encoding on SwiftShader.
 	imgQuality := 30
 	captureScreenshot := func() string {
-		data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
-			Format:           proto.PageCaptureScreenshotFormatJpeg,
-			Quality:          &imgQuality,
-			OptimizeForSpeed: true,
-		})
-		if err != nil || len(data) == 0 {
+		ch := make(chan string, 1)
+		go func() {
+			data, err := page.Screenshot(false, &proto.PageCaptureScreenshot{
+				Format:           proto.PageCaptureScreenshotFormatJpeg,
+				Quality:          &imgQuality,
+				OptimizeForSpeed: true,
+			})
+			if err != nil || len(data) == 0 {
+				ch <- ""
+				return
+			}
+			ch <- base64.StdEncoding.EncodeToString(data)
+		}()
+		select {
+		case s := <-ch:
+			return s
+		case <-time.After(20 * time.Second):
 			return ""
 		}
-		return base64.StdEncoding.EncodeToString(data)
 	}
 
 	// Screenshot 1: Initial load state

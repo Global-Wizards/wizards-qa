@@ -183,8 +183,8 @@ func (s *Server) executeAgentTestRun(planID, testID, analysisID, planName, creat
 		}
 		time.Sleep(1 * time.Second) // Wait for page to settle
 
-		// Take initial screenshot
-		initialSS, _ := browserPage.CaptureScreenshot()
+		// Take initial screenshot (with timeout to prevent SwiftShader stalls)
+		initialSS, _ := ai.CaptureScreenshotWithTimeout(browserPage, 20*time.Second)
 
 		// Build scenario description for the agent
 		scenarioDesc := buildScenarioPrompt(scenario)

@@ -5,6 +5,23 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.5] - 2026-02-15
+
+### Fixed
+- **JSON repair on all multimodal analysis paths** — `parseComprehensiveJSON` failures from `AnalyzeWithImages` (primary analysis + retry) now attempt `repairTruncatedJSON` before falling back to legacy format. Previously truncated comprehensive JSON silently degraded to raw response wrapping.
+- **JSON repair handles incomplete Unicode escapes** — `repairTruncatedJSON` now detects and removes incomplete escape sequences (e.g., `\u00`) before closing strings. Previously these produced invalid JSON that still failed to parse after repair.
+- **Scout screenshots protected with timeout** — All `page.Screenshot()` calls in `ScoutURLHeadless` (3 screenshots) and `ScoutURLHeadlessKeepAlive` (1 screenshot) now use 20s timeouts. Previously these could stall indefinitely on WebGL/SwiftShader games.
+- **Agent test executor screenshot timeout** — Initial screenshot in `agent_executor.go` now uses `CaptureScreenshotWithTimeout` instead of direct `CaptureScreenshot()`.
+- **Empty synthesis response guard** — Synthesis now returns a clear error message instead of attempting to parse an empty string when `Generate()` returns no content.
+
+## [0.42.4] - 2026-02-15
+
+### Fixed
+- **Gemini truncation now logged** — `callAPIOnce` logs a WARNING when Gemini returns `finishReason=MAX_TOKENS`, making truncation visible in logs instead of silently producing broken JSON.
+- **Flow and scenario generation: JSON repair on truncation** — `parseFlowsJSON` and `GenerateScenarios` now attempt `repairTruncatedJSON` before falling back to YAML/raw. Previously, truncated flow JSON silently fell through to the YAML parser (which also failed), producing empty flows.
+- **All synthesis calls enforce minimum 16384 output tokens** — Added `synthesisGenerate()` helper that temporarily bumps `MaxTokens` to at least 16384 for all `synthesisClient().Generate()` calls (flow generation, scenario generation, legacy flows). Prevents Gemini Flash from truncating at its default 8K limit.
+- **Browser flow executor: screenshot timeout protection** — All 10 `page.CaptureScreenshot()` calls in `browser_executor.go` now use `CaptureScreenshotWithTimeout` (20s limit + 1 retry). Previously, WebGL/SwiftShader games could stall flow execution indefinitely on any screenshot.
+
 ## [0.42.3] - 2026-02-15
 
 ### Fixed

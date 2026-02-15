@@ -58,6 +58,20 @@ func (a *Analyzer) synthesisClient() Client {
 	return a.Client
 }
 
+// synthesisGenerate calls Generate on the synthesis client with a guaranteed
+// minimum output token budget. This prevents truncation when using secondary
+// models (e.g. Gemini Flash) that may have low default maxOutputTokens.
+func (a *Analyzer) synthesisGenerate(prompt string, ctx map[string]interface{}) (string, error) {
+	client := a.synthesisClient()
+	const minTokens = 16384
+	if bc := baseClientOf(client); bc != nil && bc.MaxTokens < minTokens {
+		orig := bc.MaxTokens
+		bc.MaxTokens = minTokens
+		defer func() { bc.MaxTokens = orig }()
+	}
+	return client.Generate(prompt, ctx)
+}
+
 // baseClientOf extracts the *BaseClient from a Client implementation.
 func baseClientOf(client Client) *BaseClient {
 	switch c := client.(type) {
@@ -501,6 +515,12 @@ func (a *Analyzer) AnalyzeFromURLWithMetaProgress(
 				return pageMeta, nil, nil, fmt.Errorf("AI multimodal analysis failed: %w", imgErr)
 			}
 			parsed, parseErr := parseComprehensiveJSON(response)
+			if parseErr != nil {
+				// Attempt repair — response may be truncated
+				if repaired, repairErr := repairTruncatedJSON(response); repairErr == nil {
+					parsed, parseErr = parseComprehensiveJSON(repaired)
+				}
+			}
 			if parseErr == nil {
 				comprehensiveResult = parsed
 			} else {
@@ -553,7 +573,13 @@ Respond with structured JSON matching the ComprehensiveAnalysisResult format (ga
 
 			retryResp, retryErr := imgAnalyzer.AnalyzeWithImages(AnalysisSystemPrompt, retryPrompt, screenshots)
 			if retryErr == nil {
-				if parsed, parseErr := parseComprehensiveJSON(retryResp); parseErr == nil && len(parsed.Mechanics) > 0 {
+				parsed, parseErr := parseComprehensiveJSON(retryResp)
+				if parseErr != nil {
+					if repaired, repairErr := repairTruncatedJSON(retryResp); repairErr == nil {
+						parsed, parseErr = parseComprehensiveJSON(repaired)
+					}
+				}
+				if parseErr == nil && len(parsed.Mechanics) > 0 {
 					comprehensiveResult = parsed
 					result = parsed.ToAnalysisResult()
 					scenarios = parsed.Scenarios
@@ -732,7 +758,7 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 	if response == "" {
 		progress("flows_calling", "Sending to AI for flow generation (this may take 30-60s)...")
 		var err error
-		response, err = a.synthesisClient().Generate(prompt, map[string]interface{}{
+		response, err = a.synthesisGenerate(prompt, map[string]interface{}{
 			"analysisJSON": string(analysisJSON),
 		})
 		if err != nil {
@@ -757,11 +783,22 @@ func (a *Analyzer) generateFlowsStructured(gameURL, framework string, result *An
 }
 
 // parseFlowsJSON attempts to parse the AI response as a JSON array of MaestroFlow.
+// If parsing fails, attempts JSON repair (closes open strings/brackets) before giving up.
 func parseFlowsJSON(response string) []*MaestroFlow {
 	flows, err := parseJSONArrayFromAI[*MaestroFlow](response)
+	if err == nil {
+		return flows
+	}
+	// Attempt repair — response may be truncated (Gemini MAX_TOKENS)
+	repaired, repairErr := repairTruncatedJSON(response)
+	if repairErr != nil {
+		return nil
+	}
+	flows, err = parseJSONArrayFromAI[*MaestroFlow](repaired)
 	if err != nil {
 		return nil
 	}
+	log.Printf("parseFlowsJSON: recovered %d flows from truncated JSON via repair", len(flows))
 	return flows
 }
 
@@ -784,7 +821,7 @@ func (a *Analyzer) GenerateScenarios(analysis *AnalysisResult) ([]TestScenario, 
 	})
 
 	// Call AI (route through synthesis client if available)
-	response, err := a.synthesisClient().Generate(prompt, map[string]interface{}{
+	response, err := a.synthesisGenerate(prompt, map[string]interface{}{
 		"analysis": analysisStr,
 	})
 	if err != nil {
@@ -792,6 +829,15 @@ func (a *Analyzer) GenerateScenarios(analysis *AnalysisResult) ([]TestScenario, 
 	}
 
 	scenarios, parseErr := parseScenarioJSON(response)
+	if parseErr != nil {
+		// Attempt repair — response may be truncated (Gemini MAX_TOKENS)
+		if repaired, repairErr := repairTruncatedJSON(response); repairErr == nil {
+			if repairedScenarios, err := parseScenarioJSON(repaired); err == nil {
+				log.Printf("GenerateScenarios: recovered %d scenarios from truncated JSON via repair", len(repairedScenarios))
+				return repairedScenarios, nil
+			}
+		}
+	}
 	if parseErr != nil {
 		// Fallback: wrap raw response as single scenario (preserves legacy behavior)
 		scenarios = []TestScenario{
@@ -826,7 +872,7 @@ func (a *Analyzer) GenerateFlows(scenarios []TestScenario) ([]*MaestroFlow, erro
 	})
 
 	// Call AI (route through synthesis client if available)
-	response, err := a.synthesisClient().Generate(prompt, map[string]interface{}{
+	response, err := a.synthesisGenerate(prompt, map[string]interface{}{
 		"scenarios": scenariosStr,
 	})
 	if err != nil {

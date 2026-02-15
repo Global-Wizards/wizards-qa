@@ -227,6 +227,13 @@ func captureScreenshotOnce(page BrowserPage, timeout time.Duration) (string, err
 // finishes a heavy frame, but a second attempt often succeeds quickly once
 // the frame buffer is ready.
 func captureScreenshotWithTimeout(page BrowserPage, timeout time.Duration) (string, error) {
+	return CaptureScreenshotWithTimeout(page, timeout)
+}
+
+// CaptureScreenshotWithTimeout is the exported version of captureScreenshotWithTimeout.
+// Use this from external packages (e.g. web backend) to prevent CaptureScreenshot from
+// stalling indefinitely on complex WebGL/SwiftShader pages.
+func CaptureScreenshotWithTimeout(page BrowserPage, timeout time.Duration) (string, error) {
 	b64, err := captureScreenshotOnce(page, timeout)
 	if err != nil || b64 != "" {
 		return b64, err
