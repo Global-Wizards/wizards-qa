@@ -40,7 +40,8 @@ type HeadlessConfig struct {
 	DevicePixelRatio float64
 	Timeout          time.Duration
 	ScreenshotPath   string // if non-empty, save screenshot PNG here
-	DeviceCategory   string // viewport device category (e.g. "iPhone", "iPad", "Desktop")
+	DeviceCategory     string // viewport device category (e.g. "iPhone", "iPad", "Desktop")
+	SkipMultiScreenshot bool   // when true, only capture 1 initial screenshot (skip click-based screenshots)
 }
 
 const (

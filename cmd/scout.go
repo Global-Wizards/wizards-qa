@@ -74,6 +74,10 @@ Example:
 			}
 
 			// Resolve viewport preset
+			// Default to smaller viewport in agent mode for SwiftShader performance
+			if viewport == "" && agentMode {
+				viewport = "agent-default"
+			}
 			var viewportDPR float64
 			var viewportCategory string
 			if viewport != "" {

@@ -12,6 +12,9 @@ type ViewportPreset struct {
 
 // viewportPresets is the Go-side lookup table matching the frontend presets.
 var viewportPresets = []ViewportPreset{
+	// Agent-optimized (smaller viewport for SwiftShader performance)
+	{Name: "agent-default", Label: "Agent Optimized", Category: "Desktop", Width: 960, Height: 540, DevicePixelRatio: 1},
+
 	// Desktop
 	{Name: "desktop-hd", Label: "Desktop HD", Category: "Desktop", Width: 1920, Height: 1080, DevicePixelRatio: 1},
 	{Name: "desktop-std", Label: "Desktop Standard", Category: "Desktop", Width: 1280, Height: 720, DevicePixelRatio: 1},

@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.6] - 2026-02-14
+
+### Changed
+- **Fly.io VM scale-up** — Switched from 2 shared CPUs to 4 dedicated performance CPUs for ~4-8x SwiftShader improvement. Cost only applies during active analyses (auto-stop enabled).
+- **Agent-mode viewport reduced to 960x540** — 44% fewer pixels than 1280x720, giving ~1.4x screenshot speedup. AI still sees buttons and text clearly at this resolution.
+- **Added `--single-process` Chrome flag** — Merges browser and renderer processes, reducing IPC overhead and memory usage on constrained environments.
+- **Skip redundant scout screenshots in agent mode** — Agent mode no longer takes 3 screenshots (with click interactions) during initial scout, saving 40-60s on SwiftShader.
+- **Lowered screenshot JPEG quality from 15% to 10%** — Reduces encoding time and payload size with negligible visual impact for AI analysis.
+
 ## [0.44.5] - 2026-02-14
 
 ### Changed

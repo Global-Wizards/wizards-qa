@@ -29,8 +29,8 @@ primary_region = "iad"
 
 [vm]
   memory = "4gb"
-  cpu_kind = "shared"
-  cpus = 2
+  cpu_kind = "performance"
+  cpus = 4
 
 [mounts]
   source = "wizards_data"

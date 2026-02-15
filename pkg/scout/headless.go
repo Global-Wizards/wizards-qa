@@ -70,9 +70,9 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 					oc.width = Math.round(rect.width);
 					oc.height = Math.round(rect.height);
 					oc.getContext('2d').drawImage(c, 0, 0, oc.width, oc.height);
-					data = oc.toDataURL('image/jpeg', 0.15);
+					data = oc.toDataURL('image/jpeg', 0.10);
 				} else {
-					data = c.toDataURL('image/jpeg', 0.15);
+					data = c.toDataURL('image/jpeg', 0.10);
 				}
 
 				if (paused) g.loop.wake();
@@ -94,7 +94,7 @@ func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 
 	// Fallback: CDP screenshot (handles HTML overlays, no-canvas pages, tainted canvases,
 	// and canvas games where internal resolution differs from viewport — ensures viewport-aligned coordinates)
-	quality := 15
+	quality := 10
 	data, err := r.page.Screenshot(false, &proto.PageCaptureScreenshot{
 		Format:           proto.PageCaptureScreenshotFormatJpeg,
 		Quality:          &quality,
@@ -372,7 +372,8 @@ func newHeadlessLauncher() *launcher.Launcher {
 		Set("disable-smooth-scrolling").             // no scroll animations
 		Set("no-first-run").                         // skip first-run dialog
 		Set("disable-sync").                         // no Chrome sync overhead
-		Set("disable-default-apps")                  // no default app installs
+		Set("disable-default-apps").                  // no default app installs
+		Set("single-process")                        // merge browser+renderer; less IPC overhead on low-core machines
 
 	if bin := lookupChromeBin(); bin != "" {
 		l = l.Bin(bin)
@@ -801,7 +802,8 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	}
 
 	// Screenshot 2: Click center of canvas to start the game (CDP for trusted events)
-	if canvasFound {
+	// Skip additional screenshots when agent mode will explore anyway (saves 40-60s on SwiftShader)
+	if canvasFound && !cfg.SkipMultiScreenshot {
 		cx := float64(width / 2)
 		cy := float64(height / 2)
 		// Move cursor first — matches CDPMouseStrategy for consistency
@@ -833,6 +835,9 @@ func ScoutURLHeadless(ctx context.Context, gameURL string, cfg HeadlessConfig) (
 	}
 
 	// Screenshot 3: Look for and click common game buttons (Play, Start, Spin, OK)
+	if cfg.SkipMultiScreenshot {
+		return meta, nil
+	}
 	clickedButton, _ := page.Eval(`() => {
 		const labels = ['play', 'start', 'spin', 'ok', 'continue', 'begin', 'tap to start', 'click to start'];
 		// Try HTML buttons/links first

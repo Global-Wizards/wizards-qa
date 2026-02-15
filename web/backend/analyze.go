@@ -1200,6 +1200,8 @@ func (s *Server) executeAnalysis(analysisID, createdBy string, req AnalysisReque
 	}
 	if req.Viewport != "" {
 		args = append(args, "--viewport", req.Viewport)
+	} else if agentMode {
+		args = append(args, "--viewport", "agent-default")
 	}
 	if req.SynthesisModel != "" {
 		args = append(args, "--synthesis-model", req.SynthesisModel)
