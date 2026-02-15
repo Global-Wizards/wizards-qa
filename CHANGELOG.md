@@ -5,6 +5,15 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.44.7] - 2026-02-14
+
+### Changed
+- **Rewrote ARCHITECTURE.md** -- Corrected 10 inaccuracies: added CDPTouchStrategy, all 13 agent tools, 11 synthesis output fields, checkpoint/resume system, click repetition detection, user hint injection, console log collection, complete Chrome flags, viewport downscaling, and agent test execution. Updated from design-phase draft to reflect the actual v0.44 implementation.
+- **Rewrote README.md** -- Updated from v0.4.0 to current system. Replaced Maestro-centric content with agent-based architecture, accurate project structure, and current build/usage instructions.
+- **Updated CONTRIBUTING.md** -- Removed Maestro/Java prerequisites, updated project structure and development workflow to match current codebase.
+- **Archived 8 outdated documents** to `docs/archive/`: PROJECT-BRIEF.md, MAESTRO-RESEARCH.md, PHASER4-TESTING.md, QA-STRATEGY.md, STATUS.md, OPTIMIZATION-PLAN.md, OPTIMIZATIONS.md, ROADMAP.md.
+- **Updated .gitignore** -- Added `bin/`, `reports/`, `test-flows-gemini/` to prevent build artifacts and test output from being committed.
+
 ## [0.44.6] - 2026-02-14
 
 ### Changed

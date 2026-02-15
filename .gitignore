@@ -11,3 +11,6 @@ screenshots/
 *.swp
 *.swo
 *~
+bin/
+reports/
+test-flows-gemini/

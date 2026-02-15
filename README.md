@@ -1,359 +1,176 @@
-# 🧙‍♂️ Wizards QA - AI-Powered Game Testing
+# Wizards QA - AI-Powered Game Testing
 
-**Version:** 0.4.0
-**Status:** 🚧 Active Development
+**Version:** 0.44.6
 
-AI-powered QA automation system for Phaser 4 web games. Analyzes games, generates intelligent test flows, and executes comprehensive testing via Maestro CLI.
+AI-powered QA automation system for web games. An AI agent autonomously explores your game in a headless browser, understands its mechanics, generates test scenarios, and executes them -- all from a single URL.
 
-## 🎯 Vision
+## Features
 
-Send a game spec + URL → Get comprehensive automated test coverage powered by AI.
+- **AI Agent Exploration** -- An AI agent launches a headless Chrome browser, navigates your game, and autonomously discovers mechanics, UI elements, and user flows
+- **Three Click Strategies** -- CDP mouse events for canvas/WebGL games, CDP touch events for mobile viewports, JS dispatch for HTML-only apps
+- **Comprehensive Synthesis** -- Produces structured analysis: game info, mechanics, UI elements, user flows, edge cases, scenarios, UIUX analysis, wording checks, game design findings, GLI compliance, and navigation maps
+- **Agent Test Execution** -- AI agent executes each test scenario using browser tools and reports pass/fail with evidence
+- **Checkpoint & Resume** -- Saves progress after each pipeline stage so crashed runs resume without re-doing exploration
+- **Web Dashboard** -- Vue.js frontend with real-time WebSocket updates, project management, and analysis history
+- **Adaptive Exploration** -- Agent can request more steps or time when it discovers unexplored areas
 
-## ✨ Features
-
-- 🤖 **AI-Powered Analysis** - Claude/Gemini analyzes game mechanics and generates test scenarios
-- 📝 **Maestro Flow Generation** - Automatically creates executable test flows in YAML
-- ⚡ **Automated Execution** - Runs tests via Maestro CLI with screenshot/video capture
-- 📊 **Detailed Reports** - Comprehensive test results with identified issues
-- 🎮 **Phaser 4 Optimized** - Canvas interaction strategies for game testing
-- 🔧 **Template Library** - Reusable flow patterns for common game mechanics
-
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
-- **Go 1.25+** - [Install Go](https://go.dev/dl/)
-- **Java 17+** - Required by Maestro
-- **Maestro CLI** - Installed automatically or manually
+- **Go 1.25+** -- [Install Go](https://go.dev/dl/)
+- **Node.js 18+** -- For the web frontend
+- **Chrome/Chromium** -- Installed or available in PATH
 
-### Installation
+### Build
 
 ```bash
 # Clone the repository
 git clone https://github.com/Global-Wizards/wizards-qa.git
 cd wizards-qa
 
-# Install dependencies
-go mod download
+# Build CLI and backend
+make build
 
-# Build the CLI
-go build -o wizards-qa ./cmd
-
-# Verify installation
-./wizards-qa --version
+# Build frontend
+make frontend
 ```
 
-### Maestro CLI Installation
-
-Maestro is required for test execution:
+### CLI Usage
 
 ```bash
-# Install via script (macOS, Linux, WSL)
-curl -fsSL "https://get.maestro.mobile.dev" | bash
+# Scout a game (explore and analyze)
+./bin/wizards-qa scout --url https://your-game.com
 
-# Or via Homebrew (macOS)
-brew tap mobile-dev-inc/tap
-brew install mobile-dev-inc/tap/maestro
+# With AI provider selection
+./bin/wizards-qa scout --url https://your-game.com --provider anthropic --model claude-sonnet-4-5
 
-# Verify installation
-maestro --version
+# With custom viewport
+./bin/wizards-qa scout --url https://your-game.com --viewport 1280x720
 ```
 
-## 📖 Usage
-
-### Full E2E Testing
-
-Analyze a game, generate flows, and execute tests:
+### Web Dashboard
 
 ```bash
-./wizards-qa test \
-  --game https://your-game.example.com \
-  --spec game-spec.md \
-  --model claude-sonnet-4-5
+# Start the backend server
+./bin/wizards-qa-server
+
+# Frontend dev server (for development)
+cd web/frontend && npm run dev
 ```
 
-### Generate Flows Only
-
-Create test flows without executing them:
-
-```bash
-./wizards-qa generate \
-  --game https://your-game.example.com \
-  --spec game-spec.md \
-  --output flows/my-game/
-```
-
-### Run Existing Flows
-
-Execute pre-generated flows:
-
-```bash
-./wizards-qa run \
-  --flows flows/my-game/ \
-  --report reports/test-001.md
-```
-
-### Validate Flow Syntax
-
-Check flow file syntax before execution:
-
-```bash
-./wizards-qa validate --flow flows/my-game/gameplay.yaml
-```
-
-### Manage Templates
-
-Browse, view, and apply reusable flow templates:
-
-```bash
-# List all available templates
-./wizards-qa template list
-
-# View a specific template
-./wizards-qa template show click-object
-
-# Apply template with variables
-./wizards-qa template apply click-object \
-  --output flows/my-game/test.yaml \
-  --var GAME_URL=https://game.com \
-  --var X_COORD=50% \
-  --var Y_COORD=50% \
-  --var BUTTON_TEXT="Start Game"
-```
-
-**Available Templates:**
-- `click-object` - Click canvas objects by coordinates
-- `collect-items` - Test item collection mechanics
-- `character-movement` - Test player movement controls
-- `enemy-collision` - Test collision detection
-- `victory-condition` - Test win states
-- `game-over` - Test failure conditions
-
-See `flows/templates/README.md` for detailed template documentation.
-
-## 📋 Game Specification Format
-
-Create a markdown file describing your game:
-
-```markdown
-# My Phaser Game
-
-## Overview
-A 2D platformer where players collect coins and avoid enemies.
-
-## Mechanics
-- Click/tap to jump
-- Collect coins for points
-- Avoid red enemies
-- Reach the flag to win
-
-## UI Elements
-- Score display (top-left)
-- Lives counter (top-right)
-- Pause button (top-center)
-- Start button (main menu)
-
-## User Flows
-1. Main menu → Click "Start Game"
-2. Tutorial → Follow on-screen instructions
-3. Gameplay → Jump, collect, avoid
-4. Win state → Reach flag, see victory screen
-5. Lose state → Lose all lives, see game over screen
-```
-
-## 🏗️ Architecture
+## Architecture
 
 ```
-┌─────────────────┐
-│  Wizards QA CLI │
-│   (Go + Cobra)  │
-└────────┬────────┘
-         │
-    ┌────┴────┐
-    │         │
-    ▼         ▼
-┌─────────┐ ┌──────────┐
-│   AI    │ │ Maestro  │
-│ Engine  │ │ Wrapper  │
-│         │ │          │
-│ Claude/ │ │ Executor │
-│ Gemini  │ │ Reporter │
-└─────────┘ └──────────┘
-    │           │
-    └─────┬─────┘
-          ▼
-    ┌────────────┐
-    │   Flows    │
-    │ Repository │
-    └────────────┘
+                     ┌────────────────────────┐
+                     │   CLI / Web Dashboard  │
+                     └───────────┬────────────┘
+                                 │
+                  ┌──────────────┴──────────────┐
+                  │                             │
+                  v                             v
+          ┌──────────────┐             ┌──────────────┐
+          │    Scout     │             │  Web Backend  │
+          │  (Headless   │             │  (Agent Test  │
+          │   Chrome)    │             │   Executor)   │
+          └──────┬───────┘             └──────┬───────┘
+                 │                            │
+                 v                            v
+          ┌──────────────┐             ┌──────────────┐
+          │  AI Agent    │             │  AI Agent    │
+          │  Explorer    │             │  Executor    │
+          │  (13 tools)  │             │  (+ report)  │
+          └──────┬───────┘             └──────────────┘
+                 │
+                 v
+          ┌──────────────┐
+          │  Checkpoint  │
+          │  & Resume    │
+          └──────────────┘
 ```
 
-## 📂 Project Structure
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the full technical deep-dive.
+
+## Project Structure
 
 ```
 wizards-qa/
-├── cmd/                    # CLI commands
-│   ├── main.go            # Entry point
-│   ├── test.go            # Test command
-│   ├── generate.go        # Generate command
-│   ├── run.go             # Run command
-│   ├── validate.go        # Validate command
-│   └── template.go        # Template management
+├── cmd/                        # CLI commands (Cobra)
+│   ├── main.go                 # Entry point
+│   ├── scout.go                # Scout command (explore + analyze)
+│   ├── test.go                 # Test command
+│   ├── generate.go             # Generate command
+│   ├── run.go                  # Run command
+│   └── validate.go             # Validate command
 │
-├── pkg/                    # Core packages
-│   ├── ai/                # AI integration
-│   ├── maestro/           # Maestro wrapper
-│   ├── phaser/            # Phaser 4 utilities
-│   └── flows/             # Flow management
+├── pkg/                        # Core packages
+│   ├── ai/                     # AI agent, tools, synthesis, prompts
+│   ├── scout/                  # Headless Chrome, click strategies, viewports
+│   ├── config/                 # Configuration loading
+│   ├── maestro/                # Legacy Maestro executor
+│   ├── flows/                  # Flow validation and parsing
+│   ├── report/                 # Test report generation
+│   ├── cache/                  # In-memory caching
+│   ├── retry/                  # Exponential backoff retry
+│   ├── parallel/               # Concurrent execution
+│   └── util/                   # Shared utilities
 │
-├── flows/                  # Flow repository
-│   ├── templates/         # Reusable templates
-│   └── games/             # Game-specific flows
+├── web/                        # Web application
+│   ├── backend/                # Go HTTP server, agent executor, store
+│   └── frontend/               # Vue.js dashboard
 │
-├── docs/                   # Documentation
-│   ├── PROJECT-BRIEF.md   # Project overview
-│   ├── ARCHITECTURE.md    # System architecture
-│   ├── MAESTRO-RESEARCH.md # Maestro research
-│   └── PHASER4-TESTING.md # Phaser testing guide
+├── docs/                       # Documentation
+│   ├── ARCHITECTURE.md         # System architecture (current)
+│   └── archive/                # Historical design documents
 │
-└── tests/                  # Test suite
-    └── fixtures/          # Test fixtures
+├── Makefile                    # Build automation
+├── Dockerfile                  # Container build
+├── fly.toml                    # Fly.io deployment
+└── wizards-qa.yaml.example     # Example configuration
 ```
 
-## 🔧 Configuration
+## Configuration
 
-Create `wizards-qa.yaml`:
+Copy the example config and set your API keys:
+
+```bash
+cp wizards-qa.yaml.example wizards-qa.yaml
+```
 
 ```yaml
 ai:
-  provider: anthropic
+  provider: anthropic          # anthropic | google
   model: claude-sonnet-4-5
   apiKey: ${ANTHROPIC_API_KEY}
 
-maestro:
-  browser: chrome
-  timeout: 300s
-  screenshotDir: ./screenshots
-
-flows:
-  directory: ./flows
-  templates: ./flows/templates
+browser:
+  headless: true
+  viewport:
+    width: 960
+    height: 540
 ```
 
-## 🎮 Phaser 4 & Canvas Testing
+## Development
 
-Phaser games render to HTML5 Canvas, requiring special interaction strategies:
+```bash
+# Run all tests
+make test
 
-### Coordinate-Based Clicking
+# Vet all code
+make vet
 
-```yaml
-# Click center of game screen
-- tapOn:
-    point: 50%,50%
+# Full validation (vet + test + frontend build)
+make validate
 
-# Click specific coordinate
-- tapOn:
-    point: 400,300
+# Clean build artifacts
+make clean
 ```
 
-### Visual Assertions
-
-```yaml
-# Screenshot-based verification
-- captureScreenshot: game-state.png
-- assertVisible: "Score: 100"
-```
-
-See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed strategies.
-
-## 📊 Example Flow
-
-```yaml
-# flows/templates/example-game.yaml
-url: https://game.example.com
----
-- launchApp
-- waitFor:
-    visible: true
-    timeout: 10000
-- assertVisible: "Start Game"
-- tapOn: "Start Game"
-- waitFor:
-    timeout: 3000
-- tapOn:
-    point: 50%,50%
-- assertVisible: "Score:"
-- captureScreenshot: gameplay.png
-```
-
-## 🗺️ Development Roadmap
-
-### ✅ Phase 0: Foundation (COMPLETE!)
-- [x] Project setup and architecture design
-- [x] Maestro CLI integration (v2.1.0)
-- [x] Complete CLI structure (Cobra)
-- [x] Example flow templates
-- [x] Comprehensive documentation
-
-### ✅ Phase 1: Core Infrastructure (COMPLETE!)
-- [x] Config file parsing & management
-- [x] Flow validation (20+ Maestro commands)
-- [x] Maestro execution wrapper
-- [x] Screenshot/video capture
-- [x] Markdown test reporting
-- [x] Full CLI integration
-
-### ✅ Phase 2: AI Integration (COMPLETE!)
-- [x] Claude API integration
-- [x] Game analysis engine
-- [x] Test scenario generation
-- [x] Maestro flow generation
-- [x] Prompt templates & engineering
-- [x] E2E CLI integration
-
-### 📅 Phase 3: Maestro Integration (Week 3)
-- [ ] Full command support
-- [ ] Result parsing
-- [ ] Error handling
-- [ ] Parallel execution
-
-### 📅 Phase 4: Phaser 4 Specialization (Week 4)
-- [ ] Canvas interaction strategies
-- [ ] Visual assertion support
-- [ ] Game state detection
-- [ ] Phaser-specific templates
-
-### 📅 Phase 5: Polish & Production (Week 5)
-- [ ] Comprehensive testing
-- [ ] Documentation
-- [ ] Example flows for sample games
-- [ ] CI/CD integration
-- [ ] GitHub release
-
-## 📚 Documentation
-
-- [Project Brief](docs/PROJECT-BRIEF.md) - Vision and requirements
-- [Architecture](docs/ARCHITECTURE.md) - System design and components
-- [Maestro Research](docs/MAESTRO-RESEARCH.md) - Maestro CLI capabilities
-- [Phaser 4 Testing](docs/PHASER4-TESTING.md) - Game testing strategies (coming soon)
-
-## 🤝 Contributing
-
-Contributions welcome! This is an open-source project by [Global Wizards](https://github.com/Global-Wizards).
-
-## 📄 License
-
-MIT License - see LICENSE file for details
-
-## 🔗 Links
+## Links
 
 - **GitHub:** https://github.com/Global-Wizards/wizards-qa
-- **Maestro Docs:** https://docs.maestro.dev/
-- **Phaser 4:** https://phaser.io/
-- **Global Wizards:** https://github.com/Global-Wizards
+- **Architecture:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 
----
+## License
 
-**Built with** 🧙‍♂️ **by the Kingdom** | Powered by AI 🤖
-
-**Status:** Alpha - Active Development 🚧
+MIT License - see LICENSE file for details.
