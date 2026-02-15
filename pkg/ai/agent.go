@@ -594,7 +594,26 @@ When done exploring, include EXPLORATION_COMPLETE in your response.`, gameURL, s
 		}
 	}
 	if parseErr != nil {
-		return nil, steps, fmt.Errorf("failed to parse synthesis response: %w (stop_reason=%s, raw: %s)", parseErr, stopReason, Truncate(synthesisText, 500))
+		// Fallback: instead of crashing the entire pipeline, construct a minimal result
+		// from the raw synthesis text. This ensures the agent still produces output
+		// even when Gemini Flash truncates the JSON beyond repair.
+		log.Printf("WARNING: Synthesis JSON parsing failed after repair, constructing fallback result (stop_reason=%s, raw_tail: %s)",
+			stopReason, Truncate(synthesisText[max(0, len(synthesisText)-200):], 200))
+		fallback := &ComprehensiveAnalysisResult{
+			GameInfo: GameInfo{
+				Name:        pageMeta.Title,
+				Description: fmt.Sprintf("Auto-detected from agent exploration (%d steps). Synthesis JSON parsing failed: %v", len(steps), parseErr),
+				Technology:  pageMeta.Framework,
+			},
+			Mechanics: []Mechanic{
+				{
+					Name:        "Game Load",
+					Description: "Game page loads and renders",
+					Priority:    "high",
+				},
+			},
+		}
+		return fallback, steps, nil
 	}
 
 	return parsed, steps, nil

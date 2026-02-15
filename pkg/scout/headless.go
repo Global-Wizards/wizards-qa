@@ -38,33 +38,22 @@ func NewRodBrowserPage(page *rod.Page) *RodBrowserPage {
 // significantly faster on SwiftShader. Falls back to CDP Page.captureScreenshot
 // if the fast path fails (e.g. no canvas, tainted canvas, HTML overlays).
 //
-// IMPORTANT: The fast path is only used when the canvas fills the viewport AND
-// its internal resolution matches the CSS size. This ensures the resulting image
-// coordinates match the viewport coordinate space that the AI uses for click
-// targeting. When the canvas has a different internal resolution (common in
-// Phaser games that render at half-res for performance), the CDP fallback is
-// used instead, which always captures at viewport resolution.
+// The fast path is always preferred over CDP when a canvas exists, because CDP
+// screenshots frequently stall for 60+ seconds on SwiftShader during complex
+// WebGL animations. VLMs normalize coordinates to the stated viewport range
+// regardless of image resolution, so coordinate targeting works even when the
+// canvas internal resolution differs from the viewport.
 func (r *RodBrowserPage) CaptureScreenshot() (string, error) {
 	// Fast path: extract directly from the game canvas (avoids compositor overhead)
 	// Uses toDataURL at low quality directly — no offscreen canvas copy, which stalls on SwiftShader.
-	// Only activated when canvas coordinates match viewport coordinates, so the AI's
-	// click coordinate estimation from the image is accurate.
+	// Always preferred when a canvas exists because CDP screenshots frequently timeout
+	// on SwiftShader during complex WebGL animations (60s+ stalls).
+	// VLMs normalize coordinates to the stated viewport range regardless of image resolution,
+	// so even when canvas internal resolution differs from viewport, click targeting works.
 	result, err := r.page.Eval(`() => {
 		const c = document.querySelector('canvas');
 		if (c && c.width > 0 && c.height > 0) {
-			const rect = c.getBoundingClientRect();
-			const vw = window.innerWidth, vh = window.innerHeight;
-			// Canvas must fill the viewport (within 5% tolerance)
-			const fillsVP = rect.width >= vw * 0.95 && rect.height >= vh * 0.95 &&
-				rect.left <= vw * 0.05 && rect.top <= vh * 0.05;
-			// Canvas internal resolution must roughly match its CSS display size
-			// (otherwise toDataURL returns a differently-sized image, making AI
-			// coordinate estimation unreliable vs the viewport coordinate space)
-			const resMatch = Math.abs(c.width - rect.width) / rect.width < 0.15 &&
-				Math.abs(c.height - rect.height) / rect.height < 0.15;
-			if (fillsVP && resMatch) {
-				try { return c.toDataURL('image/jpeg', 0.15); } catch(e) {}
-			}
+			try { return c.toDataURL('image/jpeg', 0.15); } catch(e) {}
 		}
 		return '';
 	}`)

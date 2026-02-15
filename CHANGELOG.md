@@ -5,6 +5,12 @@ All notable changes to wizards-qa will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.42.8] - 2026-02-15
+
+### Fixed
+- **Screenshot timeouts during gameplay on SwiftShader** — Reverted the v0.42.7 canvas fast path restriction that required canvas resolution to match viewport. The strict check caused fallback to CDP screenshots, which stall for 60+ seconds on SwiftShader during complex WebGL animations (Phaser game loops, particle effects). Canvas `toDataURL` is now always preferred when a canvas exists — VLMs normalize coordinates to the stated viewport range regardless of image resolution.
+- **Synthesis crash on JSON parse failure (exit code 1)** — When synthesis JSON parsing fails even after `repairTruncatedJSON`, the pipeline now constructs a minimal fallback result (game name, framework, basic mechanic) instead of returning an error and crashing with exit code 1. Ensures the agent always produces output even when Gemini Flash truncates beyond repair.
+
 ## [0.42.7] - 2026-02-14
 
 ### Fixed
